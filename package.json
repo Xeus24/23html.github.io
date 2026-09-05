@@ -1,0 +1,16 @@
+{
+  "name": "proto23-mod",
+  "private": true,
+  "version": "22.0.0",
+  "description": "Local mod for the proto23 idle RPG. mod.js is the whole deliverable; index.html is stock except for one appended script tag.",
+  "type": "module",
+  "scripts": {
+    "serve": "http-server -p 8080 -s .",
+    "test": "./tests/run.sh",
+    "check": "node --check mod.js && echo 'mod.js parses'"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "playwright": "^1.48.0"
+  }
+}
