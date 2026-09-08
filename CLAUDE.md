@@ -154,6 +154,21 @@ What matters:
   that location. Only the *first* line of an `sl()` may pass `true`; every later
   line, including greyed-out hints, must pass `false`.
 
+## Save slots
+
+The game has one save, at localStorage `"v0.3"`, read once from a `window` load
+listener. Section 20 keeps that key holding whichever of three slots is live and
+mirrors each slot beside it (`p23_slot_N`), wrapping `save()` to refresh the
+mirror. Switching or starting a new game writes `"v0.3"` and reloads — the game
+builds its world at startup and cannot unload a save.
+
+- **Boot adopts, never overwrites.** A missing mirror is filled from `"v0.3"`;
+  the live key is never written from a mirror, which could only be staler.
+- `save()`'s return value is the blob and the export button reads it, so the
+  wrapper must pass it through.
+- The base game's "delete the save" was `localStorage.clear()` — it is rebound
+  to the active slot only, by cloning the node to drop the anonymous listener.
+
 ## Testing
 
 ```sh

@@ -4024,3 +4024,336 @@ function modXpCurve() {
 console.log('[mod] skill exp curve replaced on ' + MOD_installXpCurve() +
             ' skills (' + MOD_XP.base + ' x ' + MOD_XP.ratio + '^lvl); ' +
             'level 110 costs ' + MOD_xpToReach(110).toLocaleString() + ' xp. modXpCurve() for the ladder.');
+
+
+/* ===========================================================================
+   20. SAVE SLOTS
+   ---------------------------------------------------------------------------
+   Three independent saves, and a way to start a fresh character without
+   destroying the one you have.
+
+   The game stores exactly one save, under the localStorage key "v0.3", and
+   both save() and load() reach for that key directly. Renaming it per slot
+   would mean editing them, so instead **"v0.3" always holds whichever slot is
+   live** and each slot keeps a mirror alongside it:
+
+       v0.3               the live save — the game's own key, untouched
+       p23_slot_N         a copy of slot N, N in 1..3
+       p23_slotmeta_N     name / level / timestamp, for the panel
+       p23_slot_active    which slot is live
+
+   save() is wrapped to mirror into the active slot, so the copy is refreshed
+   every time the game saves by any route (button, autosave, an area's own
+   save call). Switching or starting a new game writes v0.3 and reloads the
+   page: the game reads its save once, from the load event, and has no notion
+   of unloading one.
+
+   Boot only adopts, never overwrites. If a slot mirror is missing, the
+   existing v0.3 becomes slot 1 — so an existing character is picked up rather
+   than orphaned. v0.3 is otherwise left alone, because it is the live truth
+   and a mirror can only ever be the same or staler.
+
+   The game's own "delete the save" button called localStorage.clear(), which
+   would take all three slots and the mod's settings with it. It is rebound
+   here to delete just the slot you are in.
+   =========================================================================== */
+
+MOD.game_key   = 'v0.3';            // the game's own save key — never renamed
+MOD.slot_key   = 'p23_slot_active';
+MOD.slot_data  = 'p23_slot_';
+MOD.slot_meta  = 'p23_slotmeta_';
+MOD.slot_count = 3;
+
+function MOD_lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function MOD_lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+function MOD_lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+function MOD_activeSlot() {
+  var n = Number(MOD_lsGet(MOD.slot_key));
+  return (n >= 1 && n <= MOD.slot_count) ? n : 1;
+}
+
+function MOD_slotBlob(n) { return MOD_lsGet(MOD.slot_data + n); }
+
+/* Name and level straight out of the blob. The save is base64 of
+   pipe-separated segments and the first one is the player object, so this
+   needs no bookkeeping of its own and cannot go stale. Used when a slot has
+   no metadata — a save made before this section existed, for instance. */
+function MOD_slotFromBlob(blob) {
+  try {
+    var yu = JSON.parse(b64_to_utf8(blob).split('|')[0]);
+    return { name: yu.name, lvl: yu.lvl };
+  } catch (e) { return null; }
+}
+
+function MOD_slotInfo(n) {
+  var blob = MOD_slotBlob(n);
+  if (!blob) return { n: n, empty: true };
+  var meta = null;
+  try { meta = JSON.parse(MOD_lsGet(MOD.slot_meta + n)); } catch (e) {}
+  if (!meta || !meta.name) meta = MOD_slotFromBlob(blob) || {};
+  return {
+    n: n, empty: false,
+    name: meta.name || '?', lvl: meta.lvl,
+    cap: meta.cap, saved: meta.saved || '',
+    kb: Math.round(blob.length / 1024 * 10) / 10
+  };
+}
+
+function MOD_writeSlotMeta(n) {
+  try {
+    MOD_lsSet(MOD.slot_meta + n, JSON.stringify({
+      name: you.name, lvl: you.lvl,
+      cap: (typeof MOD_CAP !== 'undefined') ? MOD_CAP.current : null,
+      saved: global.lst_sve || '', ver: MOD.version
+    }));
+  } catch (e) {}
+}
+
+/* Mirror on every save, whatever called it. save() returns the blob it wrote,
+   which is what the export button reads, so the return has to survive. */
+var MOD_save_original = save;
+
+save = function (lvr) {
+  var str = MOD_save_original(lvr);
+  try {
+    if (str) {
+      var n = MOD_activeSlot();
+      MOD_lsSet(MOD.slot_data + n, str);
+      MOD_writeSlotMeta(n);
+    }
+  } catch (e) { /* a failed mirror must never break saving */ }
+  return str;
+};
+
+/* Adopt-only. See the header: overwriting v0.3 from a mirror could only ever
+   lose progress, so boot fills in a missing mirror and nothing else. */
+(function () {
+  var active = MOD_activeSlot();
+  MOD_lsSet(MOD.slot_key, String(active));
+  var live = MOD_lsGet(MOD.game_key);
+  if (live && !MOD_slotBlob(active)) {
+    MOD_lsSet(MOD.slot_data + active, live);
+    var info = MOD_slotFromBlob(live);
+    if (info) {
+      MOD_lsSet(MOD.slot_meta + active, JSON.stringify({
+        name: info.name, lvl: info.lvl, saved: '(adopted)', ver: MOD.version
+      }));
+    }
+    console.log('[mod] existing save adopted as slot ' + active);
+  }
+})();
+
+/* Save the slot we are leaving before touching anything. If that fails the
+   move is abandoned rather than trading a live character for a silent loss. */
+function MOD_parkCurrent() {
+  try { save(true); return true; }
+  catch (e) {
+    console.error('[mod] could not save the current slot, staying put: ' + e.message);
+    if (typeof msg === 'function') msg('Could not save this slot — staying here', 'crimson');
+    return false;
+  }
+}
+
+function MOD_switchSlot(n) {
+  n = Number(n);
+  if (!(n >= 1 && n <= MOD.slot_count)) return;
+  if (n === MOD_activeSlot()) { if (typeof msg === 'function') msg('Already on save ' + n, 'grey'); return; }
+  if (!MOD_parkCurrent()) return;
+
+  var blob = MOD_slotBlob(n);
+  if (blob) MOD_lsSet(MOD.game_key, blob); else MOD_lsDel(MOD.game_key);
+  MOD_lsSet(MOD.slot_key, String(n));
+  location.reload();
+}
+
+/* A new character in slot n. The game builds a fresh world at startup and has
+   no reset of its own, so this clears the slot and reloads into it. */
+function MOD_newSave(n) {
+  n = Number(n);
+  if (!(n >= 1 && n <= MOD.slot_count)) return;
+  var info = MOD_slotInfo(n);
+  if (!info.empty) {
+    var who = info.name + (info.lvl ? ', level ' + info.lvl : '') +
+              (info.saved ? ', saved ' + info.saved : '');
+    if (!confirm('Save ' + n + ' holds ' + who + '.\n\nStart a new character there? ' +
+                 'That save is deleted and cannot be recovered.')) return;
+  }
+  if (!MOD_parkCurrent()) return;
+
+  MOD_lsDel(MOD.slot_data + n);
+  MOD_lsDel(MOD.slot_meta + n);
+  MOD_lsDel(MOD.game_key);
+  MOD_lsSet(MOD.slot_key, String(n));
+  location.reload();
+}
+
+function MOD_deleteSlot(n) {
+  n = Number(n);
+  var info = MOD_slotInfo(n);
+  if (info.empty) return;
+  var who = info.name + (info.lvl ? ', level ' + info.lvl : '');
+  if (!confirm('Delete save ' + n + ' (' + who + ')?\n\nThis cannot be undone.')) return;
+
+  MOD_lsDel(MOD.slot_data + n);
+  MOD_lsDel(MOD.slot_meta + n);
+  if (n === MOD_activeSlot()) { MOD_lsDel(MOD.game_key); location.reload(); return; }
+  MOD_renderSlots();
+  if (typeof msg === 'function') msg('Save ' + n + ' deleted', 'grey');
+}
+
+/* The first free slot, or 0 when all three are in use. */
+function MOD_firstEmptySlot() {
+  for (var i = 1; i <= MOD.slot_count; i++) if (MOD_slotInfo(i).empty) return i;
+  return 0;
+}
+
+
+/* --- the panel --------------------------------------------------------------
+   Plain DOM above the save bar, in the bar's own light palette (#dededd on a
+   dark page). The bar's buttons are spans of class 'sl', so the panel's are
+   too and inherit the same hover.
+   -------------------------------------------------------------------------- */
+
+var MOD_SLOTUI = { panel: null, rows: null };
+
+function MOD_slotButton(parent, label, title, onClick) {
+  var b = addElement(parent, 'span', null, 'sl');
+  b.innerHTML = label;
+  b.style.cssText = 'display:inline-block;width:auto;padding:2px 7px;margin-left:4px;cursor:pointer;';
+  if (title) b.title = title;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function MOD_renderSlots() {
+  var p = MOD_SLOTUI.panel;
+  if (!p) return;
+  empty(p);
+
+  var head = addElement(p, 'div');
+  head.style.cssText = 'padding:2px 4px 5px;font-size:.95em;';
+  head.innerHTML = '<b>Saves</b> &nbsp;<span style="opacity:.7">' +
+    'the game keeps one save; these are three, swapped in and out. ' +
+    'Switching saves the slot you are leaving first, then reloads.</span>';
+
+  var active = MOD_activeSlot();
+
+  for (var i = 1; i <= MOD.slot_count; i++) {
+    (function (n) {
+      var info = MOD_slotInfo(n);
+      var row = addElement(p, 'div');
+      row.style.cssText = 'display:flex;align-items:center;padding:3px 4px;' +
+        'border-top:1px solid #b5b5b4;' + (n === active ? 'background-color:#c8d4e8;' : '');
+
+      var label = addElement(row, 'div');
+      label.style.cssText = 'flex:1 1 auto;text-align:left;';
+      var txt = '<b>Save ' + n + '</b>' + (n === active ? ' <i>(playing)</i>' : '') + ' &nbsp; ';
+      if (info.empty) {
+        txt += '<span style="opacity:.6">empty</span>';
+      } else {
+        txt += MOD_escape(info.name) + ' &nbsp; level ' + (info.lvl === undefined ? '?' : info.lvl);
+        if (info.cap) txt += ' &nbsp; cap ' + info.cap;
+        if (info.saved) txt += ' &nbsp; <span style="opacity:.6">' + MOD_escape(info.saved) + '</span>';
+      }
+      label.innerHTML = txt;
+
+      var acts = addElement(row, 'div');
+      acts.style.cssText = 'flex:0 0 auto;';
+
+      if (info.empty) {
+        MOD_slotButton(acts, 'start new save', 'Begin a new character in this slot', function () { MOD_newSave(n); });
+      } else {
+        if (n !== active) {
+          MOD_slotButton(acts, 'play', 'Switch to this save', function () { MOD_switchSlot(n); });
+        }
+        MOD_slotButton(acts, 'new save', 'Replace this save with a new character', function () { MOD_newSave(n); });
+        MOD_slotButton(acts, 'delete', 'Delete this save', function () { MOD_deleteSlot(n); });
+      }
+    })(i);
+  }
+}
+
+function MOD_escape(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function MOD_toggleSlotPanel(force) {
+  var p = MOD_SLOTUI.panel;
+  if (!p) return;
+  var show = (force === undefined) ? (p.style.display === 'none') : !!force;
+  p.style.display = show ? 'block' : 'none';
+  if (show) MOD_renderSlots();
+}
+
+(function () {
+  try {
+    var p = addElement(document.body, 'div', null, 'noselect');
+    p.style.cssText = 'position:fixed;left:5px;bottom:32px;z-index:10001;display:none;' +
+      'background-color:#dededd;color:#000;border:1px solid #333;padding:5px;' +
+      'font-size:.75em;min-width:430px;box-shadow:0 2px 8px rgba(0,0,0,.5);';
+    MOD_SLOTUI.panel = p;
+
+    // Buttons go before the "Last save:" text, which is free-flowing; the rest
+    // of the bar is positioned from the right and would be overlapped.
+    var saves = addElement(dom.sl, 'span', null, 'sl');
+    saves.innerHTML = 'saves';
+    saves.style.cssText = 'display:inline-block;width:auto;padding:3px 7px;cursor:pointer;';
+    saves.title = 'Three save slots';
+    saves.addEventListener('click', function () { MOD_toggleSlotPanel(); });
+
+    var fresh = addElement(dom.sl, 'span', null, 'sl');
+    fresh.innerHTML = 'new save';
+    fresh.style.cssText = 'display:inline-block;width:auto;padding:3px 7px;cursor:pointer;';
+    fresh.title = 'Start a new character in a free slot';
+    fresh.addEventListener('click', function () {
+      var free = MOD_firstEmptySlot();
+      if (free) { MOD_newSave(free); return; }
+      // Nothing free: show what is there and let them choose what to replace,
+      // rather than picking a save to destroy on their behalf.
+      MOD_toggleSlotPanel(true);
+      if (typeof msg === 'function') msg('All three saves are in use — pick one to replace', 'gold');
+    });
+
+    dom.sl.insertBefore(saves, dom.sl_extra);
+    dom.sl.insertBefore(fresh, dom.sl_extra);
+
+    /* Rebind "delete the save". The game's handler is localStorage.clear(),
+       which would take all three slots and the mod's settings with it;
+       replacing the node is the only way to drop an anonymous listener. */
+    if (dom.sl_kill && dom.sl_kill.parentNode) {
+      var kill = dom.sl_kill.cloneNode(true);
+      kill.innerHTML = 'delete this save';
+      dom.sl_kill.parentNode.replaceChild(kill, dom.sl_kill);
+      dom.sl_kill = kill;
+      kill.addEventListener('click', function () { MOD_deleteSlot(MOD_activeSlot()); });
+    }
+
+    // The bar's ">>" hides dom.sl; the panel is a sibling and would be left
+    // floating over the game on its own.
+    if (dom.sl_h) dom.sl_h.addEventListener('click', function () { MOD_toggleSlotPanel(false); });
+
+    console.log('[mod] save slots ready — ' + MOD.slot_count + ' slots, playing slot ' + MOD_activeSlot());
+  } catch (e) {
+    console.warn('[mod] save slot UI failed: ' + e.message);
+  }
+})();
+
+/* Console equivalents, for when the bar is hidden. */
+function modSaves() {
+  var lines = ['Save slots (playing ' + MOD_activeSlot() + '):'];
+  for (var i = 1; i <= MOD.slot_count; i++) {
+    var s = MOD_slotInfo(i);
+    lines.push('  ' + i + (i === MOD_activeSlot() ? ' *' : '  ') + '  ' +
+      (s.empty ? 'empty' : (s.name + ', level ' + s.lvl +
+        (s.saved ? ', ' + s.saved : '') + ', ' + s.kb + ' KB')));
+  }
+  lines.push('modSwitchSave(n) / modNewSave(n) / modDeleteSave(n)');
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+function modSwitchSave(n) { MOD_switchSlot(n); }
+function modNewSave(n) { MOD_newSave(n); }
+function modDeleteSave(n) { MOD_deleteSlot(n); }

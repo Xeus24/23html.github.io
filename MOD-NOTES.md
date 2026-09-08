@@ -1700,6 +1700,62 @@ have meant a suite that reports confidently on a model the mod no longer has.
 `fullbal.mjs` kept its player-side attribution and had its combat columns moved
 onto the real math.
 
+## Three save slots
+
+The game keeps exactly one save. `save()` writes localStorage `"v0.3"` and
+`load()` reads it, both by name, and `load()` runs once from a `window` load
+listener — there is no unload, no reset, and no notion of a second file.
+
+Rather than edit either function, **`"v0.3"` always holds whichever slot is
+live**, with a mirror beside it:
+
+```
+v0.3               the live save — the game's own key, untouched
+p23_slot_N         a copy of slot N, N in 1..3
+p23_slotmeta_N     name / level / cap / timestamp, for the panel
+p23_slot_active    which slot is live
+```
+
+`save()` is wrapped to mirror into the active slot, so the copy refreshes on
+every save by any route — the button, the 30-second autosave, an area's own
+save call. The wrapper returns the blob unchanged, because that return is what
+the export button reads.
+
+Switching writes `v0.3` and reloads the page. That is not laziness: the game
+builds its whole world at startup and reads the save once, so there is nothing
+to unload. "Start new save" is the same move with the slot cleared first — the
+game then finds no save and starts a fresh character, which is the only reset
+it has.
+
+Two decisions worth keeping:
+
+**Boot adopts, never overwrites.** If the active slot has no mirror but `v0.3`
+exists, that save becomes slot 1 — so a character from before this section
+existed is picked up rather than orphaned. `v0.3` is otherwise left alone. A
+mirror can only ever be the same age or staler than the live key, so
+overwriting from it could only lose progress.
+
+**Nothing destructive happens without the target in front of you.** Starting a
+new save over a used slot, or deleting one, names the character and level in the
+confirm. Leaving a slot saves it first, and if that save throws the move is
+abandoned rather than trading a live character for a silent loss.
+
+The game's own "delete the save" button called `localStorage.clear()`, which
+would take all three slots and the mod's settings with it. It is rebound to
+delete just the slot you are in — the game attached its handler anonymously, so
+the node is cloned and replaced, which is the only way to drop it.
+
+Slot metadata is written on save, but the panel falls back to reading the name
+and level out of the blob itself when it is missing: the save is base64 of
+pipe-separated segments and the first is the player object, so a slot from an
+older build still shows who is in it.
+
+`tests/saveslots.mjs` drives the real UI and the real `save()`/`load()` through
+the whole cycle — three characters coexisting, switching both directions,
+starting fresh without touching the others, deleting a slot you are not in,
+and adopting a pre-slot save. Console equivalents are `modSaves()`,
+`modSwitchSave(n)`, `modNewSave(n)`, `modDeleteSave(n)`.
+
 ## Settings menu: multiplier boxes
 
 The skill exp and speed multipliers were console-only (`setSkillXp(3)`,
