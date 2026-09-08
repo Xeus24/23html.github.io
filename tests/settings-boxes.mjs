@@ -36,7 +36,7 @@ console.log('  ', JSON.stringify(await p.evaluate(() => {
   // raise the story cap first, or a capped skill simply refuses the xp;
   // level 40 so expnext dwarfs the grant and nothing overflows into a level-up
   global.flags.mod_prog = { hollow: 99, spire: 99, vigil: 99 }; MOD_CAP.current = -1; MOD_levelCap();
-  const grant = () => { const s = skl.bstl; s.lvl = 40; s.exp = 0; s.expnext_t = s.expnext(); giveSkExp(s, 10); return s.exp; };
+  const grant = () => { const s = skl.wsdm; s.lvl = 40; s.exp = 0; s.expnext_t = s.expnext(); giveSkExp(s, 10); return s.exp; };
   inputs[0].value = '1'; inputs[0].dispatchEvent(new Event('change'));
   const at1 = grant();
   inputs[0].value = '7'; inputs[0].dispatchEvent(new Event('change'));
@@ -108,10 +108,10 @@ console.log('  ', JSON.stringify(await p.evaluate(() => {
 
 console.log('\n10. a normal save/load cycle is unaffected:');
 console.log('  ', JSON.stringify(await p.evaluate(() => {
-  skl.bstl.lvl = 4; save();
+  skl.wsdm.lvl = 4; save();
   const before = { xp: MOD.skill_xp_mult, fps: global.fps };
   load();
-  return { before, after: { xp: MOD.skill_xp_mult, fps: global.fps }, bstl: skl.bstl.lvl };
+  return { before, after: { xp: MOD.skill_xp_mult, fps: global.fps }, wsdm: skl.wsdm.lvl };
 })));
 
 await p.waitForTimeout(2500);

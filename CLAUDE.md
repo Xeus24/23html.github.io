@@ -70,29 +70,96 @@ row: `children[0]`, `children[1]`, `children[2].children[0]`. So:
 
 ## Balance
 
-Four dials on `MOD_ENEMY`, live in the browser console:
+Enemy dials on `MOD_ENEMY`, live in the browser console:
 
 ```js
-base: 4, rate: 0.02, hpPow: 1.1, tierRate: 0.008
+kill: 8, die: 20, hit: 0.45, margin: 1.5,
+hpSpread: 0.6, atkSpread: 0.3, bossKill: 2.0, bossDie: 0.7, armor: 1.0
 ```
 
-The constraint that matters: the game's exp curve is the real limiter, not the
-level cap. `expnext = 50 + (lvl+1)^log(9*lvl+1)`, so level 20 costs 13.6M exp
-and a passive skill reaches only ~level 14 after 1000 hours. **Tune against
-levels 10–22, not against the cap.** Fitting enemies to capped skills made the
-late game unwinnable; that mistake is written up in MOD-NOTES.md under
-"Balance, fifth pass".
+**The skill exp curve is the mod's, not the game's.** The base game's
+`expnext = 50 + (lvl+1)^log(9*lvl+1)` is super-exponential — 109→110 alone costs
+1.16e14 xp, so the cap ladder was unclimbable by a factor of ~10¹³. Section 19
+replaces it, per skill instance, with
 
-Run `npm test -- realbal` after any balance change. Healthy output is
-`kill 2–10 / die 5–42`, tightening monotonically toward the endgame. If "die"
-drops to 1–2 anywhere, that area is a coin flip.
+```js
+MOD_XP = { base: 50, ratio: 1.106 }   // expnext = base * ratio^lvl
+```
+
+tuned so a steadily-ticking skill reaches **level 110 in about six months** at
+1x. Only skills are re-curved; `you.expnext` (character level) is left alone.
+The full ladder 10/15/20/30/40/50/60/75/90/110 is genuinely reachable, so
+**model the player AT the cap** — that is what the tests do.
+
+### The enemy model, and why it looks the way it does
+
+`dmg_calc` is **subtractive in both directions**: an attack does
+`attacker.str - defender.str` (plus weapon, plus 1, plus crits). The defender's
+STR *is* their armour. Four consequences, all load-bearing:
+
+* **Never scale enemy `strm`.** Raising it raises offence and armour together,
+  and once armour passes the attacker's STR the damage does not get small, it
+  clamps to **zero**. `MOD_ENEMY.armor` exists so this stays visible; leave it
+  at 1. The same applies to `aglm`, which is the denominator of `hit_calc(1)`.
+* **Never judge a fight by a stat ratio.** `enemyHP/playerSTR` and
+  `playerHP/enemySTR` both ignore the subtraction and read several times off.
+  That proxy is what hid a tutorial fight needing 63,000 swings and a whole
+  ladder of `kill 1 / die 1`. Measure through `dmg_calc` and `hit_calc`.
+* **Nothing is replicated, everything is measured.** The base game's defence
+  term goes *negative* at high skill levels (`shdc` at 110 makes its last
+  multiplier −12.3, so your defence is added to the enemy's damage), and it is
+  ill-conditioned besides. Each spawn runs the real `dmg_calc` a few times in
+  both directions inside `MOD_probe` — which parks `giveSkExp`, the crit flag
+  and the DOM node it jiggles — and scales against what actually came out.
+* **The dials are two-sided.** Flooring every multiplier at 1 so nothing is
+  weaker than vanilla leaves pockets the base game itself made unwinnable.
+
+Scaling is anchored to the player's power at spawn, not fitted to a level,
+because within tier 0 alone the player goes from STR 1 to STR ~265. Variety
+comes from the area's level band and each creature's own `stat_p`, and
+`margin` guarantees `kill < die` however those compound.
+
+Damage is heavy-tailed at the top of the ladder: crit rate reaches 33% and a
+crit is about 8x a normal swing, so crits carry roughly three quarters of all
+damage. `MOD_meanDamage` therefore strata on the crit roll rather than taking a
+plain sample mean — the variance of a plain mean is almost entirely "how many
+crits landed", and enemy HP comes straight off that number. `fightsmoke` fights
+nine times per area and reports a median for the same reason.
+
+**Any script that samples `dmg_calc` must park `giveSkExp` first** (`quiet()` in
+the test scripts, `MOD_probe` in the mod). `dmg_calc` grants skill exp, so
+sampling it levels the player mid-measurement.
+
+Run `./tests/run.sh earlybal combat fightsmoke` after any balance change,
+`allareas` (all 2,490 matchups: every area x every creature x every tier x
+three skill builds) before calling one finished, and `capreach` after touching the curve or any xp rate.
+What matters:
+
+- **`kill < die` at every matchup** — every balance script fails on this.
+- **`whiff%` at 0** — anything above means damage is being eaten.
+- `epow` on `MOD_TIERS` no longer feeds difficulty (the player anchor replaced
+  it) but `modCaps()` and the tests still read it. Tests select a tier by
+  **index** (`setTier(9)`), not by cap number.
+
+## Content gating
+
+- The three added areas (Sunken Hollow / Ashen Spire / Long Vigil) are hidden
+  until `global.flags.trne4e1` — golem arena IV cleared, the base game's last
+  normal area — and then open in order on the same kill counts that drive their
+  caps. `tests/areagate.mjs` guards this.
+- **The catacombs are unreachable in the base game.** All 26 locations exist but
+  nothing links into `chss.catamn`, so `mod_t_cata` can never fire and the cap-40
+  rung is dead (harmlessly — arena I-II grants cap 50 anyway). See MOD-NOTES.
+- `chs(txt, true, ...)` calls `clr_chs()` and wipes everything already drawn for
+  that location. Only the *first* line of an `sl()` may pass `true`; every later
+  line, including greyed-out hints, must pass `false`.
 
 ## Testing
 
 ```sh
 npm install && npx playwright install chromium   # once
 npm test                                          # everything
-./tests/run.sh audit realbal                      # a subset
+./tests/run.sh audit combat                       # a subset
 ```
 
 `tests/README.md` explains what each script covers. Note that several of them

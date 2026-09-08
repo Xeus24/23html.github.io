@@ -31,7 +31,15 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '1.0',
+  version: '2.1',    // v2.0: the ~100 "discovered by playing" skills consolidated
+                     // to 10; per-stat effect budget unchanged. Survivors keep
+                     // their v1 id, so v1 saves still LOAD — merged-away skills
+                     // just don't restore. See "Balance, sixth pass" in
+                     // MOD-NOTES for the save-compat analysis.
+                     // v2.1: enemy scaling rewritten. It was multiplying the
+                     // wrong fields — enemy STR is armour in dmg_calc, so
+                     // scaling it clamped your damage to zero. Save format
+                     // untouched. See "Balance, eighth pass".
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
   max_speed: 20
@@ -1001,68 +1009,212 @@ console.log('[mod] live skill descriptions installed on ' + MOD_installLiveDesc(
 /* ===========================================================================
    8. ENEMY SCALING AND NEW CONTENT
    ---------------------------------------------------------------------------
-   Sections 3-7 make the player far stronger than vanilla. Measured by setting
-   every skill to the same level in both versions:
+   Sections 3-7 make the player far stronger than vanilla, and the added skill
+   curve lets every skill reach the story cap, so player power runs away by a
+   factor of thousands across the ladder while lvlup() grows enemies linearly.
+   Something has to close that gap. Getting it right depends entirely on which
+   enemy FIELD you scale, so read this before touching any of it.
 
-       every skill at lv 10   STR 2.5x   INT 3.7x   vanilla
-       every skill at lv 20   STR 7.0x   INT 12.6x
-       every skill at lv 30   STR 22x    INT 51x
+   --- why the obvious model does not work ----------------------------------
 
-   That growth is exponential, because each added skill's percentage applies
-   to a value the previous ones already raised. Enemy stats, by contrast, grow
-   LINEARLY in lvlup() — randf(t*stat_p, 2*t*stat_p) per level. So a flat
-   enemy multiplier would be crushing early and irrelevant later.
+   dmg_calc (index.html) is SUBTRACTIVE in both directions:
 
-   To keep the two curves the same SHAPE, enemy power here is exponential in
-   the enemy's own level — base * (1+rate)^lvl — rather than a flat number or
-   a live mirror of the player's stats:
+       you hit it :  (your STR * eff + weapon) * affinity  -  its STR   + 1
+       it hits you:   its STR * affinity  -  (your STR * eff + armour)
 
-       enemy lv 10   ~4.3x     enemy lv 28   ~17x
-       enemy lv 20   ~9.3x     enemy lv 40   ~43x
+   The defender's STR IS their armour. So multiplying an enemy's STR raises its
+   offence and its armour together, and the moment its armour passes your STR
+   your damage does not get small, it clamps to ZERO. AGL has the same problem
+   from the other end: it is the denominator of hit_calc(1), so scaling it drops
+   your hit chance as fast as it raises theirs.
 
-   RETUNED against attainable play. The earlier values were fitted to a scenario
-   where every skill sat at the story cap — which the game's own xp curve makes
-   impossible. Reaching a skill level costs, from scratch:
+   The mod used to multiply strm/aglm/intm by one number and hpm by another,
+   fitted with a grid search scored on enemyHP/playerSTR and playerHP/enemySTR.
+   Both of those proxies ignore the subtraction, and measured through the game's
+   real math (tests/combat.mjs, tests/earlybal.mjs) the result was:
 
-       lv 5      716 xp        lv 15    1,151,201 xp
-       lv 10  47,986 xp        lv 20   13,647,481 xp
+       tutorial fight 1   99% of landed hits dealt 0 damage, ~63,000 swings to
+                          kill a straw dummy, and it killed you in 1
+       tier 3 onward      kill 1 / die 1 at every single tier - whoever swung
+                          first won
 
-   A passive skill earning ~0.2 xp/tick reaches lv 5 in an hour, lv 9 in fifty
-   hours, and lv 14 in a thousand. So skills realistically sit between 10 and 22
-   for the whole game, and the cap of 110 is never the binding constraint.
+   Not a tuning miss. The fields were wrong.
 
-   Fitted to that instead, enemy power was cut hard: the old settings gave
-   22.6M HP at enemy lv 60 against a realistic player STR of 4,557 — 4,962 hits
-   to kill while dying in one. Tune with setEnemyScale(base, rate).
+   --- what is scaled now ---------------------------------------------------
+
+   Three things a fight can be, three separate fields, no crosstalk:
+
+       how long it takes to kill     ->  hpm            (enemy max HP)
+       how fast it kills you         ->  _modAtk        (see the dmg_calc wrap)
+       how often either side lands   ->  aglm           (solved for a hit rate)
+
+   Enemy STR stays at its base-game value (MOD_ENEMY.armor), because that field
+   is armour and touching it is what broke everything. Threat is delivered
+   instead by _modAtk, which the dmg_calc wrapper below applies to the attacker's
+   STR/INT for the duration of one attack roll only — offence without armour.
+
+   --- anchored to the player, shaped by the area ---------------------------
+
+   The targets are ratios (kill in N swings, die in M), not absolute curves, so
+   the dials are solved per spawn against the player's current power rather than
+   fitted to a level. That is deliberate: within tier 0 alone the player goes
+   from STR 1 to STR ~265, a 265x swing, and no fixed multiplier survives that.
+
+   Variety still comes from the area: each enemy is placed against the mean
+   level of the population it spawned from, so a lv 24 bat in a 14-24 basement
+   is genuinely harder than a lv 14 one, and each creature keeps its own stat_p
+   character on top of that.
+
+   The dials are two-sided. Flooring them at the base game's values sounds safe
+   and is not: it leaves pockets where the base game's own subtractive damage
+   has already made a fight unwinnable, and the floor prevents the fix. An enemy
+   can come out below its vanilla stats when your damage is small enough that
+   vanilla HP would take 21 swings.
+
+   Tune with setEnemyScale({kill: 12, die: 30}) and see modBalance().
    =========================================================================== */
 
 var MOD_ENEMY = {
-  base: 4,        // flat multiplier at level 1
-  rate: 0.02,     // compounding growth per enemy level
-  expRate: 0.5,   // exp reward scales as M^expRate, so grinding keeps paying
-  areaScale: 1.4, // level-range multiplier applied to existing areas
-  hpPow: 1.1,     // enemy HP uses M^hpPow — the player's damage is the runaway
-                  // stat, so HP needs far more weight than attack
-  tierRate: 0.008 // extra growth per point of the current story cap; without it
-                  // enemy level tops out around 60 by area design while player
-                  // damage keeps climbing to cap 110, and everything dies in 1 hit
+  kill:       8,   // target landed swings to kill an average enemy of your area
+  die:       20,   // target swings for that enemy to kill you
+  hit:     0.45,   // target share of the enemy's swings that land on you
+  hpSpread: 0.6,   // within an area, HP scales as (lvl / area mean lvl)^this
+  atkSpread: 0.3,  // ... and attack as the same ratio ^this
+  margin:   1.7,   // no spawn may be closer than this to a fight you cannot win
+  armor:    1.0,   // enemy STR left at base-game value x this. This is ARMOUR:
+                   // it is subtracted from your damage. Raising it does not make
+                   // fights longer, it makes them unwinnable. Leave it at 1.
+  bossKill: 2.0,   // a one-creature arena takes this much longer to clear...
+  bossDie:  0.7,   // ...and hits this much harder while you do it
+  expRate:  0.5,   // exp reward scales as hpm^this
+  areaScale: 1.4   // level-range multiplier applied to existing areas
 };
 
-function MOD_enemyMult(lvl) {
-  var byLevel = Math.pow(1 + MOD_ENEMY.rate, Math.max(Number(lvl) || 1, 1));
-  // Story-tier term. This tracks how far you have got, not your live stats —
-  // the same progression the skill cap reads.
-  var cap = 10;
-  try { cap = MOD_levelCap(); } catch (e) { /* section 10 not loaded yet */ }
-  var byTier = Math.pow(1 + MOD_ENEMY.tierRate, Math.max(cap - 10, 0));
-  return MOD_ENEMY.base * byLevel * byTier;
+var MOD_ENEMY_MAX = 1e12;   // sanity clamp, so one odd spawn cannot make Infinity
+
+function MOD_fin(v, d) { v = Number(v); return isFinite(v) ? v : d; }
+function MOD_clampMul(v) {
+  if (!isFinite(v) || v < 1) return 1;
+  return v > MOD_ENEMY_MAX ? MOD_ENEMY_MAX : v;
 }
 
-/* Scaling goes through the stat MULTIPLIER fields (strm/aglm/intm/hpm), which
-   stat_r() reapplies from the base values every call — so this is idempotent
-   and cannot accumulate if lvlup runs more than once on the same creature.
-   No creature template in the game overrides those fields (checked), so
-   assigning them outright is safe.
+/* --- measuring rather than replicating -------------------------------------
+   An earlier version of this section replicated the two branches of dmg_calc so
+   a spawn could be solved analytically. That does not survive contact with the
+   real formula. Two things break it:
+
+   * It is ill-conditioned. Enemy damage is `attack - your defence`, and late on
+     your defence dwarfs the damage the subtraction is supposed to leave behind
+     (STR ~4.1M against a target of ~56k), so a 2% error in the replica is a
+     150% error in the result.
+
+   * The base game's defence term goes NEGATIVE. Its last multiplier is
+         (100 - (eqp[1].aff[atype]*5*(1+shdc/20) + target.cls[ctype]*5*(1+shdc/20)))/100
+     and with shdc at level 110 that bracket is 6.5, while `eqp.dummy` — the one
+     item object every unequipped slot and every monster shares — has had your
+     unarmed progression written into it by lvlup (`aff[0] = you.lvl/5`,
+     `cls[2] = you.lvl/4`). At character level 92 the multiplier is -12.3, so
+     your "defence" is added to the enemy's damage instead of subtracted, and a
+     lv 59 golem with 57 STR hits for 190 million. No attack-stat dial can
+     correct for a term of the wrong sign.
+
+   So nothing is replicated. Each spawn runs the game's own dmg_calc a handful of
+   times, in both directions, and is scaled against what actually came out.
+   MOD_probe parks the side effects while that happens: dmg_calc grants skill xp,
+   sets the crit flag and jiggles a DOM node, none of which may fire because a
+   monster walked into the room. giveSkExp is swapped locally rather than
+   flag-guarded because other sections wrap it too, and this must not depend on
+   which order they loaded in.
+   -------------------------------------------------------------------------- */
+
+function MOD_probe(fn) {
+  var keepG = giveSkExp, keepCrti = global.flags.crti;
+  var keepM = global.current_m, keepT = global.target;
+  var keepD = (typeof dom !== 'undefined') ? dom.d1m : null;
+  giveSkExp = function () {};
+  if (keepD) dom.d1m = { style: {} };
+  try { return fn(); }
+  catch (e) { return null; }
+  finally {
+    giveSkExp = keepG; global.flags.crti = keepCrti;
+    global.current_m = keepM; global.target = keepT;
+    if (keepD) dom.d1m = keepD;
+  }
+}
+
+/* The crit chance dmg_calc rolls against, reproduced exactly. Note that the
+   `b` multiplier (you.luck/25+1) never reaches ctr_r: both branches that set it
+   declare it with `let` inside their own block, so the outer b stays 1. */
+function MOD_critRate(att) {
+  var sat = you.satmax > 0 ? you.sat / you.satmax : 1;
+  var k = 2 - (sat + MOD_fin(you.mods.sbonus, 0)) * 2;
+  var crt = MOD_fin(att.crt, 0);
+  var eye = (att.id === you.id && skl.seye) ? MOD_fin(skl.seye.use(), 0) : 0;
+  return Math.min(Math.max(crt * k + crt + eye + MOD_fin(you.mods.crflt, 0), 0), 1);
+}
+
+/* Mean damage per landed hit — stratified on the crit roll.
+
+   A plain sample mean is a bad estimator here. The distribution is two tight
+   clusters, not one spread: a normal swing varies by randf(.9,1.1), a crit runs
+   about 8x that by cap 110 (cpwr 4.6 compounding with 1 + skl.war.use()), and
+   the crit rate reaches a third. Nearly all the variance of the sample mean is
+   therefore just how many crits happened to land, and enemy HP is set directly
+   from this number with nothing downstream to correct it — an overestimate is a
+   proportionally longer fight. One in ~25,000 spawns came out at 2x.
+
+   So each stratum is averaged on its own and recombined with the crit rate the
+   game will actually roll against, which is known rather than sampled. That
+   removes the dominant variance term outright. `crti` is dmg_calc's own crit
+   flag; it sets it but never clears it, so clearing it per call reads it back. */
+function MOD_meanDamage(att, def, n) {
+  var critN = 0, critSum = 0, plainN = 0, plainSum = 0, keepCrti = global.flags.crti;
+  for (var i = 0; i < n; i++) {
+    global.flags.crti = false;
+    var d = Math.max(MOD_fin(MOD_dmg_calc_original(att, def, abl.default), 0), 0);
+    if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
+  }
+  global.flags.crti = keepCrti;
+  if (!critN || !plainN) return (critSum + plainSum) / n;   // one stratum never showed
+  var p = MOD_critRate(att);
+  return (1 - p) * (plainSum / plainN) + p * (critSum / critN);
+}
+
+/* Mean enemy level of a population — the anchor a spawn is measured against, so
+   the high end of an area's level band stays harder than the low end. Cached on
+   the area object; the areaScale pass below has already run by then. */
+function MOD_areaMeanLvl(z) {
+  if (!z || !z.pop || !z.pop.length) return 0;
+  if (z._modMeanLvl) return z._modMeanLvl;
+  var t = 0, n = 0;
+  z.pop.forEach(function (e) {
+    var w = MOD_fin(e.c, 1);
+    t += ((MOD_fin(e.lvlmin, 1) + MOD_fin(e.lvlmax, 1)) / 2) * w;
+    n += w;
+  });
+  z._modMeanLvl = (n > 0) ? (t / n) : 0;
+  return z._modMeanLvl;
+}
+
+/* Creature identity. Everything else here is normalised against the player, so
+   without this a bat and a golem of the same level would be interchangeable.
+   stat_p is the base game's own per-creature growth rate — [hp, str, agl, int] —
+   and it is the one thing that says a wolf hits harder than a slime.
+
+   The HP side gets a wide band and the damage side a narrow one, on purpose: a
+   tanky creature having three times the HP of a flimsy one reads as character,
+   whereas the same spread on damage decides whether a fight is survivable. The
+   golems in particular have low stat_p[1], so an unclamped damage band left
+   every arena boss and most of the endgame hitting at 0.6x. */
+function MOD_creatureShape(p, i, lo, hi) {
+  var v = (p.stat_p && isFinite(p.stat_p[i])) ? Number(p.stat_p[i]) : 0.9;
+  return Math.min(Math.max(v / 0.9, lo), hi);
+}
+
+/* Scaling goes through the stat MULTIPLIER fields, which stat_r() reapplies
+   from the base values on every call — so this is idempotent and cannot
+   accumulate if lvlup runs more than once on the same creature. No creature
+   template in the game overrides those fields (checked).
 
    HP needs the multiplier rather than a direct write: lvlup sets a non-player's
    hp straight from hp_r, and stat_r() would then recompute hpmax and leave the
@@ -1071,17 +1223,162 @@ function MOD_scaleEnemy(p) {
   if (!p || typeof you === 'undefined') return;
   if (p.id === you.id || p.id === 0) return;      // skip the player and creature.default
 
-  var M = MOD_enemyMult(p.lvl);
-  p.strm = M; p.aglm = M; p.intm = M;             // spd deliberately left alone,
-  p.hpm = Math.pow(M, MOD_ENEMY.hpPow);           // so turn order stays fair
+  var E = MOD_ENEMY;
+
+  // where this spawn sits inside its own area's level band
+  var ref = MOD_areaMeanLvl(typeof global !== 'undefined' ? global.current_z : null);
+  var band = (ref > 0) ? Math.max(p.lvl, 1) / ref : 1;
+  band = Math.min(Math.max(band, 0.4), 2.5);
+
+  // A protected area holding exactly one creature is an arena boss (the four
+  // golem trials). Left alone they came out as the softest fights in the game:
+  // golems have low stat_p[1], so the identity factor floors their damage while
+  // their single-enemy areas get no level spread to make up for it.
+  var z = (typeof global !== 'undefined') ? global.current_z : null;
+  var boss = !!(z && z.protected === true && z.pop && z.pop.length === 1 && z.size === 1);
+
+  // ---- accuracy: enemy AGL is the only free term in hit_calc(2) ------------
+  var eqpAgl = 0;
+  for (var i = 0; i < you.eqp.length; i++) eqpAgl += you.eqp[i].agl;
+  var evas = skl.evas ? skl.evas.lvl : 0;
+  var wantAgl = Math.max((E.hit * 100 - 10 + evas), 1) / 100 *
+                ((you.spd + you.agl + eqpAgl / 2) * you.efficiency());
+  // this one is allowed below 1: accuracy is a dial we are solving outright, and
+  // flooring it at the base game's value made early enemies land 60% of swings
+  // against a 39 HP character instead of the 45% asked for
+  var agl = wantAgl / Math.max(p.agl_r + p.agla, 1);
+  p.aglm = isFinite(agl) ? Math.min(Math.max(agl, 0.05), MOD_ENEMY_MAX) : 1;
+
+  // ---- armour: left at the base game's value, on purpose ------------------
+  // An enemy's STR is SUBTRACTED from your damage. Scaling it does not make a
+  // fight longer, it makes your damage clamp to zero. See the section header.
+  p.strm = E.armor; p.intm = E.armor;
+  p.hpm = 1;
+  p.stat_r();
+
+  // ---- what actually happens when these two hit each other ----------------
+  var seen = MOD_probe(function () {
+    global.current_m = p;
+    global.target = you.eqp[2];
+    // attack() re-buffs both sides before every swing, so buff them here too —
+    // otherwise the mean measured at spawn is not the mean seen in the fight,
+    // and the shape ratio in the wrapper comes out biased.
+    allbuff(you); allbuff(p);
+    return {
+      // 32 samples is plenty now that MOD_meanDamage strata on the crit roll;
+      // it was 64 with a plain sample mean and still drifted.
+      out:  MOD_meanDamage(you, p, 32),                      // your damage per landed hit
+      in:   MOD_meanDamage(p, you, 10),                      // theirs, unscaled
+      hit:  Math.min(Math.max(MOD_fin(hit_calc(1), 100), 5), 100) / 100
+    };
+  }) || { out: 0, in: 0, hit: 1 };
+
+  // ---- the two targets, and the guarantee between them --------------------
+  // band and stat_p both push the top of a level range in the SAME direction —
+  // more HP and more damage — so at the top of a wide band they compound into a
+  // fight that is lost by construction (kill 19, die 12 for a lv 12 rabbit in a
+  // 5-12 area). The margin is the floor under that: whatever the spread does,
+  // killing it always takes meaningfully fewer swings than dying to it.
+  var killT = E.kill * Math.pow(band, E.hpSpread) *
+              MOD_creatureShape(p, 0, 0.6, 1.8) * (boss ? E.bossKill : 1);
+  // Bound it before the margin reads it. band and stat_p multiply, and at the
+  // top of a wide band with a tanky creature they reached 2.5x the target — a
+  // 20-swing chip-fest, and a margin computed off that number then has to make
+  // the enemy nearly harmless to compensate. Bosses are the deliberate
+  // exception and get their own ceiling.
+  var kcap = E.kill * (boss ? E.bossKill * 1.5 : 2);
+  killT = Math.min(Math.max(killT, E.kill * 0.5), kcap);
+  var dieT  = E.die / Math.pow(band, E.atkSpread) /
+              MOD_creatureShape(p, 1, 0.75, 1.35) * (boss ? E.bossDie : 1);
+  // The guarantee. Both estimates carry sampling noise from a heavy-tailed
+  // damage distribution, so the headroom is deliberately more than the ~1.2 the
+  // arithmetic alone would need.
+  dieT = Math.max(dieT, killT * E.margin);
+
+  // ---- fight length -------------------------------------------------------
+  var wantHp = Math.max(seen.out, 1) * seen.hit * killT;
+  // Two-sided, like the accuracy dial. An earlier version floored every
+  // multiplier at 1 so nothing could come out weaker than the base game made
+  // it, and that produced unwinnable pockets: a lv 3 straw dummy has 21 HP and
+  // 4 STR, and a lv 2 character with 4 STR does 1 damage a swing against it —
+  // 21 swings to kill while dying in 15. The target is the point. If your
+  // damage is small enough that base-game HP is already too much, the HP comes
+  // down.
+  var hpm = wantHp / Math.max(p.hp_r + p.hpa, 1);
+  p.hpm = isFinite(hpm) ? Math.min(Math.max(hpm, 0.05), MOD_ENEMY_MAX) : 1;
   p.stat_r();
   p.hp = p.hpmax;                                 // spawn at full health, as lvlup does
 
-  var F = Math.pow(M, MOD_ENEMY.expRate);
+  // ---- threat -------------------------------------------------------------
+  // The damage it should land, and what the game's own math produced for it, so
+  // the wrapper below can map one onto the other while keeping the shape.
+  p._modDmg = Math.max(you.hpmax / Math.max(dieT * E.hit, 0.01), 1);
+  p._modRaw = seen.in;
+  p._modOut = seen.out;   // what your swing measured as, kept for the balance tests
+  p._modKillT = killT;    // the two targets this spawn was built to, so the
+  p._modDieT = dieT;      // balance tests can report intent against outcome
+  p._modYourHp = you.hpmax;   // and the max HP the die target was derived from
+
+  // exp tracks how much tougher this thing actually is than the base game made it
+  var F = Math.pow(Math.max(p.hpm, 1), E.expRate);
   var prevF = p._modExpF || 1;
   p.exp = Math.max(1, Math.round((p.exp / prevF) * F));
   p._modExpF = F;
 }
+
+/* --- the enemy's damage, rescaled onto its target --------------------------
+   Every ability routes through dmg_calc by name (abl.default.f and friends all
+   call dmg_calc(x, y, this)), so wrapping the global covers all of them.
+
+   The raw number is kept as a SHAPE, not a magnitude: dividing by the mean that
+   MOD_scaleEnemy measured at spawn leaves the game's own variance and its crits
+   (which land around 2x the mean) intact, and multiplying by the target puts the
+   average where it belongs. Working from a ratio is what makes this survive the
+   negative-defence blowup described above — the sign and size of the raw number
+   stop mattering, only its spread does.
+
+   The honest cost: your defensive stats no longer change how hard you are hit.
+   Targeting a fixed number of swings-to-die already implied that (more armour
+   would just have meant a bigger enemy attack), and the base game's defence math
+   is not usable at these skill levels anyway. Offence is untouched — enemy HP is
+   set from your real damage, so hitting harder still kills things faster.
+   -------------------------------------------------------------------------- */
+var MOD_dmg_calc_original = dmg_calc;
+
+dmg_calc = function (att, def, atk) {
+  var r = MOD_dmg_calc_original(att, def, atk);
+  if (!att || typeof you === 'undefined' || att.id === you.id) return r;
+  if (!def || def.id !== you.id) return r;
+
+  var tgt = att._modDmg;
+  if (!(tgt > 0)) return r;
+
+  // The mean is kept as a slow EMA rather than frozen at spawn. The spawn probe
+  // cannot see everything a live fight does — effects landing, gear wearing,
+  // buffs re-applied per swing — and a mean that drifts biases every later hit
+  // in the same direction. Comparing against a lagging average keeps the
+  // variance while letting the level self-correct within a few swings.
+  // Zeros carry no shape and must not enter the average. Early on the raw number
+  // is zero on most swings — a lv 1 dummy cannot get through 265 STR — and
+  // letting those through drags the mean to nothing, after which every landed
+  // hit reads as a huge ratio and clips against the ceiling. When there is no
+  // usable signal the target is used directly, with the game's own +-10% jitter.
+  var raw = MOD_fin(r, 0);
+  var shape;
+  if (raw > 0 && att._modRaw > 0) {
+    shape = raw / att._modRaw;
+    att._modRaw = att._modRaw * 0.9 + raw * 0.1;
+  } else {
+    if (raw > 0) att._modRaw = raw;
+    shape = 0.9 + Math.random() * 0.2;
+  }
+  // A ratio whose denominator moves is biased upward (E[x/m] > E[x]/E[m]), and
+  // the game's crit tail is heavy enough that the raw spread would land the
+  // average well above target. Damping toward 1 keeps the texture and drops the
+  // bias with it; the clamp is the last resort behind that.
+  shape = 1 + (shape - 1) * 0.6;
+  return Math.min(Math.max(tgt * shape, tgt * 0.5), tgt * 2);
+};
 
 var MOD_lvlup_original = lvlup;
 
@@ -1090,20 +1387,23 @@ lvlup = function (p, t) {
   try { MOD_scaleEnemy(p); } catch (e) { /* never break a spawn */ }
 };
 
-function setEnemyScale(base, rate) {
-  if (base !== undefined && isFinite(Number(base)) && Number(base) > 0) MOD_ENEMY.base = Number(base);
-  if (rate !== undefined && isFinite(Number(rate)) && Number(rate) >= 0) MOD_ENEMY.rate = Number(rate);
+/* setEnemyScale({kill: 12, die: 10, hit: 0.5}) — any subset. The old positional
+   (base, rate) form is gone with the model it belonged to. */
+function setEnemyScale(opts) {
+  if (opts && typeof opts === 'object') {
+    ['kill', 'die', 'hit', 'hpSpread', 'atkSpread', 'armor', 'expRate'].forEach(function (k) {
+      if (opts[k] !== undefined && isFinite(Number(opts[k]))) MOD_ENEMY[k] = Number(opts[k]);
+    });
+  }
   var m = MOD_ENEMY;
-  var line = 'Enemy scale: base ' + m.base + ', ' + (m.rate * 100).toFixed(1) + '%/level' +
-             '  →  lv10 ' + MOD_enemyMult(10).toFixed(1) + 'x' +
-             ', lv20 ' + MOD_enemyMult(20).toFixed(1) + 'x' +
-             ', lv40 ' + MOD_enemyMult(40).toFixed(1) + 'x';
+  var line = 'Enemy targets: kill in ' + m.kill + ' swings, die in ' + m.die +
+             ', they land ' + Math.round(m.hit * 100) + '% of theirs';
   console.log('[mod] ' + line);
   if (typeof msg === 'function') msg('Enemy scaling updated', 'gold');
   return line;
 }
 
-function getEnemyScale() { return { base: MOD_ENEMY.base, rate: MOD_ENEMY.rate }; }
+function getEnemyScale() { return JSON.parse(JSON.stringify(MOD_ENEMY)); }
 
 
 /* --- Existing areas made harder --------------------------------------------
@@ -1199,6 +1499,22 @@ function MOD_makeFightLocation(key, id, locName, flavour, areaObj, backTo) {
   return c;
 }
 
+/* --- when the added areas are allowed to exist at all ----------------------
+   These sit past everything the base game has, so they stay invisible until
+   the base game is finished. `trne4e1` is golem arena IV cleared — the deepest
+   normal content there is (the dojo chain gates I -> II -> III -> IV on each
+   other, and area.trne4.onEnd sets the flag and grants a title). Before that
+   the trailhead is not drawn on the Western Woods gate at all.
+
+   Inside the trailhead the three unlock in order, on the same kill counts that
+   already govern their level caps — so an area and its cap open together
+   rather than the area being walkable long before it is survivable. */
+function MOD_endgameOpen() {
+  try { return global.flags.trne4e1 === true; } catch (e) { return false; }
+}
+function MOD_hollowCleared() { return MOD_prog('hollow') >= MOD_REQ_HOLLOW; }
+function MOD_spireCleared()  { return MOD_hollowCleared() && MOD_prog('spire') >= MOD_REQ_SPIRE; }
+
 chss.mod_gate = new Chs(); chss.mod_gate.id = 975;
 chss.mod_gate.sl = function () {
   global.flags.inside = false;
@@ -1209,14 +1525,26 @@ chss.mod_gate.sl = function () {
     msg('Around level 30-40. Harder than anything in the woods.', 'orange');
     smove(chss.mod_hollow);
   });
-  chs('"=> The Ashen Spire"', false, 'orange').addEventListener('click', function () {
-    msg('Around level 45-58. Well past the golem arena.', 'orange');
-    smove(chss.mod_spire);
-  });
-  chs('"=> The Long Vigil"', false, 'red').addEventListener('click', function () {
-    msg('Around level 55-68. This will kill an unprepared character.', 'red');
-    smove(chss.mod_vigil);
-  });
+  if (MOD_hollowCleared()) {
+    chs('"=> The Ashen Spire"', false, 'orange').addEventListener('click', function () {
+      msg('Around level 45-58. Well past the golem arena.', 'orange');
+      smove(chss.mod_spire);
+    });
+  } else {
+    // false, not true: `chs(txt, true)` calls clr_chs() and would wipe the
+    // choices already drawn above it
+    chs('The path forks upward, but the way is choked with fallen rock. (' +
+        MOD_prog('hollow') + '/' + MOD_REQ_HOLLOW + ' cleared in The Sunken Hollow)', false, 'grey');
+  }
+  if (MOD_spireCleared()) {
+    chs('"=> The Long Vigil"', false, 'red').addEventListener('click', function () {
+      msg('Around level 55-68. This will kill an unprepared character.', 'red');
+      smove(chss.mod_vigil);
+    });
+  } else if (MOD_hollowCleared()) {
+    chs('Something further out is still shut to you. (' +
+        MOD_prog('spire') + '/' + MOD_REQ_SPIRE + ' cleared in The Ashen Spire)', false, 'grey');
+  }
   chs('"<= Back to the gate"', false).addEventListener('click', function () { smove(chss.frstn1main); });
 };
 
@@ -1238,6 +1566,7 @@ MOD_makeFightLocation('mod_vigil', 978, 'The Long Vigil',
   var origSl = chss.frstn1main.sl;
   chss.frstn1main.sl = function () {
     origSl.apply(this, arguments);
+    if (!MOD_endgameOpen()) return;      // nothing until the golem arena is done
     chs('"=> Follow the old path deeper"', false, 'yellow').addEventListener('click', function () {
       smove(chss.mod_gate);
     });
@@ -1247,22 +1576,26 @@ MOD_makeFightLocation('mod_vigil', 978, 'The Long Vigil',
 
 function modBalance() {
   var rows = [
-    'Enemy scaling: base ' + MOD_ENEMY.base + ', ' + (MOD_ENEMY.rate * 100).toFixed(1) + '% per enemy level',
-    '  lv 10  ' + MOD_enemyMult(10).toFixed(1) + 'x      lv 40  ' + MOD_enemyMult(40).toFixed(1) + 'x',
-    '  lv 20  ' + MOD_enemyMult(20).toFixed(1) + 'x      lv 60  ' + MOD_enemyMult(60).toFixed(1) + 'x',
-    '  lv 30  ' + MOD_enemyMult(30).toFixed(1) + 'x      lv 90  ' + MOD_enemyMult(90).toFixed(1) + 'x',
+    'Enemy scaling is solved per spawn against your current power, not fitted',
+    'to a level, and nothing is ever scaled below what the base game made it.',
+    '  kill an average enemy of your area in ~' + MOD_ENEMY.kill + ' landed swings',
+    '  it kills you in ~' + MOD_ENEMY.die + ', landing ' + Math.round(MOD_ENEMY.hit * 100) + '% of its swings',
+    '  the high end of an area\'s level band is harder than the low end',
+    '  (HP ^' + MOD_ENEMY.hpSpread + ', attack ^' + MOD_ENEMY.atkSpread + ' of lvl / area mean lvl)',
     '',
     'Existing area level ranges raised x' + MOD_ENEMY.areaScale + ' (tutorial exempt)',
     'New areas: The Sunken Hollow (30-40), The Ashen Spire (45-58), The Long Vigil (55-68)',
-    'Reach them from the Western Woods gate: "Follow the old path deeper"',
+    'Locked until golem arena IV is cleared, then from the Western Woods gate:',
+    '  "Follow the old path deeper" -> Hollow -> (10 kills) Spire -> (15 kills) Vigil',
     '',
-    'Tune: setEnemyScale(base, rate)   e.g. setEnemyScale(1.5, 0.06) for an easier ride'
+    'Tune: setEnemyScale({kill: 14, die: 20})   for an easier ride'
   ].join('\n');
   console.log(rows);
   return rows;
 }
 
-console.log('[mod] enemy scaling active — ' + MOD_enemyMult(20).toFixed(1) + 'x at enemy lv 20. modBalance() for details.');
+console.log('[mod] enemy scaling active — kill in ~' + MOD_ENEMY.kill +
+            ', die in ~' + MOD_ENEMY.die + '. modBalance() for details.');
 
 
 /* ===========================================================================
@@ -1350,16 +1683,19 @@ console.log('[mod] player HP now tracks offence (hpTrack ' + MOD_PLAYER.hpTrack 
    who already cleared that content is not stuck at a low cap.
 
    B. THE SKILLS
-   100 more, all discovered by playing — same machinery as section 7, reading
-   the game's own `global.stat.*` counters and environment state. All 44 of
-   those counters were checked to be incremented somewhere in the game.
+   A set discovered by playing — same machinery as section 7, reading the
+   game's own `global.stat.*` counters and environment state. All 44 of those
+   counters were checked to be incremented somewhere in the game. Originally
+   100; consolidated in v2 to 10 that each carry a family's worth of effect,
+   with the per-stat totals held exactly (see "Balance, sixth pass" in
+   MOD-NOTES).
 
    Their continuous effects are summed per stat and applied ONCE, additively.
    The 13 skills from sections 4 and 7 each multiply in sequence, which is what
-   produced the runaway curve; doing that with 100 skills would be absurd
-   (100 skills at +15% compounding is ~1.2 million x). Per-level rates are also
-   normalised per stat, so a stat carried by 6 skills is not six times weaker
-   than one carried by 46.
+   produced the runaway curve; doing that with a hundred of them would be
+   absurd (100 skills at +15% compounding is ~1.2 million x). Per-level rates
+   are also normalised per stat, so a stat carried by 6 skills is not six times
+   weaker than one carried by many.
    =========================================================================== */
 
 /* --- tiers ---------------------------------------------------------------- */
@@ -1407,31 +1743,43 @@ function MOD_progTick() {
    in the catacombs tier and were pushing new characters straight to cap 40.
    The catacombs are detected by visiting them instead (mod_t_cata, set by the
    chss.catamn / chss.cata1 hooks at the bottom of this section). */
+/* Caps are the levels a skill can actually REACH, not decorative ceilings.
+   Under the game's own exp curve the 10..110 ladder was fiction:
+   `expnext = 50 + (lvl+1)^ln(9*lvl+1)` is super-exponential, so lv109->110
+   alone costs 1.16e14 xp — 17,200 years at max game speed and the best xp
+   rate in the mod. Section 19 replaces that curve with a geometric one tuned
+   so a steadily-ticking skill reaches 110 in about six months at 1x, which is
+   what makes the full ladder real. Measured per tier by `tests/capreach.mjs`.
+
+   `epow` is a per-tier progression exponent, kept as its own field rather than
+   derived from the cap so the ladder can be rescaled without a difficulty
+   change riding along. The enemy model no longer reads it (it anchors to the
+   player instead — see section 8), but modCaps() and the tests still do. */
 var MOD_TIERS = [
-  { cap: 10,  name: 'The beginning',      flags: [] },
-  { cap: 15,  name: 'Training complete',  flags: ['tr3_win', 'trnex1', 'trnex2'] },
-  { cap: 20,  name: 'The forest',         flags: ['mod_t_forest'] },
-  { cap: 30,  name: 'Deep forest',        flags: ['mod_t_deep', 'frstn1a3u'] },
-  { cap: 40,  name: 'The catacombs',      flags: ['mod_t_cata'] },
-  { cap: 50,  name: 'Golem arena I-II',   flags: ['trne1e1', 'trne2e1'] },
-  { cap: 60,  name: 'Golem arena III-IV', flags: ['trne3e1', 'trne4e1'] },
+  { cap:  10, epow:   0, name: 'The beginning',      flags: [] },
+  { cap:  15, epow:   5, name: 'Training complete',  flags: ['tr3_win', 'trnex1', 'trnex2'] },
+  { cap:  20, epow:  10, name: 'The forest',         flags: ['mod_t_forest'] },
+  { cap:  30, epow:  20, name: 'Deep forest',        flags: ['mod_t_deep', 'frstn1a3u'] },
+  { cap:  40, epow:  30, name: 'The catacombs',      flags: ['mod_t_cata'] },
+  { cap:  50, epow:  40, name: 'Golem arena I-II',   flags: ['trne1e1', 'trne2e1'] },
+  { cap:  60, epow:  50, name: 'Golem arena III-IV', flags: ['trne3e1', 'trne4e1'] },
   // The endgame areas are NOT unlocked by walking in. Clicking through to The
   // Long Vigil once granted cap 110 outright, which is absurd for a place that
   // kills an unprepared character on arrival. Each now needs kills earned
   // there, and each needs the one before it, so the order cannot be skipped.
-  { cap: 75,  name: 'The Sunken Hollow',  flags: [],
+  { cap:  75, epow:  65, name: 'The Sunken Hollow',  flags: [],
     needText: MOD_REQ_HOLLOW + ' kills in The Sunken Hollow',
     test: function () {
       return MOD_prog('hollow') >= MOD_REQ_HOLLOW
         ? MOD_prog('hollow') + '/' + MOD_REQ_HOLLOW + ' kills in The Sunken Hollow' : null;
     } },
-  { cap: 90,  name: 'The Ashen Spire',    flags: [],
+  { cap:  90, epow:  80, name: 'The Ashen Spire',    flags: [],
     needText: MOD_REQ_SPIRE + ' kills in The Ashen Spire (after the Hollow)',
     test: function () {
       return (MOD_prog('hollow') >= MOD_REQ_HOLLOW && MOD_prog('spire') >= MOD_REQ_SPIRE)
         ? MOD_prog('spire') + '/' + MOD_REQ_SPIRE + ' kills in The Ashen Spire' : null;
     } },
-  { cap: 110, name: 'The Long Vigil',     flags: [],
+  { cap: 110, epow: 100, name: 'The Long Vigil',     flags: [],
     needText: MOD_REQ_VIGIL + ' kills in The Long Vigil (after the Spire)',
     test: function () {
       return (MOD_prog('spire') >= MOD_REQ_SPIRE && MOD_prog('vigil') >= MOD_REQ_VIGIL)
@@ -1445,16 +1793,22 @@ function MOD_tierFlag(t) {
   return t.flags.length === 0 ? '(start)' : null;
 }
 
-var MOD_CAP = { current: 10, name: 'The beginning', why: '(start)', warned: {}, lastAnnounced: 0 };
+var MOD_CAP = { current: MOD_TIERS[0].cap, epow: MOD_TIERS[0].epow,
+                name: 'The beginning', why: '(start)', warned: {}, lastAnnounced: 0 };
 
 function MOD_levelCap() {
-  var cap = MOD_TIERS[0].cap, name = MOD_TIERS[0].name, why = '(start)';
+  var cap = MOD_TIERS[0].cap, name = MOD_TIERS[0].name, why = '(start)',
+      epow = MOD_TIERS[0].epow;
   for (var i = 0; i < MOD_TIERS.length; i++) {
     try {
       var f = MOD_tierFlag(MOD_TIERS[i]);
-      if (f && MOD_TIERS[i].cap > cap) { cap = MOD_TIERS[i].cap; name = MOD_TIERS[i].name; why = f; }
+      if (f && MOD_TIERS[i].cap > cap) {
+        cap = MOD_TIERS[i].cap; name = MOD_TIERS[i].name; why = f;
+        epow = MOD_TIERS[i].epow;
+      }
     } catch (e) { /* a missing flag is just a tier not reached */ }
   }
+  MOD_CAP.epow = epow;                 // progression exponent; see MOD_TIERS
   if (cap !== MOD_CAP.current) {
     MOD_CAP.current = cap; MOD_CAP.name = name; MOD_CAP.why = why; MOD_CAP.warned = {};
     if (cap > MOD_CAP.lastAnnounced) {
@@ -1564,116 +1918,44 @@ var MOD_PRED = {
                                      !!(global.current_a && global.current_a.active === true); }
 };
 
-/* --- the 100 skills ------------------------------------------------------- */
+/* --- the discovered-by-playing skills ----------------------------------------
+   Originally 100 (ids 1001-1100). Consolidated in v2 to 10: each family of
+   near-duplicate skills (the many weather/season/moon/combat/trade entries)
+   collapsed to one survivor whose `pct` is the SUM of the group's, so the
+   per-stat effect budget is byte-for-byte the same. The 12 "flagship" keys
+   (see MOD_FLAGSHIP) are all retained. A trailing `// + key, key` on a row
+   lists what it absorbed.
+
+   Each survivor KEEPS its original v1 id (so the id list is now gappy). That
+   is deliberate for save compatibility: the game restores skill level and
+   milestone flags by matching `id` (index.html load(), `a6[a].id===skl[b].id`),
+   so a v1 save loads under v2 with every surviving skill's level and perks
+   intact — a merged-away id simply finds no match and is skipped. The only
+   casualty is the positional `exp`/`p` array (`a7`), which drifts for the
+   added skills past this point; `p` is the constructor default 1 on every one
+   of them (the mod never writes it), so that swap is a no-op, and `exp` is
+   just the progress bar, recomputed on the next xp tick. Full accounting:
+   "Balance, sixth pass" in MOD-NOTES.md.
+   ------------------------------------------------------------------------- */
 
 var MOD_EXTRA = [
-  {key:'kllr', id:1001, type:1, name:"Killing Intent", desc:"Practice at ending fights quickly", note:"Sharpens the finishing blow", stat:'str', pct:0.22, counter:'akills', xp:1.2, cap:6},
-  {key:'exct', id:1002, type:1, name:"Execution", desc:"Bringing something down in a single strike", note:"Rewards decisive openings", stat:'str', pct:0.22, counter:'onesht', xp:6, cap:3},
-  {key:'atrt', id:1003, type:1, name:"Attrition", desc:"Damage traded over long fights", note:"Strength that comes from grinding it out", stat:'str', pct:0.176, counter:'dmgdt', xp:0.05, cap:60},
-  {key:'whff', id:1004, type:1, name:"Whiffing", desc:"Swings that met nothing at all", note:"Even a miss teaches the arm something", stat:'str', pct:0.132, counter:'misst', xp:1.5, cap:6},
-  {key:'thrw', id:1005, type:1, name:"Throwing Arm", desc:"Objects sent at things that deserved it", note:"Power behind a thrown weapon", stat:'str', pct:0.198, counter:'thrt', xp:2, cap:6},
-  {key:'indr', id:1006, type:3, name:"Indirect Means", desc:"Kills that were not landed by hand", note:"Letting circumstance do the work", stat:'str', pct:0.198, counter:'indkill', xp:3, cap:4},
-  {key:'bldl', id:1007, type:6, name:"Bloodletting", desc:"Wounds that kept on bleeding", note:"Familiarity with open wounds", stat:'str', pct:0.176, counter:'bloodt', xp:0.6, cap:10},
-  {key:'brsr', id:1008, type:2, name:"Berserking", desc:"Fighting on while badly hurt", note:"Strength found past the point of sense", stat:'str', pct:0.22, pred:'lowHp', xp:0.16},
-  {key:'stnd', id:1009, type:2, name:"Last Stand", desc:"Still upright when you should not be", note:"Refusal, made into a habit", stat:'str', pct:0.22, pred:'lowHpBattle', xp:0.25},
-  {key:'mmnt', id:1010, type:1, name:"Momentum", desc:"Strikes that followed one another", note:"Chained aggression", stat:'str', pct:0.176, pred:'inBattle', xp:0.08},
-  {key:'grip', id:1011, type:2, name:"Grip Strength", desc:"Holding on when it would be easier not to", note:"Hands that do not let go", stat:'str', pct:0.198, counter:'athme', xp:0.05, cap:40},
-  {key:'hvyl', id:1012, type:8, name:"Heavy Labour", desc:"Work that asked for the whole body", note:"Raw physical output", stat:'str', pct:0.198, counter:'athmec', xp:0.05, cap:40},
-  {key:'mrtl', id:1013, type:2, name:"Mortality", desc:"Understanding gained the hardest way", note:"What dying teaches, if you come back", stat:'str', pct:0.264, counter:'deadt', xp:25, cap:2},
-  {key:'clse', id:1014, type:2, name:"Close Calls", desc:"Fights survived by a margin", note:"Nerve under a real threat", stat:'str', pct:0.22, counter:'die_p', xp:12, cap:3},
-  {key:'frst', id:1015, type:6, name:"Frostbitten", desc:"Time spent too cold for comfort", note:"Tolerance built in the cold", stat:'str', pct:0.154, counter:'coldnt', xp:0.5, cap:10},
-  {key:'shvr', id:1016, type:6, name:"Shivering", desc:"Enduring genuinely cold weather", note:"The body learns to hold its heat", stat:'str', pct:0.132, pred:'cold', xp:0.12},
-  {key:'sokd', id:1017, type:6, name:"Soaked", desc:"Being thoroughly wet and carrying on", note:"Discomfort stopped registering", stat:'str', pct:0.132, pred:'wet', xp:0.12},
-  {key:'hngr', id:1018, type:4, name:"Hunger Pangs", desc:"Acting on an empty stomach", note:"Function without fuel", stat:'str', pct:0.176, pred:'starving', xp:0.2},
-  {key:'rtns', id:1019, type:4, name:"Rationing", desc:"Operating on very little energy", note:"Economy of effort", stat:'str', pct:0.154, pred:'lowEnergy', xp:0.12},
-  {key:'rcvr', id:1020, type:2, name:"Recovery", desc:"Returning to full health again and again", note:"The body gets better at mending", stat:'str', pct:0.176, pred:'healthy', xp:0.06},
-  {key:'wtch', id:1021, type:4, name:"Keeping Watch", desc:"Staying alert when nothing happens", note:"Patience with an edge on it", stat:'str', pct:0.132, pred:'peaceful', xp:0.05},
-  {key:'endr', id:1022, type:2, name:"Endurance", desc:"Sheer accumulated time on your feet", note:"Stamina that only time builds", stat:'str', pct:0.132, pred:'awake', xp:0.04},
-  {key:'rnwk', id:1023, type:4, name:"Rainwalking", desc:"Moving well on wet ground", note:"Footing in the rain", stat:'agl', pct:0.176, pred:'rain', xp:0.12},
-  {key:'snwk', id:1024, type:4, name:"Snowtreading", desc:"Moving well through snow", note:"Footing in snow", stat:'agl', pct:0.176, pred:'snow', xp:0.12},
-  {key:'stmw', id:1025, type:4, name:"Storm Sense", desc:"Being out in genuinely bad weather", note:"Reading a sky that means it", stat:'int', pct:0.198, pred:'storm', xp:0.18},
-  {key:'fgnv', id:1026, type:3, name:"Fog Navigation", desc:"Finding your way with nothing to see by", note:"Orientation without landmarks", stat:'int', pct:0.198, pred:'fog', xp:0.16},
-  {key:'sncl', id:1027, type:4, name:"Sun Discipline", desc:"Long hours under an open sky", note:"Working through the heat", stat:'str', pct:0.132, pred:'clearDay', xp:0.08},
-  {key:'nsky', id:1028, type:4, name:"Night Sky", desc:"Hours spent under stars", note:"Orientation by what is above", stat:'int', pct:0.176, pred:'clearNight', xp:0.12},
-  {key:'sprg', id:1029, type:7, name:"Spring Sense", desc:"A full season of new growth", note:"Attunement to spring", stat:'int', pct:0.154, pred:'spring', xp:0.06},
-  {key:'smmr', id:1030, type:7, name:"Summer Sense", desc:"A full season of long light", note:"Attunement to summer", stat:'str', pct:0.154, pred:'summer', xp:0.06},
-  {key:'atmn', id:1031, type:7, name:"Autumn Sense", desc:"A full season of turning leaves", note:"Attunement to autumn", stat:'agl', pct:0.154, pred:'autumn', xp:0.06},
-  {key:'wntr', id:1032, type:7, name:"Winter Sense", desc:"A full season of hard ground", note:"Attunement to winter", stat:'int', pct:0.154, pred:'winter', xp:0.06},
-  {key:'wthl', id:1033, type:4, name:"Weatherlore", desc:"Watching the sky change over time", note:"Prediction from long observation", stat:'int', pct:0.154, pred:'outdoors', xp:0.04},
-  {key:'exps', id:1034, type:6, name:"Exposure", desc:"Time outdoors in anything at all", note:"Weathered, in the literal sense", stat:'str', pct:0.132, pred:'outdoorsRough', xp:0.1},
-  {key:'nwmn', id:1035, type:7, name:"New Moon", desc:"The dark of the month", note:"Something clarifies when the moon is gone", stat:'int', pct:0.22, pred:'newmoon', xp:0.3},
-  {key:'wxmn', id:1036, type:7, name:"Waxing Moon", desc:"The moon on its way up", note:"Rising tides of whatever this is", stat:'int', pct:0.176, pred:'waxing', xp:0.16},
-  {key:'wnmn', id:1037, type:7, name:"Waning Moon", desc:"The moon on its way down", note:"Letting go, on a schedule", stat:'int', pct:0.176, pred:'waning', xp:0.16},
-  {key:'dwnr', id:1038, type:4, name:"Dawn Rising", desc:"Being awake as light returns", note:"The hour before everyone else", stat:'int', pct:0.198, pred:'dawn', xp:0.28},
-  {key:'dusk', id:1039, type:4, name:"Duskfall", desc:"Being out as the light goes", note:"The hour after everyone else", stat:'agl', pct:0.198, pred:'dusk', xp:0.28},
-  {key:'vgil', id:1040, type:4, name:"Vigil", desc:"Staying awake through the night", note:"Sleep deliberately not taken", stat:'int', pct:0.198, pred:'deepNight', xp:0.2},
-  {key:'rest', id:1041, type:4, name:"Deep Rest", desc:"Sleep, accumulated", note:"Restoration as a practice", stat:'int', pct:0.132, counter:'timeslp', xp:0.03, cap:40},
-  {key:'clck', id:1042, type:4, name:"Body Clock", desc:"A sense of how much time has passed", note:"Time, tracked without a clock", stat:'int', pct:0.11, counter:'tick', xp:0.006, cap:3},
-  {key:'smsn', id:1043, type:4, name:"Seasoned", desc:"Living through the turning year", note:"Perspective that needs a full cycle", stat:'int', pct:0.132, pred:'anySeason', xp:0.03},
-  {key:'mkng', id:1044, type:5, name:"Making", desc:"Things brought into being by hand", note:"Fluency with tools", stat:'int', pct:0.198, counter:'crftt', xp:2, cap:6},
-  {key:'brew', id:1045, type:5, name:"Brewing", desc:"Potions prepared and handled", note:"Familiarity with volatile things", stat:'int', pct:0.198, counter:'potnst', xp:2.5, cap:6},
-  {key:'hggl', id:1046, type:3, name:"Haggling", desc:"Prices argued down", note:"Reading what a thing is worth", stat:'int', pct:0.198, counter:'buyt', xp:1.5, cap:8},
-  {key:'thft', id:1047, type:3, name:"Sleight", desc:"Value that moved quietly", note:"Quick hands around goods", stat:'agl', pct:0.198, counter:'shppnt', xp:1.5, cap:8},
-  {key:'acct', id:1048, type:3, name:"Accounting", desc:"Money coming in", note:"Keeping track of what you have", stat:'int', pct:0.132, counter:'moneyg', xp:0.02, cap:60},
-  {key:'spnd', id:1049, type:3, name:"Spending", desc:"Money going out", note:"Knowing what parting with it costs", stat:'int', pct:0.132, counter:'moneysp', xp:0.02, cap:60},
-  {key:'invt', id:1050, type:9, name:"Inventory", desc:"Sorting and handling what you carry", note:"Order imposed on a full pack", stat:'int', pct:0.154, counter:'ivtntdj', xp:1, cap:8},
-  {key:'slvg', id:1051, type:9, name:"Salvage", desc:"Taking things apart for parts", note:"Seeing components instead of objects", stat:'int', pct:0.198, counter:'dsst', xp:2, cap:6},
-  {key:'uphl', id:1052, type:9, name:"Upkeep", desc:"Maintaining what you own", note:"Nothing breaks that you look after", stat:'int', pct:0.154, counter:'pts', xp:0.4, cap:10},
-  {key:'prov', id:1053, type:5, name:"Provisioning", desc:"Stockpiling what you will need", note:"Forethought about supplies", stat:'int', pct:0.154, counter:'gsvs', xp:1.5, cap:6},
-  {key:'lgts', id:1054, type:9, name:"Lightkeeping", desc:"Keeping a light going", note:"Small vigilances that add up", stat:'int', pct:0.132, counter:'lgtstk', xp:1, cap:8},
-  {key:'jrny', id:1055, type:3, name:"Journeywork", desc:"Work done for other people", note:"Competence that others rely on", stat:'int', pct:0.176, counter:'jcom', xp:3, cap:4},
-  {key:'stdy', id:1056, type:4, name:"Study", desc:"Books worked through to the end", note:"Sustained attention on a page", stat:'int', pct:0.22, counter:'rdttl', xp:4, cap:4},
-  {key:'pgtn', id:1057, type:4, name:"Page Turning", desc:"Raw hours spent reading", note:"Reading speed built by volume", stat:'int', pct:0.132, counter:'rdgtttl', xp:0.05, cap:40},
-  {key:'exmn', id:1058, type:4, name:"Examination", desc:"Things looked at properly", note:"Detail noticed on purpose", stat:'int', pct:0.132, counter:'dsct', xp:0.4, cap:12},
-  {key:'bstl', id:1059, type:3, name:"Bestiary Lore", desc:"Creatures catalogued", note:"Knowing what you are looking at", stat:'int', pct:0.198, counter:'cat_c', xp:2.5, cap:6},
-  {key:'qstl', id:1060, type:4, name:"Questing", desc:"Undertakings seen through", note:"Follow-through as a discipline", stat:'int', pct:0.242, counter:'qstc', xp:8, cap:3},
-  {key:'cntm', id:1061, type:4, name:"Contemplation", desc:"Time spent deliberately still", note:"Thought without a task attached", stat:'int', pct:0.176, counter:'medst', xp:0.4, cap:12},
-  {key:'nmrc', id:1062, type:4, name:"Reckoning", desc:"Experience accumulated overall", note:"A sense of your own progress", stat:'int', pct:0.11, counter:'exptotl', xp:0.008, cap:80},
-  {key:'brdt', id:1063, type:4, name:"Breadth", desc:"Skills raised across the board", note:"Range rather than depth", stat:'int', pct:0.176, counter:'slvs', xp:1.5, cap:6},
-  {key:'rcll', id:1064, type:4, name:"Recall", desc:"Holding many things in mind", note:"Memory under load", stat:'int', pct:0.154, pred:'peaceful', xp:0.04},
-  {key:'insh', id:1065, type:4, name:"Insight", desc:"Understanding arriving unbidden", note:"The pieces landing at once", stat:'int', pct:0.176, pred:'indoorsCalm', xp:0.08},
-  {key:'apet', id:1066, type:4, name:"Appetite", desc:"Meals eaten, in quantity", note:"A body that takes on fuel well", stat:'str', pct:0.154, counter:'foodt', xp:1.2, cap:8},
-  {key:'plte', id:1067, type:4, name:"Palate", desc:"Variety in what you have eaten", note:"Discrimination built by tasting", stat:'int', pct:0.154, counter:'fooda', xp:0.06, cap:40},
-  {key:'gutt', id:1068, type:6, name:"Constitution", desc:"Handling food that fought back", note:"A stomach that forgives", stat:'str', pct:0.176, counter:'foodb', xp:1, cap:8},
-  {key:'curi2', id:1069, type:4, name:"Tasting", desc:"Willingness to try the unfamiliar", note:"Nerve at the table", stat:'int', pct:0.176, counter:'ftried', xp:3, cap:4},
-  {key:'temp', id:1070, type:4, name:"Temperance", desc:"Eating without overdoing it", note:"Restraint around plenty", stat:'int', pct:0.154, counter:'foodal', xp:0.8, cap:10},
-  {key:'sate', id:1071, type:4, name:"Satiety", desc:"Operating comfortably fed", note:"Steady output on a full stomach", stat:'str', pct:0.132, pred:'fullEnergy', xp:0.06},
-  {key:'brth2', id:1072, type:4, name:"Breathing", desc:"Deliberate control of the breath", note:"The base every other practice sits on", stat:'int', pct:0.176, pred:'peaceful', xp:0.05},
-  {key:'post', id:1073, type:2, name:"Posture", desc:"Holding yourself well for hours", note:"Alignment that stops costing effort", stat:'agl', pct:0.154, pred:'awake', xp:0.04},
-  {key:'cnda', id:1074, type:6, name:"Acclimation", desc:"Adjusting to wherever you are", note:"The body stops complaining", stat:'str', pct:0.132, pred:'outdoors', xp:0.05},
-  {key:'hyst', id:1075, type:6, name:"Hardiness", desc:"Long exposure to unpleasant conditions", note:"Tolerance, broadly", stat:'str', pct:0.154, pred:'outdoorsRough', xp:0.08},
-  {key:'pthf', id:1076, type:3, name:"Pathfinding", desc:"Routes worked out on the ground", note:"Choosing well between two ways", stat:'int', pct:0.198, counter:'smovet', xp:1.5, cap:5},
-  {key:'rnge', id:1077, type:3, name:"Ranging", desc:"Ground covered far from home", note:"Comfort at a distance", stat:'spd', pct:0.198, counter:'plst', xp:1.2, cap:8},
-  {key:'dlvg', id:1078, type:3, name:"Delving", desc:"Time spent underground", note:"Composure below the surface", stat:'agl', pct:0.198, pred:'indoorsDark', xp:0.14},
-  {key:'clmb', id:1079, type:3, name:"Scrambling", desc:"Ground that needed hands as well as feet", note:"Movement over broken terrain", stat:'agl', pct:0.198, pred:'outdoors', xp:0.06},
-  {key:'trck', id:1080, type:3, name:"Tracking", desc:"Following what passed before you", note:"Reading sign on the ground", stat:'int', pct:0.176, pred:'outdoorsDay', xp:0.07},
-  {key:'stlk', id:1081, type:3, name:"Stalking", desc:"Closing distance without being noticed", note:"Approach as a skill", stat:'agl', pct:0.198, pred:'nightOutdoors', xp:0.1},
-  {key:'flgt', id:1082, type:3, name:"Flight", desc:"Getting away when getting away was right", note:"Knowing when not to fight", stat:'spd', pct:0.198, pred:'lowHpBattle', xp:0.15},
-  {key:'lngm', id:1083, type:4, name:"Long March", desc:"Distance covered without stopping", note:"Pace that can be held all day", stat:'spd', pct:0.154, pred:'outdoors', xp:0.05},
-  {key:'shrt', id:1084, type:3, name:"Shortcuts", desc:"Ways found that others miss", note:"Efficiency of route", stat:'spd', pct:0.176, counter:'smovet', xp:1, cap:5},
-  {key:'mppg', id:1085, type:3, name:"Mapping", desc:"Building a picture of where things are", note:"Space held in the head", stat:'int', pct:0.176, counter:'plst', xp:1, cap:8},
-  {key:'thrs', id:1086, type:3, name:"Threshold", desc:"Crossing into somewhere new", note:"The moment of entering", stat:'agl', pct:0.176, counter:'smovet', xp:0.8, cap:5},
-  {key:'rtne', id:1087, type:4, name:"Routine", desc:"Doing the same thing reliably", note:"Consistency as its own skill", stat:'int', pct:0.132, pred:'anyTime', xp:0.03},
-  {key:'foci', id:1088, type:4, name:"Focus", desc:"Attention held on one thing", note:"Not being pulled away", stat:'int', pct:0.176, pred:'busyWork', xp:0.1},
-  {key:'advr', id:1089, type:2, name:"Adversity", desc:"Time spent in real difficulty", note:"What hard conditions leave behind", stat:'str', pct:0.176, pred:'anyHardship', xp:0.1},
-  {key:'rslv', id:1090, type:2, name:"Resolve", desc:"Continuing after setbacks", note:"Persistence, measured", stat:'str', pct:0.198, counter:'deadt', xp:15, cap:2},
-  {key:'nrve', id:1091, type:2, name:"Nerve", desc:"Staying functional under threat", note:"Fear that stopped being decisive", stat:'agl', pct:0.198, pred:'inBattle', xp:0.07},
-  {key:'rflx', id:1092, type:3, name:"Reflexes", desc:"Reacting before thinking", note:"Speed of response", stat:'agl', pct:0.22, counter:'dodgt', xp:1.5, cap:5},
-  {key:'prcs', id:1093, type:1, name:"Precision", desc:"Doing it exactly right", note:"Accuracy over force", stat:'agl', pct:0.198, counter:'dmgdt', xp:0.04, cap:60},
-  {key:'pace', id:1094, type:4, name:"Pacing", desc:"Spending effort at the right rate", note:"Neither rushing nor dawdling", stat:'spd', pct:0.154, pred:'awake', xp:0.04},
-  {key:'lgcy', id:1095, type:4, name:"Legacy", desc:"Everything, accumulated", note:"What a long life amounts to", stat:'int', pct:0.154, counter:'exptotl', xp:0.006, cap:80},
-  {key:'wsdm', id:1096, type:4, name:"Wisdom", desc:"Judgement built from all of it", note:"The part that cannot be rushed", stat:'int', pct:0.176, counter:'slvs', xp:1.2, cap:6},
-  {key:'grit', id:1097, type:2, name:"Grit", desc:"Continuing when it stopped being fun", note:"Plain stubbornness", stat:'str', pct:0.198, pred:'anyHardship', xp:0.08},
-  {key:'poys', id:1098, type:3, name:"Poise", desc:"Composure that holds up", note:"Balance under pressure", stat:'agl', pct:0.176, pred:'inBattle', xp:0.06},
-  {key:'vitl', id:1099, type:2, name:"Vitality", desc:"General good condition", note:"Baseline health, improved", stat:'str', pct:0.154, pred:'healthy', xp:0.05},
-  {key:'alac', id:1100, type:3, name:"Alacrity", desc:"Readiness to move at once", note:"No delay between decision and action", stat:'spd', pct:0.176, pred:'peaceful', xp:0.04},
+  {key:'kllr', id:1001, type:1, name:"Killing Intent", desc:"Ending fights, and everything that goes into it", note:"Damage dealt, wounds worn, and raw physical work", stat:'str', pct:2.332, counter:'akills', xp:1.2, cap:6},  // + exct, whff, thrw, indr, atrt, bldl, frst, grip, hvyl, endr, apet, gutt
+  {key:'mrtl', id:1013, type:2, name:"Mortality", desc:"Understanding gained the hardest way", note:"What dying teaches, if you come back", stat:'str', pct:0.682, counter:'deadt', xp:25, cap:2},  // + clse, rslv
+  {key:'stmw', id:1025, type:4, name:"Storm Sense", desc:"Reading a sky, a season and the ground underfoot", note:"Attention paid to weather, stars and sign, out in the open", stat:'int', pct:1.892, pred:'outdoors', xp:0.9},  // + fgnv, wthl, trck, nsky, sprg, wntr, foci, insh, brth2, rcll
+  {key:'nwmn', id:1035, type:7, name:"New Moon", desc:"The turning month and the hours after dark", note:"Something clarifies at night, whatever the moon is doing", stat:'int', pct:0.968, pred:'nightOutdoors', xp:1.2},  // + wxmn, wnmn, vgil, dwnr
+  {key:'mkng', id:1044, type:5, name:"Making", desc:"Things brought into being, bought, sold and kept", note:"Fluency with tools, goods and what they are worth", stat:'int', pct:1.826, counter:'crftt', xp:2, cap:6},  // + brew, prov, lgts, hggl, acct, spnd, jrny, uphl, invt, slvg
+  {key:'stdy', id:1056, type:4, name:"Study", desc:"Everything worked through to the end of the page", note:"Reading, examining, cataloguing, tasting, seeing it through", stat:'int', pct:1.87, counter:'rdttl', xp:4, cap:4},  // + pgtn, exmn, bstl, curi2, plte, temp, qstl, brdt, cntm, nmrc
+  {key:'rnge', id:1077, type:3, name:"Ranging", desc:"Ground covered, and getting across it well", note:"Distance, pace and a clean way out when one is needed", stat:'spd', pct:1.056, counter:'plst', xp:1.2, cap:8},  // + shrt, pace, flgt, lngm, alac
+  {key:'rflx', id:1092, type:3, name:"Reflexes", desc:"Moving right, before the thought finishes arriving", note:"Reaction, footing, stealth and nerve, rolled into one", stat:'agl', pct:2.618, counter:'dodgt', xp:1.5, cap:5},  // + prcs, thrs, thft, post, rnwk, snwk, atmn, dusk, dlvg, clmb, stlk, nrve, poys
+  {key:'wsdm', id:1096, type:4, name:"Wisdom", desc:"The long view: time, rest, seasons and ground covered", note:"Judgement that only accumulates, and cannot be rushed", stat:'int', pct:1.21, counter:'slvs', xp:1.2, cap:6},  // + rest, clck, smsn, rtne, lgcy, pthf, mppg
+  {key:'grit', id:1097, type:2, name:"Grit", desc:"Continuing when the conditions are against you", note:"Cold, wet, hungry, hurt, outdoors or out of options", stat:'str', pct:2.882, pred:'anyHardship', xp:0.8},  // + advr, brsr, stnd, mmnt, shvr, sokd, cnda, hyst, sncl, smmr, hngr, rtns, rcvr, wtch, vitl, sate, exps
 ];
 
-/* Milestones for these 100 are deliberately light. Giving each of them the
-   full tier package from MOD_tiers2 — which includes stat MULTIPLIERS — put
-   the player at "kill in 1, die in 4271" against every area in the game.
-   These grant the skill's own xp rate and a small flat stat instead, so 100
-   skills add up to something bounded. */
+/* Milestones for these are deliberately light. Giving each of them the full
+   tier package from MOD_tiers2 — which includes stat MULTIPLIERS — put the
+   player at "kill in 1, die in 4271" against every area in the game. These
+   grant the skill's own xp rate and a small flat stat instead, so the set
+   adds up to something bounded. */
 /* The "trains faster" perks carry an `xpBonus` that MOD_selfXpBonus reads from
    the granted milestones. They are deliberately NOT implemented as
    `sk.p += 0.1` the way the base game's equivalents are: `p` is restored from
@@ -1692,11 +1974,13 @@ function MOD_lightTiers(stat) {
     // Was "this skill trains +10% faster" — a perk about itself, which reads as
     // filler next to the base game's perks. Replaced with a flat stat in the
     // game's own vocabulary. `rev2` marks the ones that changed, for the
-    // migration below.
-    { lv: 10, f: function () { you[A] += 1; you.stat_r(); }, g: false, rev2: true, p: L + " +1" },
-    { lv: 25, f: function () { you[A] += 3; you.stat_r(); }, g: false, p: L + " +3" },
-    { lv: 50, f: function () { you[A] += 6; you.hpa += 25; you.stat_r(); }, g: false, rev2: true,
-      p: L + " +6, HP +25" }
+    // migration below. Values were +1/+3/+6 at 100 skills; doubled at the
+    // 10-skill consolidation so the flat contribution (which scales with the
+    // *number* of these skills) stays in the same range.
+    { lv: 10, f: function () { you[A] += 2; you.stat_r(); }, g: false, rev2: true, p: L + " +2" },
+    { lv: 25, f: function () { you[A] += 6; you.stat_r(); }, g: false, p: L + " +6" },
+    { lv: 50, f: function () { you[A] += 12; you.hpa += 25; you.stat_r(); }, g: false, rev2: true,
+      p: L + " +12, HP +25" }
   ];
 }
 
@@ -1810,7 +2094,7 @@ ontick = function () {
    This supersedes the section 9 wrapper. Order inside:
      1. the game's own allbuff
      2. the 13 multiplying skills from sections 4 and 7 (unchanged)
-     3. the 100 additive skills, one application per stat
+     3. the additive discovered-by-playing skills, one application per stat
      4. max HP tracks the resulting offence, as section 9 established
    -------------------------------------------------------------------------- */
 
@@ -1951,7 +2235,7 @@ console.log('[mod] live descriptions extended to ' + MOD_installLiveDesc() + ' m
 /* ===========================================================================
    11. SKILL PANEL: SECTIONS, PARENT SKILLS, HIDE-MAXED
    ---------------------------------------------------------------------------
-   With 173 skills the flat list is unusable. This adds:
+   With ~95 skills the flat list is unusable. This adds:
      * section headers, grouped by the skill's type
      * a parent skill per section, which boosts xp for its lower-level children
      * checkboxes to hide skills already at the story cap, and to group
@@ -3310,8 +3594,9 @@ var MOD_FLAGSHIP = [
   ['nwmn', 'inta', 'agla', 'INT', 'AGL', 'drkm'],
   ['mkng', 'inta', 'spda', 'INT', 'SPD', 'artf'],
   ['stdy', 'inta', 'inta', 'INT', 'INT', 'schl'],
-  ['apet', 'stra', 'sata', 'STR', 'Max Energy', 'inst'],
-  ['pthf', 'inta', 'spda', 'INT', 'SPD', 'wayf2'],
+  // 'apet' (-> Insatiable) and 'pthf' (-> Wayfinder) were folded into other
+  // skills at the 10-skill consolidation, so their flagship tiers are dropped.
+  // The two titles stay defined in `ttl` but are no longer earnable this way.
   ['rflx', 'agla', 'spda', 'AGL', 'SPD', 'qksl'],
   ['rnge', 'spda', 'agla', 'SPD', 'AGL', 'frst2'],
   ['grit', 'stra', 'hpa',  'STR', 'HP',  'unbn'],
@@ -3649,3 +3934,93 @@ ontick = function () {
 };
 
 console.log('[mod] settings menu: skill xp, game speed and coin drop boxes added');
+
+
+/* ===========================================================================
+   19. THE SKILL EXP CURVE
+   ---------------------------------------------------------------------------
+   The base game's per-skill curve is
+
+       expnext = round(50 + (lvl+1) ^ ln(9*lvl+1))
+
+   which is super-exponential: 109 -> 110 alone costs 1.16e14 xp, more than
+   every level beneath it combined, so the top of the cap ladder was 17,000
+   years away at max game speed (measured in tests/capreach.mjs). No xp
+   multiplier reaches that — the curve itself has to change.
+
+   Replaced with a plain geometric curve:
+
+       expnext = round(base * ratio ^ lvl)
+
+   `ratio` is set so a skill earning ~2 xp/tick reaches level 110 in about six
+   months of real time at 1x. The shape puts most of that time in the last two
+   tiers (a day to cap 60, 24 days to cap 90, ~6 months to 110) while the early
+   caps arrive in minutes — which is right, because early on it is the story
+   flags that gate you, not the xp.
+
+   Only SKILLS are re-curved. `you.expnext` (character level) is the base
+   game's own progression and is left alone.
+   =========================================================================== */
+
+var MOD_XP = { base: 50, ratio: 1.106 };
+
+function MOD_expnextFor(lvl) {
+  return Math.round(MOD_XP.base * Math.pow(MOD_XP.ratio, Math.max(Number(lvl) || 0, 0)));
+}
+
+/* Total xp to climb from 0 to L, for the console helpers and the tests. */
+function MOD_xpToReach(L) {
+  var r = MOD_XP.ratio;
+  return Math.round(MOD_XP.base * (Math.pow(r, L) - 1) / (r - 1));
+}
+
+function MOD_installXpCurve() {
+  var n = 0;
+  for (var k in skl) {
+    var s = skl[k];
+    if (!s || typeof s !== 'object' || typeof s.expnext !== 'function') continue;
+    // per-instance, because the base game assigns expnext inside the Skill
+    // constructor rather than on a prototype
+    s.expnext = function () { return MOD_expnextFor(this.lvl); };
+    s.expnext_t = s.expnext();
+    n++;
+  }
+  return n;
+}
+
+function setXpCurve(ratio, base) {
+  if (ratio !== undefined) {
+    ratio = Number(ratio);
+    if (!isFinite(ratio) || ratio <= 1) { console.warn('[mod] setXpCurve: ratio must be > 1'); return MOD_XP; }
+    MOD_XP.ratio = ratio;
+  }
+  if (base !== undefined) {
+    base = Number(base);
+    if (isFinite(base) && base > 0) MOD_XP.base = base;
+  }
+  MOD_installXpCurve();
+  console.log('[mod] xp curve: ' + MOD_XP.base + ' x ' + MOD_XP.ratio + '^lvl; ' +
+              'total to 110 = ' + MOD_xpToReach(110).toLocaleString());
+  return MOD_XP;
+}
+
+function modXpCurve() {
+  var lines = ['Skill exp curve: expnext = ' + MOD_XP.base + ' x ' + MOD_XP.ratio + '^lvl', ''];
+  var caps = [];
+  for (var i = 0; i < MOD_TIERS.length; i++) caps.push(MOD_TIERS[i]);
+  lines.push('  cap   total xp     at 2 xp/tick');
+  caps.forEach(function (t) {
+    var x = MOD_xpToReach(t.cap), d = x / 2 / 86400;
+    lines.push('  ' + String(t.cap).padStart(3) + '   ' + String(x.toLocaleString()).padStart(12) +
+               '   ' + (d < 1 ? (d * 24).toFixed(1) + ' h' : d.toFixed(1) + ' days').padStart(10) +
+               '   ' + t.name);
+  });
+  var out = lines.join('\n');
+  console.log(out);
+  if (typeof msg === 'function') msg('Skill exp curve printed to the console', 'gold');
+  return out;
+}
+
+console.log('[mod] skill exp curve replaced on ' + MOD_installXpCurve() +
+            ' skills (' + MOD_XP.base + ' x ' + MOD_XP.ratio + '^lvl); ' +
+            'level 110 costs ' + MOD_xpToReach(110).toLocaleString() + ' xp. modXpCurve() for the ladder.');

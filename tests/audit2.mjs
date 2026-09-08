@@ -23,10 +23,10 @@ console.log('  ', JSON.stringify(await p.evaluate(()=>{
 
 console.log('\n2. that maximal save loads back cleanly:');
 console.log('  ', JSON.stringify(await p.evaluate(()=>{
-  const before = {skills: you.skls.length, srdc: skl.srdc.lvl, bstl: skl.bstl.lvl, par: skl.par_1.lvl};
+  const before = {skills: you.skls.length, srdc: skl.srdc.lvl, wsdm: skl.wsdm.lvl, par: skl.par_1.lvl};
   load();
-  return {before, after:{skills: you.skls.length, srdc: skl.srdc.lvl, bstl: skl.bstl.lvl, par: skl.par_1.lvl},
-          intact: you.skls.length===before.skills && skl.srdc.lvl===before.srdc && skl.bstl.lvl===before.bstl};
+  return {before, after:{skills: you.skls.length, srdc: skl.srdc.lvl, wsdm: skl.wsdm.lvl, par: skl.par_1.lvl},
+          intact: you.skls.length===before.skills && skl.srdc.lvl===before.srdc && skl.wsdm.lvl===before.wsdm};
 })));
 
 console.log('\n3. wrapped functions still return what the game expects:');
