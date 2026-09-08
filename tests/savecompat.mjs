@@ -40,6 +40,9 @@ const R = await p.evaluate((saveStr) => {
     discovered: you.skls.length,
     capNow: (typeof MOD_CAP !== 'undefined') ? MOD_CAP.current : null,
     fgt: g('fgt'), srdc: g('srdc'),
+    // levels of any milestone appended past what the v1 save knew about
+    mrtlNewLevels: skl.mrtl && skl.mrtl.mlstn
+      ? skl.mrtl.mlstn.slice(7).map(m => m.lv) : [],
     kllr: g('kllr'), mrtl: g('mrtl'), stmw: g('stmw'), mkng: g('mkng'), rnge: g('rnge'),
     mergedAway: { exct: !!skl.exct, wxmn: !!skl.wxmn, bstl: !!skl.bstl, poys: !!skl.poys,
                   endr: !!skl.endr, vitl: !!skl.vitl, atrt: !!skl.atrt, hggl: !!skl.hggl }
@@ -53,8 +56,22 @@ if (R.tickThrew)        fail.push(`ontick() threw after load: ${R.tickThrew}`);
 if (!R.fgt || R.fgt.lvl !== want.fgtLvl) fail.push(`fgt level ${R.fgt && R.fgt.lvl} != ${want.fgtLvl} (base-game skill, must survive)`);
 if (!R.fgt || Math.abs(R.fgt.p - want.fgtP) > 1e-6) fail.push(`fgt.p ${R.fgt && R.fgt.p} != ${want.fgtP} (positional a7 must still align for base skills)`);
 if (!R.mrtl || R.mrtl.lvl !== want.mrtlLvl) fail.push(`mrtl level ${R.mrtl && R.mrtl.lvl} != ${want.mrtlLvl} (flagship survivor)`);
-if (!R.mrtl || JSON.stringify(R.mrtl.mst) !== JSON.stringify(want.mrtlMst))
-  fail.push(`mrtl milestone flags ${JSON.stringify(R.mrtl && R.mrtl.mst)} != ${JSON.stringify(want.mrtlMst)} (7-slot mst restore must not overflow or misalign)`);
+// The saved flags must land in the slots they were saved from, and any perk
+// appended since must sit AFTER them. Asserting the exact array length instead
+// would fail every time a milestone is legitimately added — which is what
+// happened when section 22 filled the ladder out to level 110. What actually
+// matters is the alignment, and that new trailing slots start ungranted unless
+// the level already earns them.
+{
+  const got = (R.mrtl && R.mrtl.mst) || [];
+  const head = got.slice(0, want.mrtlMst.length);
+  if (JSON.stringify(head) !== JSON.stringify(want.mrtlMst))
+    fail.push(`mrtl milestone flags ${JSON.stringify(head)} != ${JSON.stringify(want.mrtlMst)} (saved flags must restore into the same slots)`);
+  const tail = got.slice(want.mrtlMst.length);
+  const earned = (R.mrtlNewLevels || []).filter(lv => lv <= (R.mrtl ? R.mrtl.lvl : 0)).length;
+  if (tail.filter(Boolean).length !== earned)
+    fail.push(`mrtl has ${tail.filter(Boolean).length} appended perks granted but ${earned} are earned at level ${R.mrtl && R.mrtl.lvl}`);
+}
 if (!R.kllr || R.kllr.lvl !== want.kllrLvl) fail.push(`kllr level ${R.kllr && R.kllr.lvl} != ${want.kllrLvl}`);
 if (!R.stmw || R.stmw.lvl !== want.stmwLvl) fail.push(`stmw level ${R.stmw && R.stmw.lvl} != ${want.stmwLvl} (survivor)`);
 if (Object.values(R.mergedAway).some(Boolean)) fail.push(`merged-away keys still present: ${JSON.stringify(R.mergedAway)}`);

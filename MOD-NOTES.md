@@ -1701,6 +1701,109 @@ have meant a suite that reports confidently on a model the mod no longer has.
 `fullbal.mjs` kept its player-side attribution and had its combat columns moved
 onto the real math.
 
+## Perks for the top half of the ladder
+
+Section 19 made level 110 reachable. Nothing was waiting up there. Measured
+across all 94 skills:
+
+| | skills |
+|---|---|
+| no milestones at all | 25 |
+| nothing past level 10 | 12 |
+| nothing past level 50 (the mod's own tiers stop there) | 44 |
+| something past 50 | 13, and only 10 go past 60 |
+
+**81 of 94 skills gave nothing between level 51 and 110** — the entire top half
+of a ladder the seventh pass had just spent its effort making real.
+
+One rule, applied everywhere: every skill gets the rungs it does not already
+have, from `10, 25, 50, 60, 75, 90, 110`, appended at every level strictly above
+its current highest milestone. Uniform, no per-skill list, and always ascending
+— which the save format requires, since "granted" flags are keyed by array index
+and `tests/audit.mjs` fails on a broken order. A skill topping out at 50 gains
+four perks, one already at 75 gains two, one with none gains all seven. 447
+perks across 93 skills; Renown is skipped, being driven by titles rather than
+levels.
+
+The rungs are the cap ladder's own, so reaching a new story cap and pushing a
+skill into it pay off together.
+
+What each perk *does* comes from the skill's type, so the reward is relevant
+rather than uniform: resistances reduce their own damage type through
+`you.res`, absorptions raise their own element's defence through `you.caff`,
+combat gives STR and critical damage, mental gives INT and EXP, gathering gives
+energy, and so on. Harvesting needed a special case — the base game types it 0
+where every other gathering skill is 8.
+
+Two things deliberately avoided.
+
+**`skl.<x>.p` is never touched.** Skill xp multipliers are restored from the
+save *after* milestones fire (`load()` handles them at the line following the
+milestone replay), so a newly added perk raising one would have its work
+overwritten on the very load that first granted it — and `g` would be true
+forever after, so it would never fire again. Stats are restored *before*
+milestones, which is why everything else here is safe. This is the hazard
+CLAUDE.md warns about, met in practice for the first time.
+
+**Absorption perks use `you.caff`, not `you.res`.** Section 13 already drives
+four of those skills continuously off `you.res`, reconciled through
+`global.flags.mod_aff`; a milestone writing to the same table would fight that
+reconciliation every load.
+
+`tests/perkcoverage.mjs` guards the result: nothing without perks, nothing
+topping out below the highest cap, ascending everywhere, no blank text, no gap
+over 40 levels. The audit went from 478 perks to 932, all passing.
+
+### Two things the balance suite caught afterwards
+
+**Critical damage had to be pulled back to a quarter.** `you.mods.cpwr` is
+shared by all 13 combat skills and compounds across all seven rungs, so giving
+it the same multiplier as everything else took it from 1.2 to **13.0** by cap
+110 — a crit worth 23x a normal swing, landing a fifth of the time, with a mean
+five times the median. That is a coin flip dressed as a build. At a quarter the
+multiplier it sits at 6.7, a crit is 12x, and the strength side carries the
+growth instead.
+
+**The balance harnesses needed the same estimator the mod uses.** Three of 2,490
+matchups failed with the by-now familiar signature — `die` exact to the unit,
+`kill` about twice its target — because `allareas`, `combat` and `earlybal` were
+still taking a plain sample mean of a distribution whose tail had just got
+heavier. They now stratify on the crit roll the same way `MOD_meanDamage` does,
+written out in each rather than calling the mod's copy, so the test is not
+merely agreeing with itself. Six clean runs of all 2,490 afterwards.
+
+**And `savecompat` was asserting the wrong invariant.** It compared `mrtl`'s
+milestone flags against a hardcoded seven-element array, so it failed the moment
+the ladder legitimately appended two more. What matters is that saved flags
+restore into the slots they were saved from and that appended perks sit after
+them, ungranted unless the level already earns them — which is what it checks
+now, and what will survive the next perk added.
+
+## A changelog you can actually reach
+
+The game has a changelog and already links to it — the version number in the
+bottom bar is clickable. Two problems. Nothing about "v470" says "click me",
+and the handler is `window.open('/changelog/changelog.html')`, an absolute path
+from the *server root*, so it only resolves when the game is served from the
+root of a host. From a file:// URL or any subdirectory it 404s, which is how a
+local copy usually gets opened.
+
+So there is a labelled `changelog` button in the bar now, and the path is
+resolved against `document.baseURI` instead. The version number still works —
+its handler is rebound by replacing the node, the game having attached it
+anonymously.
+
+The mod's entries live at the top of that same file under a gold header, above
+the author's, with the base game's changelog untouched below a divider. That
+makes `changelog/changelog.html` a second file the mod edits, alongside the one
+script tag in `index.html`; `git checkout changelog/changelog.html` puts it
+back. The file also gained an explicit white background, because it sets no
+colours of its own and the author's palette — blue dates, black-backed headers
+— assumes a white page, so a browser in dark mode rendered half of it
+unreadable.
+
+**Every change from here on gets an entry there.** That is the point of it.
+
 ## The added actions are earned now
 
 The four actions this mod adds — Circulate Qi, Forage, Practice Calligraphy,

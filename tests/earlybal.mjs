@@ -88,6 +88,27 @@ const R = await p.evaluate((BASELINE) => {
 
   // global.current_z is the anchor MOD_scaleEnemy measures a spawn against,
   // so it has to be the area the creature is coming out of
+  // Your damage is two tight clusters, not one spread: a normal swing varies by
+  // +-10%, a crit runs about 12x that at cap 110 and lands a fifth of the time.
+  // A plain sample mean is therefore mostly measuring "how many crits happened",
+  // and reports balance failures that are really estimator noise. Averaging the
+  // two strata separately and recombining with the crit rate the game will
+  // actually roll against removes that. Written out here rather than calling the
+  // mod's MOD_meanDamage, so the test is not just agreeing with itself.
+  const meanDamage = (att, def, n) => {
+    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0;
+    for (let i = 0; i < n; i++) {
+      global.flags.crti = false;
+      const d = Math.max(0, Math.round(abl.default.f(att, def)));
+      if (d <= 0) zeros++;
+      if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
+    }
+    const mean = (critN && plainN)
+      ? (1 - MOD_critRate(att)) * (plainSum / plainN) + MOD_critRate(att) * (critSum / critN)
+      : (critSum + plainSum) / n;
+    return { mean, zeroPct: zeros / n * 100 };
+  };
+
   const matchup = (z, crt, lvl) => {
     global.current_z = z;
     const m = mon_gen(crt); lvlup(m, lvl);
@@ -100,14 +121,10 @@ const R = await p.evaluate((BASELINE) => {
 
     let dOut = 0, dIn = 0, zeroOut = 0;
     quiet(() => {
-      for (let i = 0; i < SAMPLES; i++) {
-        const a = Math.max(0, Math.round(abl.default.f(you, m)));
-        if (a <= 0) zeroOut++;
-        dOut += a;
-        dIn += Math.max(0, Math.round(abl.default.f(m, you)));
-      }
+      const out = meanDamage(you, m, SAMPLES);
+      const inc = meanDamage(m, you, SAMPLES);
+      dOut = out.mean; dIn = inc.mean; zeroOut = out.zeroPct;
     });
-    dOut /= SAMPLES; dIn /= SAMPLES;
 
     const dpsOut = dOut * hitYou, dpsIn = dIn * hitMon;
     return {
@@ -115,7 +132,7 @@ const R = await p.evaluate((BASELINE) => {
       ehp: Math.round(m.hpmax), estr: Math.round(m.str),
       hitYou: +(hitYou * 100).toFixed(0), hitMon: +(hitMon * 100).toFixed(0),
       dOut: +dOut.toFixed(2), dIn: +dIn.toFixed(2),
-      whiff: +(zeroOut / SAMPLES * 100).toFixed(0),      // % of landed hits that do nothing
+      whiff: +zeroOut.toFixed(0),      // % of landed hits that do nothing
       swingsToKill: dpsOut > 0 ? Math.ceil(m.hpmax / dpsOut) : Infinity,
       swingsToDie:  dpsIn  > 0 ? Math.ceil(you.hpmax / dpsIn) : Infinity,
       spdRatio: +(you.spd / Math.max(m.spd, 0.01)).toFixed(2)

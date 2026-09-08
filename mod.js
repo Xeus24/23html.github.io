@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.1',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '2.2',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -40,6 +40,10 @@ var MOD = {
                      // wrong fields — enemy STR is armour in dmg_calc, so
                      // scaling it clamped your damage to zero. Save format
                      // untouched. See "Balance, eighth pass".
+                     // v2.2: three save slots, the added actions are earned
+                     // rather than given, an unrestricted-actions toggle, and
+                     // perks filled in across the whole level ladder.
+                     // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
   max_speed: 20
@@ -4676,3 +4680,274 @@ ontick = function () {
 
 console.log('[mod] unrestricted actions ' + (MOD_FREE.on ? 'ON' : 'off') +
             ' — settings checkbox, or setFreeActions(true/false)');
+
+
+/* ===========================================================================
+   22. PERKS FOR THE TOP HALF OF THE LADDER
+   ---------------------------------------------------------------------------
+   Section 19 made level 110 reachable. Nothing was waiting up there.
+
+   Measured across all 94 skills before this section:
+
+       25 skills   no milestones at all
+       12 skills   nothing past level 10
+       44 skills   nothing past level 50   (the mod's own tiers stop there)
+       13 skills   something past 50, and only 10 of those go past 60
+
+   So 81 of 94 skills gave nothing at all between 51 and 110 — the entire top
+   half of a ladder the seventh pass had just spent its effort making real.
+
+   --- one rule, applied everywhere ------------------------------------------
+
+   Every skill gets the ladder rungs it does not already have:
+
+       10, 25, 50, 60, 75, 90, 110
+
+   appended at every level strictly above its current highest milestone. That
+   is uniform, needs no per-skill list, and is always ascending — which the
+   save format requires, since "granted" flags are stored by array index and
+   `tests/audit.mjs` fails the build if the order breaks. A skill topping out
+   at 50 gains four perks; one already reaching 75 gains two; one with none
+   gains the whole ladder.
+
+   The rungs are the cap ladder's own (60/75/90/110 are four of its tiers), so
+   reaching a new story cap and pushing a skill into it pay off together.
+
+   --- relevant, not uniform -------------------------------------------------
+
+   What each perk DOES comes from the skill's own type, so a resistance skill
+   gets resistance and an absorption skill gets elemental defence rather than
+   everything getting the same stat:
+
+       1 combat      STR and critical damage
+       2 physical    STR and max HP
+       3 agility     AGL
+       4 mental      INT and EXP gain
+       5 crafting    INT and energy efficiency
+       6 resistance  its own damage type, off you.res, plus max HP
+       7 absorption  its own element, off you.caff, plus INT
+       0 gathering   Harvesting alone, typed 0 by the base game
+       8 gathering   STR, max energy, energy efficiency
+       9 upkeep      INT and energy efficiency
+      10 social      luck and EXP gain
+
+   Two things deliberately avoided:
+
+   `skl.<x>.p` is never touched. Skill xp multipliers are restored from the
+   save AFTER milestones fire, so a newly added perk that raised one would have
+   its work overwritten on the very load that first granted it, and `g` would
+   then be true forever. Stats are restored BEFORE milestones, which is why
+   everything else here is safe.
+
+   Absorption perks use `you.caff` rather than `you.res`. Section 13 already
+   drives four of those skills continuously off `you.res`, reconciled through
+   `global.flags.mod_aff`; writing to the same table from a milestone would
+   fight that reconciliation.
+   =========================================================================== */
+
+var MOD_LADDER = [10, 25, 50, 60, 75, 90, 110];
+
+// per-rung magnitudes, index-matched to MOD_LADDER
+var MOD_RUNG = {
+  flat: [1, 3, 6, 8, 11, 14, 18],
+  mult: [0.04, 0.06, 0.08, 0.10, 0.12, 0.15, 0.20],
+  expt: [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10],
+  res:  [0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.09],
+  aff:  [1, 1, 2, 2, 3, 3, 4]
+};
+
+// type 6: which damage or status each resistance skill actually resists
+var MOD_RES_OF = {
+  poisr: ['poison', 'Poison'], bledr: ['bleed', 'Bleeding'],
+  crptr: ['curse', 'Curse'],   coldr: ['frost', 'Frost'],
+  painr: ['ph', 'Physical'],   wthrn: ['burn', 'Burn']
+};
+
+// type 7: the affinity index each absorption skill covers, from dmg_calc's
+// own switch (1 air, 2 earth, 3 fire, 4 water, 5 light, 6 dark)
+var MOD_AFF_OF = {
+  aba: [1, 'Air'], abe: [2, 'Earth'], abf: [3, 'Fire'],
+  abw: [4, 'Water'], abl: [5, 'Light'], abd: [6, 'Dark'],
+  lunr: [5, 'Light'], nwmn: [6, 'Dark']
+};
+
+var MOD_pctTxt = function (v) { return Math.round(v * 100) + '%'; };
+
+/* Build one rung for one skill. Returns null when the type has nothing
+   sensible to give, so the caller can skip rather than invent something. */
+function MOD_ladderPerk(key, sk, i) {
+  var F = MOD_RUNG.flat[i], M = MOD_RUNG.mult[i],
+      X = MOD_RUNG.expt[i], R = MOD_RUNG.res[i], A = MOD_RUNG.aff[i];
+  var lv = MOD_LADDER[i];
+
+  switch (sk.type) {
+    // Critical damage gets a QUARTER of the multiplier the other stats get.
+    // cpwr is shared by 13 combat skills and compounds across all seven rungs,
+    // so at full value it ran 1.2 -> 13.0 by cap 110, which made a crit 23x a
+    // normal swing: one swing in five carrying most of the damage, and a mean
+    // five times the median. The strength side carries the growth instead.
+    case 1: return { lv: lv, g: false,
+      p: 'STR +' + F + ', STR Multiplier +' + MOD_pctTxt(M * 1.25) + ', Critical Damage +' + MOD_pctTxt(M / 4),
+      f: function () { you.stra += F; you.strm += M * 1.25; you.mods.cpwr += M / 4; you.stat_r(); } };
+
+    case 2: return { lv: lv, g: false,
+      p: 'STR +' + F + ', HP +' + (F * 20) + ', STR Multiplier +' + MOD_pctTxt(M / 2),
+      f: function () { you.stra += F; you.hpa += F * 20; you.strm += M / 2; you.stat_r(); } };
+
+    case 3: return { lv: lv, g: false,
+      p: 'AGL +' + F + ', AGL Multiplier +' + MOD_pctTxt(M),
+      f: function () { you.agla += F; you.aglm += M; you.stat_r(); } };
+
+    case 4: return { lv: lv, g: false,
+      p: 'INT +' + F + ', INT Multiplier +' + MOD_pctTxt(M) + ', EXP Gain +' + MOD_pctTxt(X),
+      f: function () { you.inta += F; you.intm += M; you.exp_t += X; you.stat_r(); } };
+
+    case 5: return { lv: lv, g: false,
+      p: 'INT +' + F + ', Energy Effectiveness +' + MOD_pctTxt(M / 2),
+      f: function () { you.inta += F; you.mods.sbonus += M / 2; you.stat_r(); } };
+
+    case 6: {
+      var r = MOD_RES_OF[key];
+      if (!r) return { lv: lv, g: false,
+        p: 'HP +' + (F * 15) + ', Max Energy +' + (F * 15),
+        f: function () { you.hpa += F * 15; you.sata += F * 15; you.stat_r(); } };
+      return { lv: lv, g: false,
+        p: r[1] + ' damage taken −' + MOD_pctTxt(R) + ', HP +' + (F * 10),
+        f: function () {
+          you.res[r[0]] = Math.max(you.res[r[0]] - R, 0.05);   // res is a damage multiplier
+          you.hpa += F * 10; you.stat_r();
+        } };
+    }
+
+    case 7: {
+      var a = MOD_AFF_OF[key];
+      if (!a) return { lv: lv, g: false,
+        p: 'INT +' + F + ', INT Multiplier +' + MOD_pctTxt(M / 2),
+        f: function () { you.inta += F; you.intm += M / 2; you.stat_r(); } };
+      return { lv: lv, g: false,
+        p: a[1] + ' elemental defence +' + A + ', INT +' + F,
+        f: function () { you.caff[a[0]] += A; you.inta += F; you.stat_r(); } };
+    }
+
+    // type 0 is Harvesting alone — the base game's odd one out, and a gathering
+    // skill in everything but its type number
+    case 0:
+    case 8: return { lv: lv, g: false,
+      p: 'STR +' + F + ', Max Energy +' + (F * 25) + ', Energy Effectiveness +' + MOD_pctTxt(M / 2),
+      f: function () { you.stra += F; you.sata += F * 25; you.mods.sbonus += M / 2; you.stat_r(); } };
+
+    case 9: return { lv: lv, g: false,
+      p: 'INT +' + F + ', Energy Effectiveness +' + MOD_pctTxt(M / 2) + ', EXP Gain +' + MOD_pctTxt(X),
+      f: function () { you.inta += F; you.mods.sbonus += M / 2; you.exp_t += X; you.stat_r(); } };
+
+    case 10: return { lv: lv, g: false,
+      p: 'Luck +' + Math.max(Math.round(F / 2), 1) + ', EXP Gain +' + MOD_pctTxt(X),
+      f: function () { you.luck += Math.max(Math.round(F / 2), 1); you.exp_t += X; you.stat_r(); } };
+
+    default: return null;
+  }
+}
+
+(function () {
+  var skills = 0, perks = 0;
+  for (var key in skl) {
+    var sk = skl[key];
+    if (!sk || typeof sk !== 'object' || !sk.name) continue;
+    if (key === 'rnwn') continue;                 // Renown is driven by titles, not levels
+
+    var have = (sk.mlstn || []).map(function (m) { return m.lv; });
+    var top = have.length ? Math.max.apply(null, have) : 0;
+
+    var add = [];
+    for (var i = 0; i < MOD_LADDER.length; i++) {
+      if (MOD_LADDER[i] <= top) continue;         // append only, always ascending
+      var perk = MOD_ladderPerk(key, sk, i);
+      if (perk) add.push(perk);
+    }
+    if (!add.length) continue;
+    MOD_addMilestones(sk, add);
+    skills++; perks += add.length;
+  }
+  console.log('[mod] ' + perks + ' perks added across ' + skills +
+              ' skills, filling levels up to ' + MOD_LADDER[MOD_LADDER.length - 1]);
+})();
+
+/* What a given skill still has ahead of it. */
+function modPerks(key) {
+  var sk = skl[key];
+  if (!sk) { console.log('no such skill: ' + key); return ''; }
+  var lines = [sk.name + ' (lv ' + sk.lvl + ') — ' + (sk.mlstn || []).length + ' perks:'];
+  (sk.mlstn || []).forEach(function (m) {
+    lines.push('  lv ' + String(m.lv).padStart(3) + (m.g ? '  *  ' : '     ') + m.p);
+  });
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+
+/* ===========================================================================
+   23. CHANGELOG ACCESS
+   ---------------------------------------------------------------------------
+   The game already has a changelog and already links to it — the version
+   number in the bottom bar is clickable. Two problems with that.
+
+   It is not discoverable: nothing about "v470" says "click me". And the link
+   is `window.open('/changelog/changelog.html')`, an absolute path from the
+   SERVER ROOT, so it only resolves when the game is served from the root of a
+   host. Opened from a file:// URL or from any subdirectory it 404s, which is
+   the more common way to run a local copy.
+
+   So: a labelled button next to the version, and a path resolved relative to
+   the page rather than to the root. The version number keeps working too —
+   its handler is rebound rather than removed, by replacing the node, since the
+   game attached it anonymously.
+
+   The mod's own entries live at the top of that same file, above the author's,
+   under a gold header. That does mean changelog/changelog.html is a second
+   file the mod edits, alongside the one script tag in index.html;
+   `git checkout changelog/changelog.html` puts it back.
+   =========================================================================== */
+
+MOD.changelog = 'changelog/changelog.html';
+
+/* Relative to the document, so it works from file://, from a subdirectory, and
+   from a server root alike. */
+function MOD_changelogUrl() {
+  try {
+    return new URL(MOD.changelog + '#mod', document.baseURI).href;
+  } catch (e) {
+    return '/' + MOD.changelog + '#mod';
+  }
+}
+
+function modChangelog() {
+  var url = MOD_changelogUrl();
+  try { window.open(url, '_blank'); } catch (e) {}
+  console.log('[mod] changelog: ' + url);
+  return url;
+}
+
+(function () {
+  try {
+    var btn = addElement(dom.sl, 'span', null, 'sl');
+    btn.innerHTML = 'changelog';
+    btn.style.cssText = 'display:inline-block;width:auto;padding:3px 7px;cursor:pointer;';
+    btn.title = 'What changed, mod entries first';
+    btn.addEventListener('click', modChangelog);
+    dom.sl.insertBefore(btn, dom.sl_extra);
+
+    // Rebind the version number to the same relative URL. Replacing the node is
+    // the only way to drop the game's anonymous listener.
+    if (dom.vrs && dom.vrs.parentNode) {
+      var v = dom.vrs.cloneNode(true);
+      dom.vrs.parentNode.replaceChild(v, dom.vrs);
+      dom.vrs = v;
+      v.title = 'Changelog';
+      v.addEventListener('click', modChangelog);
+    }
+    console.log('[mod] changelog button added — ' + MOD_changelogUrl());
+  } catch (e) {
+    console.warn('[mod] changelog button failed: ' + e.message);
+  }
+})();

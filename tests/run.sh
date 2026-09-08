@@ -19,7 +19,7 @@ fi
 if [ "$#" -gt 0 ]; then
   TESTS=("$@")
 else
-  TESTS=(audit audit2 earlybal combat allareas fightsmoke fullbal econ settings-boxes savecompat saveslots actionlock freeactions capreach areagate)
+  TESTS=(audit audit2 earlybal combat allareas fightsmoke fullbal econ settings-boxes savecompat saveslots actionlock freeactions perkcoverage capreach areagate)
 fi
 
 echo "serving $ROOT on port $PORT"

@@ -24,7 +24,7 @@ await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
 await p.waitForTimeout(4500);
 
 const R = await p.evaluate(() => {
-  const SAMPLES = 40;
+  const SAMPLES = 60;
 
   const freshYou = () => {
     you.lvl = 1; you.str_r = 1; you.agl_r = 1; you.int_r = 1; you.spd_r = 1;
@@ -77,6 +77,27 @@ const R = await p.evaluate(() => {
     try { return fn(); } finally { giveSkExp = g; global.flags.crti = c; }
   };
 
+  // Your damage is two tight clusters, not one spread: a normal swing varies by
+  // +-10%, a crit runs about 12x that at cap 110 and lands a fifth of the time.
+  // A plain sample mean is therefore mostly measuring "how many crits happened",
+  // and reports balance failures that are really estimator noise. Averaging the
+  // two strata separately and recombining with the crit rate the game will
+  // actually roll against removes that. Written out here rather than calling the
+  // mod's MOD_meanDamage, so the test is not just agreeing with itself.
+  const meanDamage = (att, def, n) => {
+    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0;
+    for (let i = 0; i < n; i++) {
+      global.flags.crti = false;
+      const d = Math.max(0, Math.round(abl.default.f(att, def)));
+      if (d <= 0) zeros++;
+      if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
+    }
+    const mean = (critN && plainN)
+      ? (1 - MOD_critRate(att)) * (plainSum / plainN) + MOD_critRate(att) * (critSum / critN)
+      : (critSum + plainSum) / n;
+    return { mean, zeroPct: zeros / n * 100 };
+  };
+
   const matchup = (z, crt, lvl) => {
     global.current_z = z;
     const hpBefore = you.hpmax;
@@ -88,16 +109,14 @@ const R = await p.evaluate(() => {
     const hm = Math.max(0, Math.min(100, hit_calc(2))) / 100;
     let o = 0, i2 = 0, z0 = 0;
     quiet(() => {
-      for (let i = 0; i < SAMPLES; i++) {
-        const a = Math.max(0, Math.round(abl.default.f(you, m))); if (a <= 0) z0++; o += a;
-        i2 += Math.max(0, Math.round(abl.default.f(m, you)));
-      }
+      const out = meanDamage(you, m, SAMPLES);
+      const inc = meanDamage(m, you, SAMPLES);
+      o = out.mean * hy; i2 = inc.mean * hm; z0 = out.zeroPct;
     });
-    o = o / SAMPLES * hy; i2 = i2 / SAMPLES * hm;
     return { name: m.name, lvl,
       kill: o > 0 ? Math.ceil(m.hpmax / o) : Infinity,
       die:  i2 > 0 ? Math.ceil(you.hpmax / i2) : Infinity,
-      whiff: Math.round(z0 / SAMPLES * 100),
+      whiff: Math.round(z0),
       // intent vs outcome, so a failure says which side missed and by how much
       why: { killT: +(m._modKillT || 0).toFixed(1), dieT: +(m._modDieT || 0).toFixed(1),
              tgtDmg: Math.round(m._modDmg || 0), gotDmg: Math.round(i2 / Math.max(hm, 1e-9)),

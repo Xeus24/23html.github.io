@@ -9,6 +9,59 @@
 CHANGELOG<br>
 <span style="color:yellow;background-color:crimson">:::game is still in very early alpha and is severely underfunished:::</span><br>
 <br><br>
+<style>
+/* The page sets no colours of its own, so a browser in dark mode renders it
+   white-on-black — and the author's palette (blue dates, black-backed headers)
+   is built for a white page, so half of it becomes unreadable. Pinning the
+   light background restores what the file was written to look like. */
+body{background:#fff;color:#000}
+</style>
+<a name="mod"></a>
+<span style="color:black;background-color:gold">&nbsp;PROTO23 MOD &mdash; changes made by the local mod.js&nbsp;</span><br>
+<span style="color:grey">The base game's own changelog continues below this block. Nothing here is the
+original author's. Remove the &lt;script src="mod.js"&gt; line from index.html and none of it applies.</span><br>
+<br>
+
+<span style="color:gold;background-color:black">----MOD 2.2:</span><br>
+<span style="color:blue">[2026/09/08]</span><br>
+Perks now run the whole ladder &mdash; every skill has milestones at 10/25/50/60/75/90/110<br>
+&nbsp;&nbsp;(447 added; 81 of 94 skills previously gave nothing at all between level 51 and 110)<br>
+Perk rewards match the skill's type: resistances give resistance, absorptions give elemental defence,<br>
+&nbsp;&nbsp;combat gives STR and crit damage, mental gives INT and EXP, gathering gives energy<br>
+Critical damage from combat perks kept deliberately small &mdash; it is shared by 13 skills and compounds,<br>
+&nbsp;&nbsp;and at full value a crit reached 23x a normal swing, which made combat a coin flip on crits<br>
+The four added actions are earned now, not handed over on load<br>
+&nbsp;&nbsp;Toughness 4 &rarr; Endurance Drill, Harvesting 4 &rarr; Forage,<br>
+&nbsp;&nbsp;Temperance 5 &rarr; Circulate Qi, Literacy 8 &rarr; Practice Calligraphy<br>
+New settings checkbox "Unrestricted actions": run several actions at once, and start them anywhere<br>
+&nbsp;&nbsp;(off by default &mdash; both are limits the base game means to impose)<br>
+Three save slots, with a "saves" panel and a "new save" button in the bottom bar<br>
+&nbsp;&nbsp;Switching saves the slot you are leaving first; "delete the save" now deletes only the slot you are in<br>
+Changelog reachable from a "changelog" button in the bottom bar, not just the version number<br>
+<br>
+
+<span style="color:gold;background-color:black">----MOD 2.1:</span><br>
+<span style="color:blue">[2026/09/08]</span><br>
+Enemy scaling rewritten &mdash; it had been scaling the wrong fields<br>
+&nbsp;&nbsp;An enemy's STR is subtracted from your damage, so scaling it armoured them instead of<br>
+&nbsp;&nbsp;lengthening the fight. The tutorial needed ~63,000 swings and killed you in one;<br>
+&nbsp;&nbsp;everything from the southern forest onward was kill-in-1 / die-in-1<br>
+Difficulty is now solved per spawn against your actual power: ~8 swings to kill, ~20 to die<br>
+Enemies in an area's higher level band are genuinely harder, and each creature keeps its own character<br>
+Arena golems are proper boss fights rather than the softest thing in the game<br>
+<br>
+
+<span style="color:gold;background-color:black">----MOD 2.0:</span><br>
+<span style="color:blue">[2026/09/07]</span><br>
+The ~100 "discovered by playing" skills consolidated to 10, with the same total effect<br>
+Skill EXP curve replaced so level 110 is reachable in about six months at 1x speed<br>
+&nbsp;&nbsp;(the base game's curve made level 109&rarr;110 alone cost 1.16e14 xp)<br>
+The three added areas now stay hidden until golem arena IV is cleared, then open in order<br>
+Saves from before this update still load; skills that were merged away simply do not return<br>
+<br>
+
+<span style="color:grey">&mdash;&mdash;&mdash; base game changelog below &mdash;&mdash;&mdash;</span><br>
+<br>
 <span style="color:lime;background-color:black">----461ー466:</span><br>
 <span style="color:blue">[2021/03/21]</span><br>
 Storage containers are generalized and can be placed anywhere(bags, chests, altars, etc)、 also trigger putting events<br>

@@ -154,6 +154,27 @@ What matters:
   that location. Only the *first* line of an `sl()` may pass `true`; every later
   line, including greyed-out hints, must pass `false`.
 
+## Perks and the changelog
+
+Every skill has perks at `10/25/50/60/75/90/110` (section 22). New ones are
+**appended above the skill's current highest level** — never inserted — because
+"granted" flags are stored by array index. `tests/perkcoverage.mjs` fails if any
+skill tops out below the highest story cap.
+
+- A perk must never touch `skl.<x>.p`. Skill xp multipliers are restored from
+  the save *after* milestones fire, so the bonus is overwritten on the load that
+  first grants it and `g` is true forever after. Stats restore *before*
+  milestones, so those are safe.
+- Absorption perks use `you.caff`, not `you.res` — section 13 already drives
+  `you.res` continuously for those skills and reconciles it through
+  `global.flags.mod_aff`.
+
+**`changelog/changelog.html` gets an entry for every change.** The mod's block
+sits at the top under a gold header, newest first, above the base game's own
+entries. It is reachable in game from the `changelog` button in the bottom bar.
+This and the one script tag in `index.html` are the only files outside the mod's
+own that it touches.
+
 ## Actions
 
 The mod adds four actions. They are **earned**, from milestones on base-game

@@ -76,6 +76,27 @@ const R = await p.evaluate(() => {
 
   // global.current_z is the anchor MOD_scaleEnemy measures a spawn against,
   // so it has to be the area the creature is coming out of
+  // Your damage is two tight clusters, not one spread: a normal swing varies by
+  // +-10%, a crit runs about 12x that at cap 110 and lands a fifth of the time.
+  // A plain sample mean is therefore mostly measuring "how many crits happened",
+  // and reports balance failures that are really estimator noise. Averaging the
+  // two strata separately and recombining with the crit rate the game will
+  // actually roll against removes that. Written out here rather than calling the
+  // mod's MOD_meanDamage, so the test is not just agreeing with itself.
+  const meanDamage = (att, def, n) => {
+    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0;
+    for (let i = 0; i < n; i++) {
+      global.flags.crti = false;
+      const d = Math.max(0, Math.round(abl.default.f(att, def)));
+      if (d <= 0) zeros++;
+      if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
+    }
+    const mean = (critN && plainN)
+      ? (1 - MOD_critRate(att)) * (plainSum / plainN) + MOD_critRate(att) * (critSum / critN)
+      : (critSum + plainSum) / n;
+    return { mean, zeroPct: zeros / n * 100 };
+  };
+
   const matchup = (z, crt, lvl) => {
     global.current_z = z;
     const m = mon_gen(crt); lvlup(m, lvl);
@@ -86,18 +107,16 @@ const R = await p.evaluate(() => {
     const hitMon = Math.max(0, Math.min(100, hit_calc(2))) / 100;
     let dOut = 0, dIn = 0, zOut = 0, zIn = 0;
     quiet(() => {
-      for (let i = 0; i < SAMPLES; i++) {
-        const a = Math.max(0, Math.round(abl.default.f(you, m))); if (a <= 0) zOut++; dOut += a;
-        const d = Math.max(0, Math.round(abl.default.f(m, you))); if (d <= 0) zIn++;  dIn += d;
-      }
+      const out = meanDamage(you, m, SAMPLES);
+      const inc = meanDamage(m, you, SAMPLES);
+      dOut = out.mean; dIn = inc.mean; zOut = out.zeroPct; zIn = inc.zeroPct;
     });
-    dOut /= SAMPLES; dIn /= SAMPLES;
     const oOut = dOut * hitYou, oIn = dIn * hitMon;
     return { name: m.name, lvl,
       ehp: Math.round(m.hpmax), estr: Math.round(m.str),
       hitYou: Math.round(hitYou * 100), hitMon: Math.round(hitMon * 100),
       dOut: +dOut.toFixed(1), dIn: +dIn.toFixed(1),
-      whiffOut: Math.round(zOut / SAMPLES * 100), whiffIn: Math.round(zIn / SAMPLES * 100),
+      whiffOut: Math.round(zOut), whiffIn: Math.round(zIn),
       kill: oOut > 0 ? Math.ceil(m.hpmax / oOut) : Infinity,
       die:  oIn  > 0 ? Math.ceil(you.hpmax / oIn) : Infinity };
   };
