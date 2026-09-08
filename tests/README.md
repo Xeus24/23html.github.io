@@ -43,6 +43,8 @@ a specific binary instead of Playwright's own.
 | `allareas.mjs` | **The exhaustive one.** Every area in the game (21), every creature in each, at both ends of its level band, against all ten story-tier player states, in three skill builds (base game's skills alone / the mod's added skills alone / both) — 2,490 matchups. The three builds are the check on the added skills specifically: they are 99% of player STR by cap 110, so if the model were fitted to a curve rather than measured off the player, the builds would not read alike. The point of the cross product is that the enemy model anchors to the player's power at spawn, so `kill < die` must hold for *any* player in *any* area, including a level 1 character wandering into the Long Vigil and a capped one back in the tutorial. If it fails only at the extremes, the anchor is leaking. The two legitimate trivial cases it reports are `nwh` (holds `creature.default`, id 0, which `MOD_scaleEnemy` deliberately skips) and a lv 1 dummy in the free practice yard. |
 | `fightsmoke.mjs` | End-to-end: real battles through the game's own `attack()`, nine per area, so the wrapper is exercised with the miss roll, the dodge check, the per-swing `allbuff` and death handling rather than by calling `dmg_calc` directly. Fails if a fight is lost, never resolves, or turns into a slog. Note that it re-asserts `global.flags.btl` every swing — the page's own game loop will otherwise drop you out of battle state and the duel stalls silently. |
 | `fullbal.mjs` | Wider version: combat under neutral *and* favourable conditions, where player power comes from (vanilla skills vs. added ones vs. Renown vs. situational buffs), exp pacing, per-kill economy, and a dominance check for whether any single skill carries everything. |
+| `actionlock.mjs` | The four added actions are earned, not handed over on load: locked on a fresh character, still locked after seven seconds (the old build re-granted every five), each unlocked by its own skill milestone and no other, surviving a save/load, and absent again from a fresh save. |
+| `freeactions.mjs` | The "Unrestricted actions" checkbox: conditions bypassed and several sustained actions running at once on separate intervals while checked, base-game behaviour while unchecked, everything stopped and no orphan intervals when it is turned back off, and the setting persisted. Note it opens the actions tab first — the game's own `deactivateAct` calls `refreshAct(a.t, ...)`, and `a.t` only exists once the panel has rendered. |
 | `saveslots.mjs` | The three save slots, driven through the real UI and the real `save()`/`load()`: slots stay independent, switching preserves the slot you leave, "start new save" does not touch the others, deleting one leaves the rest and the mod's settings alone, and a pre-slot save is adopted rather than orphaned. It clears `localStorage` and reloads the page repeatedly, so run it against a copy if you value what is in the browser profile. |
 | `econ.mjs` | Item value model and coin income per kill against vendor prices. |
 | `settings-boxes.mjs` | The settings-menu number boxes: render, apply, clamp, Enter-to-commit, don't clobber a focused box, mirror console changes, persist across reload, leave the rest of the settings window alone. |
@@ -68,6 +70,16 @@ The dials are live on `MOD_ENEMY` in the browser console — `kill`, `die`,
 `hit`, `hpSpread`, `atkSpread`, `margin`, `bossKill`, `bossDie` — and take
 effect on the next spawn, so you can sweep by hand without an edit-reload
 cycle. `setEnemyScale({kill: 12, die: 24})` takes any subset.
+
+## Serving during development
+
+`tests/run.sh` starts `http-server` without `-c-1`, which means it sends
+`Cache-Control: max-age=3600`. The scripts are fine — each Playwright run gets a
+fresh browser — but a browser you have open by hand will keep running a stale
+`mod.js` for an hour, and the script tag has no query string to bust. Symptoms
+are confusing: half the mod present, the newest section simply absent. Serve
+with `npx http-server -p 8080 -c-1 .` when poking at it in a real browser, or
+switch ports, which changes the cache key.
 
 ## A caution
 

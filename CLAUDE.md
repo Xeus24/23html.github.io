@@ -154,6 +154,26 @@ What matters:
   that location. Only the *first* line of an `sl()` may pass `true`; every later
   line, including greyed-out hints, must pass `false`.
 
+## Actions
+
+The mod adds four actions. They are **earned**, from milestones on base-game
+skills, the same way `skl.walk` lv 1 grants the base game's "Run":
+Toughness 4 → Endurance Drill, Harvesting 4 → Forage, Temperance 5 → Circulate
+Qi, Literacy 8 → Practice Calligraphy. Do not go back to granting them on a
+timer.
+
+- Milestone flags are stored **by array index**, so a gating milestone must be
+  appended and levels must stay ascending. Section 3 already appended level-50
+  milestones to Walking, Meditation, Foraging, Patience, Fighting and Sleeping,
+  so those skills cannot take a low-level gate at all.
+- `tests/audit.mjs` counts `acts.length` as player state, so a perk that only
+  grants an action still registers as doing something.
+
+`MOD_FREE` / the "Unrestricted actions" checkbox lets several run at once and
+ignores every `cond()`. It works by swapping the shared `timers.actm` slot
+around each action's own activate/deactivate rather than reimplementing them —
+see section 21 before touching it. Turning it off stops everything.
+
 ## Save slots
 
 The game has one save, at localStorage `"v0.3"`, read once from a `window` load

@@ -15,8 +15,12 @@ const out = await p.evaluate(()=>{
                    'exp_t','luck','karma','crt','wealth','lvl','exp'];
 
   function snap(){
+    // acts is here because a perk may grant an ACTION and nothing else — the
+    // base game's own skl.walk lv1 grants "Run" that way. Without it such a
+    // perk reads as doing nothing at all.
     const s = {sc:{}, mods:{}, res:{}, stat_p:[...you.stat_p], ccls:[...you.ccls],
-               p:{}, titles: global.titles.length, eff: you.eff.length};
+               p:{}, titles: global.titles.length, eff: you.eff.length,
+               acts: acts.length};
     SCALARS.forEach(k=>s.sc[k]=you[k]);
     for(const k in you.mods) s.mods[k]=you.mods[k];
     for(const k in you.res) s.res[k]=you.res[k];
@@ -40,6 +44,7 @@ const out = await p.evaluate(()=>{
     for(const k in a.p) if(a.p[k]!==c.p[k]) d.push('skl.'+k+'.p '+a.p[k]+'->'+c.p[k]);
     if(a.titles!==c.titles) d.push('titles +'+(c.titles-a.titles));
     if(a.eff!==c.eff) d.push('effects +'+(c.eff-a.eff));
+    if(a.acts!==c.acts) d.push('actions +'+(c.acts-a.acts));
     return d;
   }
 
@@ -94,6 +99,7 @@ const out = await p.evaluate(()=>{
         if(/^stat_p/.test(x)) return !/growth|potential/.test(txt);
         if(/^skl\./.test(x)) return !/exp|train|faster|mastery|section/.test(txt);
         if(/^titles/.test(x)) return !/title/.test(txt);
+        if(/^actions/.test(x)) return !/action|unlock/.test(txt);
         if(/^mods\.sbonus/.test(x)) return !/energy/.test(txt);
         if(/^mods\.cpwr/.test(x)) return !/crit/.test(txt);
         if(/^res\./.test(x)) return !/resist|damage|defen/.test(txt);

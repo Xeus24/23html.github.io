@@ -19,7 +19,8 @@ setSpeed(3)      // game speed: ticks, skill xp and combat all scale
 getSpeed()       // current speed
 resetSpeed()     // back to 1x
 setSkillXp(3)    // skill xp multiplier (starts at 2x)
-modUnlock()      // re-grant the four new actions
+modActions()     // the four added actions and what unlocks each
+modUnlockAll()   // grant them all now, skipping the requirements
 ```
 
 Speed persists across reloads (stored under its own localStorage key, not in
@@ -1699,6 +1700,101 @@ the stat-ratio proxy or swept dials that no longer exist; keeping them would
 have meant a suite that reports confidently on a model the mod no longer has.
 `fullbal.mjs` kept its player-side attribution and had its combat columns moved
 onto the real math.
+
+## The added actions are earned now
+
+The four actions this mod adds — Circulate Qi, Forage, Practice Calligraphy,
+Endurance Drill — used to be granted 2.5 seconds after load and re-granted on a
+5-second timer. A brand-new character therefore had four unexplained abilities
+before leaving the tutorial, and the timer existed only to paper over the fact
+that loading a save resets every action's `have` to false before rebuilding the
+list from the save.
+
+They are now earned, through the game's own mechanism. `skl.walk` level 1 is
+what grants the base game's "Run", from a milestone; `act.scout` comes from a
+story beat in the basement. So each added action hangs off a milestone on the
+base-game skill it grows out of:
+
+| Skill | Level | Action | Why that skill |
+|---|---|---|---|
+| Toughness | 4 | Endurance Drill | taking hits teaches you to condition |
+| Harvesting | 4 | Forage | gathering teaches you to search |
+| Temperance | 5 | Circulate Qi | letting go teaches you to hold |
+| Literacy | 8 | Practice Calligraphy | read before you write |
+
+All four are trained by ordinary play: Toughness when you are hit with a slot
+unarmoured, Harvesting from area drops, Temperance by discarding possessions,
+Literacy by reading.
+
+**Which skills could be used was constrained.** Milestone "granted" flags are
+stored by array index, so entries must be appended and their levels must stay
+ascending — `tests/audit.mjs` enforces both. Section 3 had already appended
+20/25/30/40/50 to Walking, Meditation, Foraging, Patience, Fighting and
+Sleeping, so appending anything below 50 to those is impossible, and inserting
+at the front would shift every index and re-fire perks the player already had.
+Meditation was the obvious thematic home for Circulate Qi and is exactly one of
+the blocked ones; Temperance, which had no milestones at all, turned out to be a
+better fit anyway.
+
+**Why a milestone rather than a tick watching for the condition.** The
+requirement then lives in the skill panel like any other perk, the game
+announces it in its own words, and the load ordering is already solved:
+milestones re-fire before the action list is rebuilt from the save, so a
+replayed grant is harmlessly overwritten a moment later. A save from before the
+action was earned simply comes back without it.
+
+Each perk carries a small stat bonus as well, because a perk in this game always
+does something and an entry that only granted an action would read as a blank
+line in the panel.
+
+`tests/audit.mjs` needed teaching about this: its `snap()` did not track `acts`,
+so a perk that granted an action and nothing else counted as doing nothing. With
+`acts.length` added it also surfaces a genuine base-game text gap — `walk lv1`
+says "AGL +1" and quietly grants Run as well.
+
+## Unrestricted actions, opt-in
+
+One settings checkbox that lets sustained actions run simultaneously and start
+anywhere. Off by default: both are deliberate limits, not oversights.
+
+The game enforces one-at-a-time twice over. `activateAct` deactivates whatever
+was running, and every action's `activate()` does
+`clearInterval(timers.actm); timers.actm = setInterval(...)` — a single shared
+slot. Both have to give way.
+
+Nothing is reimplemented. Each action's own `activate`/`deactivate` is wrapped
+and the timer **slot** is swapped around the call:
+
+- activate: park whatever is in `timers.actm`, null the slot so the action's own
+  `clearInterval` is a no-op, let it run and set `timers.actm` to its interval,
+  move that onto the action, put the parked value back.
+- deactivate: put the action's own interval into the slot first, so the action's
+  own `clearInterval` stops the right one.
+
+That works unmodified for the base game's Run and Investigate as well as the
+mod's four, because all six use exactly that shape.
+
+Toggling off is the other half. The click handler reads
+
+```js
+if(a.cond()===true && a.id!==global.current_a.id) activateAct(a)
+else if(a.id===global.current_a.id) deactivateAct(global.current_a)
+```
+
+so only the most recently started action can be clicked off — and with
+conditions bypassed the first branch always wins. `activateAct` therefore treats
+a click on an already-running action as "stop it", which makes every row a
+toggle again.
+
+Turning the box back off stops everything rather than guessing which action to
+keep, because the game only understands one.
+
+Two things guarded: a tick running somewhere it was never meant to can throw
+(Investigate reads `global.current_l`), and left alone that would fire every
+second forever — so `use()` is wrapped and an action that fails five times is
+stopped with a message. And `load()` is wrapped to clear the per-action
+intervals first, since it sets every `active` flag to false and would otherwise
+strand them.
 
 ## Three save slots
 

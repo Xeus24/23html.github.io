@@ -550,34 +550,90 @@ act.mod_cond.deactivate = function () {
 };
 
 
-/* --- Granting the actions --------------------------------------------------
-   Loading a save resets every action's `have` to false and rebuilds the list
-   from the save (by id). So a save made before this mod existed comes back
-   without these actions. A cheap recurring check re-grants any that are
-   missing, which covers first run, loading an old save, and starting over.
-   giveAction() only fires when have===false, so it won't spam.
+/* --- Earning the actions ---------------------------------------------------
+   These used to be handed over 2.5 seconds after load and re-granted on a
+   timer, so a brand-new character had four unexplained abilities before
+   leaving the tutorial. They are now earned, through the game's own mechanism:
+   `skl.walk` level 1 is what grants the base game's "Run", from a milestone.
+
+   Each action hangs off the base-game skill it grows out of, so the thing you
+   were already doing is what teaches it:
+
+     Toughness  4   Endurance Drill       taking hits teaches you to condition
+     Harvesting 4   Forage                gathering teaches you to search
+     Temperance 5   Circulate Qi          letting go teaches you to hold
+     Literacy   8   Practice Calligraphy  read before you write
+
+   All four skills are trained by ordinary play — Toughness by being hit while
+   a slot is unarmoured, Harvesting by area drops, Temperance by discarding
+   possessions, Literacy by reading. None had milestones of its own past
+   level 5, so these append in ascending order and the save's index-keyed
+   "granted" flags stay lined up (tests/audit.mjs enforces that).
+
+   Why a milestone rather than a tick that watches for the condition: the
+   requirement then shows up in the skill panel as a perk like any other, the
+   game announces it in its own words, and load ordering is already solved —
+   milestones re-fire before the action list is rebuilt from the save, so a
+   replayed grant is overwritten by the saved list a moment later.
+
+   The perks carry a small stat bonus as well, because a perk in this game
+   always does something, and an entry that only granted an action would read
+   as a blank line in the panel.
    -------------------------------------------------------------------------- */
 
 var MOD_ACTIONS = [act.mod_qi, act.mod_forage, act.mod_calli, act.mod_cond];
 
-function modUnlock() {
+var MOD_ACTION_UNLOCKS = [
+  { skill: 'tghs',  lv: 4, act: act.mod_cond,
+    f: function () { you.stra += 1; you.stat_r(); },
+    p: 'STR +1, unlocks the action "Endurance Drill"' },
+  { skill: 'hst',   lv: 4, act: act.mod_forage,
+    f: function () { you.inta += 1; you.stat_r(); },
+    p: 'INT +1, unlocks the action "Forage"' },
+  { skill: 'rccln', lv: 5, act: act.mod_qi,
+    f: function () { you.inta += 1; you.stat_r(); },
+    p: 'INT +1, unlocks the action "Circulate Qi"' },
+  { skill: 'rdg',   lv: 8, act: act.mod_calli,
+    f: function () { you.inta += 2; you.stat_r(); },
+    p: 'INT +2, unlocks the action "Practice Calligraphy"' }
+];
+
+MOD_ACTION_UNLOCKS.forEach(function (u) {
+  var sk = skl[u.skill];
+  if (!sk || !u.act) { console.warn('[mod] no unlock for ' + u.skill); return; }
+  MOD_addMilestones(sk, [{
+    lv: u.lv, g: false, p: u.p,
+    f: function () { u.f(); try { giveAction(u.act); } catch (e) {} }
+  }]);
+});
+
+/* Where the four stand, and what is still needed. */
+function modActions() {
+  var lines = ['Added actions:'];
+  MOD_ACTION_UNLOCKS.forEach(function (u) {
+    var sk = skl[u.skill];
+    var have = u.act.have === true;
+    lines.push('  ' + (have ? '[unlocked] ' : '[  locked ] ') + u.act.name +
+      (have ? '' : '  —  ' + (sk ? sk.name + ' ' + sk.lvl + '/' + u.lv : u.skill + ' ' + u.lv)));
+  });
+  lines.push('modUnlockAll() grants them regardless, if you would rather not wait.');
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+/* Deliberate escape hatch, not part of progression. */
+function modUnlockAll() {
   var granted = 0;
   for (var i = 0; i < MOD_ACTIONS.length; i++) {
     var a = MOD_ACTIONS[i];
     if (a && a.have === false) {
-      try { giveAction(a); granted++; } catch (e) {
-        console.warn('[mod] could not grant "' + a.name + '" yet: ' + e.message);
-        return granted;
-      }
+      try { giveAction(a); granted++; }
+      catch (e) { console.warn('[mod] could not grant "' + a.name + '": ' + e.message); }
     }
   }
   return granted;
 }
-
-setTimeout(function () {
-  modUnlock();
-  setInterval(modUnlock, 5000);
-}, 2500);
 
 
 /* ===========================================================================
@@ -591,11 +647,13 @@ function modHelp() {
     '  setSpeed(n)     game speed, e.g. setSpeed(3). Current: ' + getSpeed() + 'x',
     '  resetSpeed()    back to 1x',
     '  setSkillXp(n)   skill xp multiplier. Current: ' + getSkillXp() + 'x',
-    '  modUnlock()     re-grant the four new actions',
+    '  modActions()    the four added actions and what unlocks each',
+    '  modUnlockAll()  grant them all now, skipping the requirements',
     '  modHelp()       this list',
     '',
     '  New skills: Qi Circulation, Foraging, Calligraphy, Conditioning',
     '  New actions: Circulate Qi, Forage, Practice Calligraphy, Endurance Drill',
+    '               each earned from a skill perk — see modActions()',
     '  Speed persists across reloads. Skill xp resets to ' + MOD.skill_xp_mult + 'x.'
   ].join('\n');
   console.log(lines);
@@ -3926,6 +3984,7 @@ ontick = function () {
   try {
     for (var i = 0; i < MOD_SETTINGS.inputs.length; i++) {
       var s = MOD_SETTINGS.inputs[i];
+      if (s.box) continue;                       // checkboxes sync in section 21
       if (document.activeElement === s.el) continue;
       var v = String(s.get());
       if (s.el.value !== v) s.el.value = v;
@@ -4357,3 +4416,263 @@ function modSaves() {
 function modSwitchSave(n) { MOD_switchSlot(n); }
 function modNewSave(n) { MOD_newSave(n); }
 function modDeleteSave(n) { MOD_deleteSlot(n); }
+
+
+/* ===========================================================================
+   21. UNRESTRICTED ACTIONS (opt-in)
+   ---------------------------------------------------------------------------
+   One settings checkbox that does two things: lets sustained actions run at
+   the same time, and lets them start anywhere.
+
+   Both are off by default, because both are deliberate limits in the base
+   game. It is one shared timer and one `global.current_a` on purpose, and
+   every action's cond() is a designed restriction — Run refuses indoors,
+   Forage refuses in the dark. This is a comfort switch, not a fix.
+
+   --- how the game runs an action -------------------------------------------
+
+       activateAct(a)   global.current_a.deactivate(); a.activate();
+                        global.current_a = a
+       a.activate()     clearInterval(timers.actm);
+                        timers.actm = setInterval(() => this.use(), 1000)
+
+   So starting a second action stops the first, in two separate ways: the
+   explicit deactivate, and the shared `timers.actm` slot being overwritten.
+
+   --- what this does instead ------------------------------------------------
+
+   Rather than reimplement any of it, each action's own activate/deactivate is
+   wrapped and the timer SLOT is swapped around the call:
+
+       activate:    park whatever is in timers.actm, null the slot so the
+                    action's own clearInterval is a no-op, let it run and set
+                    timers.actm to its interval, move that onto the action,
+                    put the parked value back
+       deactivate:  put the action's own interval into the slot first, so the
+                    action's own clearInterval stops the right one
+
+   That works for the base game's Run and Investigate as written, and for the
+   mod's four, because all six use exactly the same clearInterval/setInterval
+   shape. Nothing about the timer handling is duplicated or guessed at.
+
+   Toggling an action off is the other half. The click handler reads
+
+       if(a.cond()===true && a.id!==global.current_a.id) activateAct(a)
+       else if(a.id===global.current_a.id) deactivateAct(global.current_a)
+
+   so only the most recent action can be clicked off. With conditions bypassed
+   the first branch always wins, so activateAct treats a click on an action
+   that is already running as "stop it" — which makes every row toggle again.
+   =========================================================================== */
+
+MOD.free_key = 'p23_mod_freeactions';
+
+var MOD_FREE = {
+  on: false,
+  maxErrors: 5      // an action whose tick keeps throwing is stopped, not spammed
+};
+
+(function () {
+  try {
+    var v = localStorage.getItem(MOD.free_key);
+    if (v !== null) MOD_FREE.on = (v === '1' || v === 'true');
+  } catch (e) { /* private mode */ }
+})();
+
+/* Every action the game has, plus any granted later. Wrapping is done once per
+   action and is inert while the switch is off. */
+function MOD_wrapAction(a) {
+  if (!a || a._modWrapped) return;
+  a._modWrapped = true;
+
+  var origCond = a.cond, origAct = a.activate, origDeact = a.deactivate, origUse = a.use;
+
+  a.cond = function (l) {
+    if (MOD_FREE.on) return true;
+    return origCond.apply(this, arguments);
+  };
+
+  a.activate = function () {
+    if (!MOD_FREE.on) return origAct.apply(this, arguments);
+    var parked = timers.actm;
+    timers.actm = null;                      // its clearInterval becomes a no-op
+    try { origAct.apply(this, arguments); }
+    finally {
+      this._modTimer = timers.actm;          // whatever interval it just started
+      timers.actm = parked;
+    }
+    this.active = true;
+    this._modErrors = 0;
+  };
+
+  a.deactivate = function () {
+    if (!MOD_FREE.on) return origDeact.apply(this, arguments);
+    var parked = timers.actm;
+    timers.actm = this._modTimer || null;    // so its clearInterval stops its own
+    try { origDeact.apply(this, arguments); }
+    finally {
+      if (this._modTimer) clearInterval(this._modTimer);
+      this._modTimer = null;
+      timers.actm = parked;
+    }
+    this.active = false;
+  };
+
+  /* A tick running somewhere the action was never meant to run can throw —
+     Investigate reads global.current_l, which is not always what it expects.
+     Left alone that would fire every second forever. */
+  a.use = function () {
+    if (!MOD_FREE.on) return origUse.apply(this, arguments);
+    try { return origUse.apply(this, arguments); }
+    catch (e) {
+      this._modErrors = (this._modErrors || 0) + 1;
+      if (this._modErrors >= MOD_FREE.maxErrors) {
+        console.warn('[mod] "' + this.name + '" kept failing here, stopping it: ' + e.message);
+        if (typeof msg === 'function') msg('You cannot keep that up here', 'red');
+        try { MOD_stopOne(this); } catch (e2) {}
+      }
+    }
+  };
+}
+
+function MOD_wrapAllActions() {
+  for (var k in act) MOD_wrapAction(act[k]);
+}
+MOD_wrapAllActions();
+
+// Anything granted later — the four earned in section 4, Investigate from the
+// basement — gets wrapped as it arrives.
+var MOD_giveAction_original = giveAction;
+giveAction = function (a) {
+  MOD_wrapAction(a);
+  return MOD_giveAction_original(a);
+};
+
+/* Stop one action and hand "current" to whatever else is still running, so the
+   busy flag and the actions-tab highlight stay honest. */
+function MOD_stopOne(a) {
+  try { a.deactivate(); } catch (e) { a.active = false; }
+  a.active = false;
+  var live = [];
+  for (var i = 0; i < acts.length; i++) if (acts[i] && acts[i].active === true) live.push(acts[i]);
+  if (live.length) {
+    global.current_a = live[live.length - 1];
+  } else {
+    global.current_a = act.default;
+    global.flags.busy = false;
+    if (dom.ct_bt3) dom.ct_bt3.style.backgroundColor = 'inherit';
+  }
+  try { for (var j in acts) if (acts[j].t) refreshAct(acts[j].t, acts[j]); } catch (e) {}
+}
+
+var MOD_activateAct_original = activateAct;
+var MOD_deactivateAct_original = deactivateAct;
+
+activateAct = function (actn) {
+  if (!MOD_FREE.on) return MOD_activateAct_original(actn);
+  // The click handler can no longer reach the "stop it" branch for anything but
+  // the most recent action, so a click on a running one lands here instead.
+  if (actn && actn.active === true) { MOD_stopOne(actn); return; }
+  actn.activate();                          // note: no deactivate of current_a
+  global.current_a = actn;
+  global.flags.busy = true;
+  if (dom.ct_bt3) dom.ct_bt3.style.backgroundColor = 'darkslategray';
+};
+
+deactivateAct = function (actn) {
+  if (!MOD_FREE.on) return MOD_deactivateAct_original(actn);
+  MOD_stopOne(actn);
+};
+
+/* load() rebuilds the action list and sets every active flag to false, which
+   would strand any interval this section is holding. */
+var MOD_load_before_free = load;
+load = function (dt) {
+  try { MOD_stopAllActions(true); } catch (e) {}
+  return MOD_load_before_free.apply(this, arguments);
+};
+
+function MOD_stopAllActions(silent) {
+  for (var k in act) {
+    var a = act[k];
+    if (!a) continue;
+    if (a._modTimer) { clearInterval(a._modTimer); a._modTimer = null; }
+    if (!silent && a.active) { try { a.deactivate(); } catch (e) {} }
+    a.active = false;
+  }
+  global.current_a = act.default;
+  global.flags.busy = false;
+  if (dom.ct_bt3) dom.ct_bt3.style.backgroundColor = 'inherit';
+}
+
+/* Turning the switch off has to leave the game in a state it understands:
+   one action at most, on the shared timer. Everything is stopped rather than
+   guessing which one to keep. */
+function setFreeActions(on) {
+  var want = !!on;
+  if (want !== MOD_FREE.on) {
+    var running = 0;
+    for (var i = 0; i < acts.length; i++) if (acts[i] && acts[i].active === true) running++;
+    if (running) MOD_stopAllActions(false);
+    MOD_FREE.on = want;
+  }
+  try { localStorage.setItem(MOD.free_key, want ? '1' : '0'); } catch (e) {}
+  try { for (var j in acts) if (acts[j].t) refreshAct(acts[j].t, acts[j]); } catch (e) {}
+  var line = 'Unrestricted actions: ' + (want ? 'on — run several at once, anywhere' : 'off');
+  console.log('[mod] ' + line);
+  if (typeof msg === 'function') msg(line, want ? 'gold' : 'skyblue');
+  return want;
+}
+
+function getFreeActions() { return MOD_FREE.on; }
+
+
+/* --- the checkbox ----------------------------------------------------------
+   Same row shape as the number boxes in section 18.
+   -------------------------------------------------------------------------- */
+
+function MOD_settingsCheckbox(label, get, set, hint) {
+  try {
+    var row = addElement(dom.ctrwin4, 'div', null, 'opt_c');
+    var lab = addElement(row, 'div', null, 'opt_t');
+    lab.innerHTML = label;
+
+    var inp = addElement(row, 'input', null, 'opt_v mod_optn');
+    inp.type = 'checkbox';
+    inp.checked = !!get();
+    inp.style.cssText = 'width:auto;text-align:left;background:transparent;' +
+                        'border:1px solid #46a;cursor:pointer;';
+    inp.addEventListener('change', function () { inp.checked = !!set(inp.checked); });
+
+    if (hint) { try { addDesc(row, null, 2, label, hint); } catch (e) {} }
+
+    MOD_SETTINGS.inputs.push({ el: inp, get: get, box: true });
+    return inp;
+  } catch (e) { console.warn('[mod] settings checkbox "' + label + '" failed: ' + e.message); }
+}
+
+MOD_settingsCheckbox('Unrestricted actions',
+  function () { return MOD_FREE.on; },
+  function (v) { return setFreeActions(v); },
+  'Run several actions at once, and start them anywhere —<br>' +
+  'in a fight, indoors, in the dark, while working.<br>' +
+  'Both are limits the base game means to impose, so this is off by default.<br>' +
+  'Turning it back off stops everything that is running.<br>' +
+  'Persists across reloads.');
+
+/* The tick sync in section 18 assumes .value; checkboxes need .checked. */
+var MOD_ontick_before_free = ontick;
+ontick = function () {
+  MOD_ontick_before_free();
+  try {
+    for (var i = 0; i < MOD_SETTINGS.inputs.length; i++) {
+      var s = MOD_SETTINGS.inputs[i];
+      if (!s.box || document.activeElement === s.el) continue;
+      var v = !!s.get();
+      if (s.el.checked !== v) s.el.checked = v;
+    }
+  } catch (e) {}
+};
+
+console.log('[mod] unrestricted actions ' + (MOD_FREE.on ? 'ON' : 'off') +
+            ' — settings checkbox, or setFreeActions(true/false)');
