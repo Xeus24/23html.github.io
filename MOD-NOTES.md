@@ -1701,6 +1701,75 @@ have meant a suite that reports confidently on a model the mod no longer has.
 `fullbal.mjs` kept its player-side attribution and had its combat columns moved
 onto the real math.
 
+## Titles: rank, coverage, and finally an effect
+
+Three problems, all confirmed by measurement before touching anything.
+
+**Rank meant nothing.** `rar` ran 0-5 and was assigned by feel, so the game gave
+out rank 3 titles at skill level 8: Runner at Walking 10, Rookie at Fighting 15,
+Dissector at Disassembly 8. Eight of them, all early.
+
+**There were too few.** 120 titles across 93 skills, and 73 of those come from
+story events rather than skills, so most skills granted none at all.
+
+**They did almost nothing.** Four titles in the whole game carry a `talent`.
+The rest are flavour: the "SELECT YOUR TITLE" window sets `you.title`, which is
+the name printed beside your level and nothing else.
+
+### Rank is derived now
+
+| rank | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| level | 1 | 8 | 18 | 30 | 45 | 58 | 70 | 82 | 90 | 110 |
+
+For the 47 titles a skill milestone grants, the level is read out of the
+milestone itself — `f.toString()` is scanned for a `giveTitle` call — so this
+stays correct if a grant ever moves. The other 73 come from story events with no
+level to read, so the author's 0-5 is stretched over the ranks the skill rungs
+leave free (1, 2, 4, 6, 8). Nothing story-granted reaches 9 or 10, which is the
+point: those two mean level 90 and level 110 and nothing else.
+
+### Five per skill
+
+Every skill grants a title at 25, 50, 75, 90 and 110 — ranks 3, 5, 7, 9, 10 —
+levels every skill has milestones for after section 22. 465 new titles, pool
+120 → 585, and all ten ranks populated.
+
+The grant is folded into the milestone already at that level rather than added
+beside it: two milestones at one level would be a duplicate the save cannot tell
+apart by index, and `tests/audit.mjs` rejects it.
+
+Names are formulaic — a noun chosen by skill type, then the skill: *Veteran of
+Fighting*, *Bastion of Cold Resistance*, *Grandmaster of Cooking*. With 465
+generated, legible and consistent beats individually crafted. They are nouns
+specifically because the form is "X of Y" and an adjective reads as a mistake;
+the first draft produced "Peerless of Fighting".
+
+### What they do, and what wearing one is for
+
+Each raises its own skill's exp rate — 5% at rank 3 up to 30% at rank 10 — in
+the spirit of the few the base game bothered to give a talent.
+
+That is `skl.<x>.p`, and it is emphatically **not** set from milestone code:
+skill xp multipliers are restored from the save *after* milestones fire, so the
+write would be lost on the very load that granted it. It is reconciled on the
+tick against a record in `global.flags`, the same shape as section 13's handling
+of `you.res`. `tests/titles.mjs` checks it against stacking over thirty ticks
+and across a reload, which is the failure mode that pattern exists to prevent.
+
+**Base-game talents were already permanent** — `giveTitle` fires `talent()` once
+and sets `tget`; they never needed selecting, and clicking a title only ever
+changed the displayed name. These new bonuses are the opposite by default: only
+the title you are *wearing* applies, which gives the selection window a reason
+to exist for the first time.
+
+Renown then buys that away. At renown level N every title of rank N or lower
+applies permanently, worn or not, so renown 10 makes the whole collection
+passive. The worn title always applies whatever its rank. Renown's own
+thresholds were rescaled to the larger pool — level 10 wants 550 titles rather
+than 100 — so it is a real collection project rather than something finished
+early, and it is now load-bearing rather than decorative.
+
 ## Perks for the top half of the ladder
 
 Section 19 made level 110 reachable. Nothing was waiting up there. Measured

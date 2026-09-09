@@ -22,6 +22,21 @@ body{background:#fff;color:#000}
 original author's. Remove the &lt;script src="mod.js"&gt; line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 2.3:</span><br>
+<span style="color:blue">[2026/09/08]</span><br>
+Title ranks now run 1&ndash;10 and are derived from the level that earns them, not assigned by feel<br>
+&nbsp;&nbsp;rank 1 at lv 1, rank 3 at 18, rank 5 at 45, rank 7 at 70, rank 9 at 90, rank 10 at 110<br>
+&nbsp;&nbsp;(the base game gave out eight rank-3 titles at skill level 8&ndash;15 &mdash; Runner at 10, Rookie at 15)<br>
+Every skill now grants five titles, at levels 25 / 50 / 75 / 90 / 110 &mdash; ranks 3 / 5 / 7 / 9 / 10<br>
+&nbsp;&nbsp;465 new titles; the pool goes from 120 to 585, and all ten ranks are populated<br>
+Titles do something now: each raises its own skill's exp rate, 5% at rank 3 up to 30% at rank 10<br>
+&nbsp;&nbsp;Only the title you are WEARING applies &mdash; which finally gives the selection screen a purpose<br>
+&nbsp;&nbsp;At renown level N, every title of rank N or lower applies permanently whether worn or not,<br>
+&nbsp;&nbsp;so renown 10 makes the whole collection passive<br>
+Renown thresholds rescaled to the larger pool: level 10 now wants 550 titles rather than 100<br>
+modTitles() prints held/total by rank and which ranks have gone passive; modTitles(n) lists one rank<br>
+<br>
+
 <span style="color:gold;background-color:black">----MOD 2.2:</span><br>
 <span style="color:blue">[2026/09/08]</span><br>
 Perks now run the whole ladder &mdash; every skill has milestones at 10/25/50/60/75/90/110<br>

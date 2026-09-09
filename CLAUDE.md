@@ -154,6 +154,21 @@ What matters:
   that location. Only the *first* line of an `sl()` may pass `true`; every later
   line, including greyed-out hints, must pass `false`.
 
+## Titles
+
+Rank (`rar`) runs **1-10 and is derived from the level that earns the title**
+(`MOD_RANK_AT`), never hand-assigned — the base game gave rank 3 at skill level
+8. Every skill grants five titles, at levels 25/50/75/90/110, folded into the
+milestone already at that level (a second milestone at the same level is a
+duplicate the save cannot tell apart by index).
+
+- A title's exp bonus writes to `skl.<x>.p`, which **is saved and is restored
+  after milestones fire**. Never set it from milestone code; it is reconciled on
+  the tick against `global.flags.mod_ttlxp`, like section 13 does for `you.res`.
+- Only the **worn** title applies, until renown level N makes rank ≤ N passive.
+  Base-game `talent`s are a separate, already-permanent mechanism — don't
+  conflate them.
+
 ## Perks and the changelog
 
 Every skill has perks at `10/25/50/60/75/90/110` (section 22). New ones are

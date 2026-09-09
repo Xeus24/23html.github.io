@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.2',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '2.3',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -43,6 +43,9 @@ var MOD = {
                      // v2.2: three save slots, the added actions are earned
                      // rather than given, an unrestricted-actions toggle, and
                      // perks filled in across the whole level ladder.
+                     // v2.3: title ranks 1-10 derived from the level that earns
+                     // them, five titles per skill, and titles that actually do
+                     // something — worn, or passive once renown covers the rank.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -3701,16 +3704,23 @@ MOD_FLAGSHIP.forEach(function (f) {
    multiplicatively, so the first level is immediate and the last is a
    collection project:
 
-       lv    1   2   3   4    5    6    7    8    9   10
-       titles 1   3   5   8   13   20   31   48   74  100
+       lv     1   2   3   4    5    6    7    8    9   10
+       titles  2  12  30  60  105  160  230  320  430  550
 
    Capped at 10 and exempt from the story level cap — it never passes through
-   giveSkExp, its level is derived. Title count is taken from `ttl` rather than
+   giveSkExp, its level is derived. Its level is also what decides how many
+   title ranks apply passively; see section 24. Title count is taken from `ttl` rather than
    `global.titles.length`, because load() rebuilds that array and appends
    `titlese` to it, which can double-count.
    ------------------------------------------------------------------------- */
 
-var MOD_RENOWN_STEPS = [1, 3, 5, 8, 13, 20, 31, 48, 74, 100];
+/* RESCALED in section 24. The pool went from 120 titles to ~492 when every
+   skill started granting four, so thresholds fitted to 120 would have put
+   renown 10 within the first fifth of the collection. These are set against
+   the new total, with level 10 still meaning near-completion — and renown now
+   also decides which title ranks apply without being worn, so the curve is
+   load-bearing rather than decorative. */
+var MOD_RENOWN_STEPS = [2, 12, 30, 60, 105, 160, 230, 320, 430, 550];
 var MOD_RENOWN_MAX = MOD_RENOWN_STEPS.length;
 /* Multiplicative rather than additive: each level multiplies every stat by
    (1 + rate) instead of adding a flat percentage of the running total. Level 10
@@ -3806,26 +3816,6 @@ function modRenown(quiet) {
 
 /* The titles you are missing, so the ladder is actionable rather than just a
    number. Ordered by rarity, since rarer ones are the interesting ones. */
-function modTitles() {
-  var held = [], missing = [];
-  for (var k in ttl) {
-    var t = ttl[k];
-    if (!t || !t.name) continue;
-    (t.have === true ? held : missing).push({ name: t.name, rar: t.rar || 0 });
-  }
-  var byRar = function (a, b) { return (b.rar - a.rar) || (a.name < b.name ? -1 : 1); };
-  held.sort(byRar); missing.sort(byRar);
-  var out = ['Titles: ' + held.length + ' held, ' + missing.length + ' remaining', '',
-             'Held: ' + (held.map(function (t) { return t.name; }).join(', ') || '(none)'), '',
-             'Missing: ' + (missing.map(function (t) { return t.name; }).join(', ') || '(none)')].join('\n');
-  console.log(out);
-  if (typeof msg === 'function') {
-    msg(held.length + ' titles held, ' + missing.length + ' remaining', 'gold');
-    msg('Full list printed to the browser console (F12)', 'grey');
-  }
-  return out;
-}
-
 /* --- one-time migration ---------------------------------------------------
    The lv 10 and lv 50 perks on the added skills changed from an xp-rate bonus
    to flat stats. A character who had already earned them keeps a `g` flag set,
@@ -4951,3 +4941,345 @@ function modChangelog() {
     console.warn('[mod] changelog button failed: ' + e.message);
   }
 })();
+
+
+/* ===========================================================================
+   24. TITLE RANKS, A TITLE PER SKILL TIER, AND WHAT THEY DO
+   ---------------------------------------------------------------------------
+   Three problems with titles as they stood.
+
+   RANK MEANT NOTHING. `rar` ran 0-5 and was assigned by feel, so the game
+   handed out rank 3 titles at skill level 8: Runner at Walking 10, Rookie at
+   Fighting 15, Dissector at Disassembly 8. Eight of them, all early.
+
+   THERE WERE TOO FEW. 120 titles across 93 skills, and 73 of those come from
+   story events rather than skills, so most skills granted none at all.
+
+   THEY DID ALMOST NOTHING. Four titles in the entire game carry a `talent`
+   (Walker, Jogger, and two others). The rest are pure flavour: the "SELECT
+   YOUR TITLE" window sets `you.title`, which is the name printed next to your
+   level and nothing else.
+
+   --- rank is derived now, not assigned ------------------------------------
+
+   A title's rank comes from the level at which it can first be earned:
+
+       rank   1   2   3   4   5   6   7   8   9  10
+       level  1   8  18  30  45  58  70  82  90  110
+
+   Rank 10 therefore means level 110 and nothing else does. For the 47 titles
+   granted by a skill milestone the level is read straight out of the milestone
+   itself — `f.toString()` is scanned for a `giveTitle` call, so this stays
+   correct if a grant moves. The other 73 come from story events with no level
+   to read, so their author-assigned 0-5 is stretched onto the new scale
+   instead; that keeps the author's ordering and keeps ranks 9 and 10 meaning
+   "level 110", which is the point.
+
+   --- five per skill --------------------------------------------------------
+
+   Every skill grants a title at levels 25, 50, 75, 90 and 110 — ranks 3, 5, 7,
+   9 and 10 — which every skill has milestones for after section 22. 465 new
+   titles.
+   The grant is folded into the existing milestone at that level rather than
+   added as a new one, because two milestones at the same level would collide:
+   the save keys "granted" flags by array index and `tests/audit.mjs` rejects
+   duplicate levels.
+
+   Names are formulaic — a rank word chosen by skill type, then the skill.
+   With 372 of them generated, legible and consistent beats individually
+   crafted, and pretending otherwise would just make them hard to tell apart.
+
+   --- and they do something -------------------------------------------------
+
+   Each granted title raises its own skill's exp rate, in the spirit of the
+   handful the base game bothered to give a talent. That is `skl.<x>.p`, which
+   is restored from the save AFTER milestones fire — so it is emphatically NOT
+   set from milestone code. It is reconciled on the tick against a record of
+   what has already been applied, exactly the way section 13 handles `you.res`.
+
+   --- what "wearing" a title is for ----------------------------------------
+
+   Base-game talents were already permanent the moment the title was earned;
+   they never needed selecting. These new bonuses are the opposite by default:
+   only the title you are WEARING applies, which finally gives the selection
+   window a reason to exist.
+
+   Renown then buys that away. At renown level N, every title of rank N or
+   lower applies permanently whether worn or not, so renown 10 makes the whole
+   collection passive. The worn title always applies regardless of its rank.
+   =========================================================================== */
+
+/* --- A. rank ------------------------------------------------------------- */
+
+/* Tuned so the five rungs a skill grants at land on distinct ranks — 25 -> 3,
+   50 -> 5, 75 -> 7, 90 -> 9, 110 -> 10 — and so the story titles stretched onto
+   this scale fill 1, 2, 4, 6 and 8 between them. Every rank is populated; an
+   empty rank would read as a missing tier rather than a design. */
+var MOD_RANK_AT = [1, 8, 18, 30, 45, 58, 70, 82, 90, 110];   // min level per rank
+var MOD_RANK_MAX = MOD_RANK_AT.length;
+
+function MOD_rankForLevel(lv) {
+  var r = 1;
+  for (var i = 0; i < MOD_RANK_AT.length; i++) if (lv >= MOD_RANK_AT[i]) r = i + 1;
+  return r;
+}
+
+/* Which level grants which title, read out of the milestones themselves. */
+function MOD_titleGrantLevels() {
+  var at = {};
+  for (var k in skl) {
+    var s = skl[k];
+    if (!s || typeof s !== 'object' || !s.mlstn) continue;
+    for (var i = 0; i < s.mlstn.length; i++) {
+      var m = s.mlstn[i], src;
+      try { src = String(m.f); } catch (e) { continue; }
+      if (src.indexOf('giveTitle') < 0) continue;
+      var hits = src.match(/ttl\.[A-Za-z0-9_]+|MOD_title\(['"][A-Za-z0-9_]+['"]\)/g) || [];
+      for (var j = 0; j < hits.length; j++) {
+        var key = hits[j].indexOf('MOD_title') === 0
+          ? 'mod_' + hits[j].match(/['"]([A-Za-z0-9_]+)['"]/)[1]
+          : hits[j].slice(4);
+        if (!at[key] || at[key] > m.lv) at[key] = m.lv;
+      }
+    }
+  }
+  return at;
+}
+
+function MOD_rerankTitles() {
+  var at = MOD_titleGrantLevels(), fromLevel = 0, stretched = 0;
+  for (var k in ttl) {
+    var t = ttl[k];
+    if (!t || !t.name) continue;
+    if (t._modRanked) continue;
+    if (at[k] !== undefined) {
+      t.rar = MOD_rankForLevel(at[k]);
+      t._modAtLevel = at[k];
+      fromLevel++;
+    } else {
+      // no level to read: stretch the author's 0-5 onto 1-10, leaving 9 and 10
+      // to mean "earned at level 110"
+      // 0->1 1->2 2->4 3->5 4->6 5->8: spreads the author's six grades over the
+      // ranks the skill rungs leave free, and never reaches 9 or 10, which mean
+      // "level 90" and "level 110"
+      var STRETCH = [1, 2, 4, 5, 6, 8];
+      t.rar = STRETCH[Math.min(Math.max(Math.round(Number(t.rar) || 1), 0), 5)];
+      stretched++;
+    }
+    t._modRanked = true;
+  }
+  return { fromLevel: fromLevel, stretched: stretched };
+}
+
+/* --- B. four titles per skill -------------------------------------------- */
+
+var MOD_TITLE_RUNGS = [25, 50, 75, 90, 110];
+
+// rank words by skill type, one per rung
+/* Nouns, all of them: the title renders as "<word> of <skill>", so an
+   adjective reads as a mistake ("Peerless of Fighting"). */
+var MOD_RANK_WORDS = {
+  0:  ['Gleaner', 'Forager', 'Provider', 'Steward', 'Warden'],
+  1:  ['Recruit', 'Veteran', 'Warmaster', 'Champion', 'Paragon'],
+  2:  ['Trainee', 'Stalwart', 'Ironside', 'Bulwark', 'Titan'],
+  3:  ['Sprinter', 'Shade', 'Phantom', 'Zephyr', 'Ghost'],
+  4:  ['Student', 'Scholar', 'Sage', 'Luminary', 'Oracle'],
+  5:  ['Apprentice', 'Journeyman', 'Master', 'Artisan', 'Grandmaster'],
+  6:  ['Ward', 'Bulwark', 'Bastion', 'Aegis', 'Immortal'],
+  7:  ['Adept', 'Channeler', 'Conduit', 'Avatar', 'Ascendant'],
+  8:  ['Gleaner', 'Forager', 'Provider', 'Steward', 'Warden'],
+  9:  ['Hand', 'Keeper', 'Custodian', 'Curator', 'Archivist'],
+  10: ['Face', 'Notable', 'Luminary', 'Legend', 'Myth']
+};
+
+// exp bonus the title gives its own skill, per rung
+var MOD_TITLE_XP = [0.05, 0.10, 0.15, 0.20, 0.30];
+
+var MOD_SKILL_TITLES = [];        // {key, skill, rung, rank, xp}
+var MOD_TITLE_ID_BASE = 3000;     // clear of the game's 107 and the mod's 201-215
+
+(function () {
+  var id = MOD_TITLE_ID_BASE, made = 0, wrapped = 0;
+
+  for (var key in skl) {
+    var sk = skl[key];
+    if (!sk || typeof sk !== 'object' || !sk.name || key === 'rnwn') continue;
+    if (!sk.mlstn || !sk.mlstn.length) continue;
+
+    var words = MOD_RANK_WORDS[sk.type] || MOD_RANK_WORDS[4];
+    var label = sk.bname || sk.name;
+
+    for (var r = 0; r < MOD_TITLE_RUNGS.length; r++) {
+      var want = MOD_TITLE_RUNGS[r];
+      var idx = -1;
+      for (var i = 0; i < sk.mlstn.length; i++) if (sk.mlstn[i].lv === want) { idx = i; break; }
+      if (idx < 0) continue;                       // skill has no milestone there
+
+      var t = new Title(id++);
+      t.name = words[r] + ' of ' + label;
+      t.rar = MOD_rankForLevel(want);
+      t.desc = 'Earned by taking ' + label + ' to level ' + want + '.';
+      t.tdesc = label + ' exp +' + Math.round(MOD_TITLE_XP[r] * 100) + '%';
+      t._modRanked = true;
+      t._modAtLevel = want;
+      var tKey = 'mod_t_' + key + '_' + want;
+      ttl[tKey] = t;
+
+      MOD_SKILL_TITLES.push({ key: tKey, skill: key, rung: want,
+                              rank: t.rar, xp: MOD_TITLE_XP[r] });
+      made++;
+
+      /* Fold the grant into the milestone already at that level. A second
+         milestone at the same level would be a duplicate the save cannot tell
+         apart by index. */
+      (function (m, title) {
+        var inner = m.f;
+        m.f = function () { inner.call(this); try { giveTitle(title); } catch (e) {} };
+        m.p = (m.p ? m.p + ', ' : '') + 'title "' + title.name + '"';
+      })(sk.mlstn[idx], t);
+      wrapped++;
+    }
+  }
+  console.log('[mod] ' + made + ' skill titles created across ' + wrapped + ' milestones');
+})();
+
+var MOD_RERANK = MOD_rerankTitles();
+console.log('[mod] title ranks rescaled to 1-' + MOD_RANK_MAX + ' — ' +
+            MOD_RERANK.fromLevel + ' from the level that grants them, ' +
+            MOD_RERANK.stretched + ' stretched from the author\'s scale');
+
+
+/* --- C. what the titles do ------------------------------------------------
+   Reconciled on the tick rather than applied when the title is earned.
+   `skl.<x>.p` is saved and is restored AFTER milestones fire, so a milestone
+   that wrote to it would lose the write on the very load that granted it.
+   Tracking what has been applied in `global.flags` — which is saved alongside
+   — means the difference is all that is ever added, on any load, in any order.
+   Same shape as MOD_applyAffinities in section 13.
+   ------------------------------------------------------------------------- */
+
+function MOD_permanentRank() {
+  try { return Math.max(Number(skl.rnwn.lvl) || 0, 0); } catch (e) { return 0; }
+}
+
+/* Does this title's bonus apply right now? Worn always counts; otherwise the
+   title's rank has to be within what renown has made passive. */
+function MOD_titleActive(entry) {
+  var t = ttl[entry.key];
+  if (!t || t.have !== true) return false;
+  try { if (you.title && you.title.id === t.id) return true; } catch (e) {}
+  return entry.rank <= MOD_permanentRank();
+}
+
+function MOD_applyTitleBonuses() {
+  try {
+    if (typeof you === 'undefined' || !global.flags) return;
+    if (!global.flags.mod_ttlxp) global.flags.mod_ttlxp = {};
+    var applied = global.flags.mod_ttlxp;
+
+    // what each skill's p SHOULD be carrying from titles right now
+    var want = {};
+    for (var i = 0; i < MOD_SKILL_TITLES.length; i++) {
+      var e = MOD_SKILL_TITLES[i];
+      if (!MOD_titleActive(e)) continue;
+      want[e.skill] = (want[e.skill] || 0) + e.xp;
+    }
+    // every skill that has one, so a bonus that stops applying is taken back
+    for (var j = 0; j < MOD_SKILL_TITLES.length; j++) {
+      var key = MOD_SKILL_TITLES[j].skill;
+      if (want[key] === undefined) want[key] = 0;
+    }
+
+    for (var k in want) {
+      var sk = skl[k];
+      if (!sk) continue;
+      var have = Number(applied[k]) || 0;
+      if (want[k] === have) continue;
+      sk.p = Math.max((Number(sk.p) || 1) + (want[k] - have), 0.05);
+      applied[k] = want[k];
+    }
+  } catch (e) { /* never break a tick over an exp multiplier */ }
+}
+
+// Undo everything this section put on skill xp rates, for going back.
+function modResetTitleBonuses() {
+  try {
+    var applied = (global.flags && global.flags.mod_ttlxp) || {};
+    for (var k in applied) {
+      var sk = skl[k];
+      if (sk && applied[k]) sk.p = Math.max((Number(sk.p) || 1) - applied[k], 0.05);
+    }
+    global.flags.mod_ttlxp = {};
+    console.log('[mod] title exp bonuses removed');
+    return true;
+  } catch (e) { return false; }
+}
+
+var MOD_ontick_before_titles = ontick;
+ontick = function () {
+  MOD_ontick_before_titles();
+  try { MOD_applyTitleBonuses(); } catch (e) {}
+};
+
+/* Selecting a title changes which bonus is live, so reconcile immediately
+   rather than waiting up to a second for the next tick. */
+var MOD_giveTitle_before_bonus = giveTitle;
+giveTitle = function (t, lv) {
+  var r = MOD_giveTitle_before_bonus(t, lv);
+  try { MOD_updateRenown(); MOD_applyTitleBonuses(); } catch (e) {}
+  return r;
+};
+
+if (dom.d3) {
+  dom.d3.addEventListener('click', function () {
+    // the game builds the picker on this same click; reconcile after it closes
+    setTimeout(function () { try { MOD_applyTitleBonuses(); } catch (e) {} }, 50);
+  });
+}
+
+MOD_applyTitleBonuses();
+
+
+/* --- D. console ----------------------------------------------------------- */
+
+function modTitles(rankFilter) {
+  var rows = [], k, t;
+  for (k in ttl) {
+    t = ttl[k];
+    if (!t || !t.name) continue;
+    if (rankFilter !== undefined && t.rar !== Number(rankFilter)) continue;
+    rows.push({ rank: t.rar || 1, name: t.name, have: t.have === true,
+                lv: t._modAtLevel });
+  }
+  rows.sort(function (a, b) { return a.rank - b.rank || a.name.localeCompare(b.name); });
+
+  var held = rows.filter(function (r) { return r.have; }).length;
+  var lines = ['Titles: ' + held + ' of ' + rows.length + ' held. ' +
+               'Renown ' + MOD_permanentRank() + ' — ranks up to ' + MOD_permanentRank() +
+               ' apply without wearing them.'];
+  var byRank = {};
+  rows.forEach(function (r) { byRank[r.rank] = byRank[r.rank] || { n: 0, have: 0 };
+    byRank[r.rank].n++; if (r.have) byRank[r.rank].have++; });
+  for (var r = 1; r <= MOD_RANK_MAX; r++) {
+    var b = byRank[r] || { n: 0, have: 0 };
+    lines.push('  rank ' + String(r).padStart(2) + ' (lv ' + String(MOD_RANK_AT[r - 1]).padStart(3) + '+)   ' +
+               String(b.have).padStart(3) + ' / ' + String(b.n).padStart(3) + ' held' +
+               (r <= MOD_permanentRank() ? '   <- passive' : ''));
+  }
+  lines.push('modTitles(n) lists one rank in full.');
+  if (typeof msg === 'function') {
+    msg(held + ' of ' + rows.length + ' titles held', 'gold');
+    msg('Ranks up to ' + MOD_permanentRank() + ' apply without wearing them', 'grey');
+    msg('Full breakdown printed to the browser console (F12)', 'grey');
+  }
+  if (rankFilter !== undefined) {
+    lines.push('');
+    rows.forEach(function (r) {
+      lines.push('  ' + (r.have ? '[x] ' : '[ ] ') + r.name +
+                 (r.lv ? '  (lv ' + r.lv + ')' : ''));
+    });
+  }
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
