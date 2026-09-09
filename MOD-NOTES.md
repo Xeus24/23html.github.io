@@ -1770,6 +1770,59 @@ thresholds were rescaled to the larger pool — level 10 wants 550 titles rather
 than 100 — so it is a real collection project rather than something finished
 early, and it is now load-bearing rather than decorative.
 
+## The dojo's Level Advancement, carried to 110
+
+The dojo already has a reward ladder and the instructor already promises it
+continues — *"After every 5 levels you reach, come here and receive your
+share!"* — and then it stops at level 30:
+
+| flag | level | reward |
+|---|---|---|
+| dj1rw1 | 5 | 25 coin, Low-grade Spirit Pill ×5 |
+| dj1rw2 | 10 | 100 coin, Mid-grade ×2 |
+| dj1rw3 | 15 | 200 coin, High-grade ×1, gear |
+| dj1rw4 | 20 | 300 coin, a weapon |
+| dj1rw5 | 25 | 350 coin, an accessory |
+| dj1rw6 | 30 | 400 coin, food |
+
+Character level at the mod's endgame is around 92, so the promise went unkept
+for the last eighty levels. Sixteen more rungs finish it, 35 through 110 in
+fives, sequential the way the base six are.
+
+**The pills had to be rebuilt first.** Character exp per level is
+`4*lvl^3 + lvl^2` — 5,336,100 for one level at 110, against a best-in-game pill
+worth 15,000. The ladder would have been handing out rounding errors (0.3% of a
+level). Four grades continue the author's own progression at roughly his ratio:
+Superior 100,000, Refined 600,000, Sublime 3,500,000, Transcendent 20,000,000 —
+the last worth 3.7 levels at 110, the first not even a fifth of one at 50.
+
+**A third grade of skillbook** at +30%, offered as a *choice* at the 50, 75 and
+100 rungs — the same shape as the one the instructor gives the first time you
+clear the dummies, which is the moment the request pointed at. Named in the
+author's register (Sword Saint, Nightblade, Headsman, Dragoon, Earthbreaker,
+Iron Body) rather than "Master Skillbook (Swords)", because the grade below is
+already called "Bladesman Manual".
+
+These write `skl.<x>.p += rate` exactly as the base books do, which coexists
+with section 24's title bonuses because that reconciler only ever adds and
+removes its own tracked delta, never assigns.
+
+### What the first draft got wrong
+
+I built a ladder of new golem trials before reading far enough into
+`chss.t3.sl`, and only found "Level Advancement" — and the second grade of
+skillbook that already existed — when a probe printed a lobby screen full of
+manuals I had not written. The trials were thrown away. The lesson is the same
+one the catacombs and the dead affinities taught: **read the whole handler
+before adding a parallel one.** This game hides finished systems inside long
+`else` chains.
+
+The continuation is its own lobby entry rather than an extension of the
+original's screen, because the base rungs are drawn by an anonymous click
+handler created inside `sl()` — there is no way to append to that without
+replacing the whole function. It appears only once `dj1rw6` is set, so the two
+never show at once.
+
 ## Title colours, and a base-game crash the new ranks woke up
 
 The game already colours a title by rank, in the type 5 branch of `dscr()`:

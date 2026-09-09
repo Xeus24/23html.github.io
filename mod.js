@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.3',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '2.4',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -46,6 +46,9 @@ var MOD = {
                      // v2.3: title ranks 1-10 derived from the level that earns
                      // them, five titles per skill, and titles that actually do
                      // something — worn, or passive once renown covers the rank.
+                     // v2.4: the dojo's Level Advancement ladder carried to
+                     // character level 110, with spirit pills and skillbooks
+                     // scaled to match.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -5575,3 +5578,256 @@ dscr = function (c, what, type, ttlFlag, dsc, id) {
 };
 
 console.log('[mod] title colours extended to ten ranks (the game\'s rank 7 branch threw)');
+
+
+/* ===========================================================================
+   27. THE DOJO'S LEVEL ADVANCEMENT, CARRIED TO 110
+   ---------------------------------------------------------------------------
+   The dojo already has a reward ladder, and the instructor already promises it
+   continues: "After every 5 levels you reach, come here and receive your
+   share!" It then stops at level 30.
+
+       dj1rw1  lv 5    25 coin, Low-grade Spirit Pill x5
+       dj1rw2  lv 10  100 coin, Mid-grade x2
+       dj1rw3  lv 15  200 coin, High-grade x1, gear
+       dj1rw4  lv 20  300 coin, a weapon
+       dj1rw5  lv 25  350 coin, an accessory
+       dj1rw6  lv 30  400 coin, food
+
+   Character level at the mod's endgame is around 92, so the instructor's
+   promise goes unkept for the last eighty levels. This adds the sixteen rungs
+   that finish it, 35 through 110, in fives.
+
+   --- the pills had to be rebuilt first ------------------------------------
+
+   Character exp per level is `4*lvl^3 + lvl^2`. At level 110 that is 5,336,100
+   for one level, and the game's best pill is worth 15,000 — 0.3% of it. The
+   ladder would have been handing out rounding errors. Four grades continue the
+   author's own progression at roughly his own ratio:
+
+       Superior       100,000     1/5 of a level at 50,  1/50 at 110
+       Refined        600,000     1.2 levels at 50
+       Sublime      3,500,000     2/3 of a level at 110
+       Transcendent 20,000,000    3.7 levels at 110
+
+   --- and a third grade of skillbook ---------------------------------------
+
+   The base game has two: the Practitioner Skillbooks the instructor offers the
+   first time you clear the dummies (+5%), and the named manuals after golem IV
+   (+15%). A third at +30% is offered as a CHOICE at the level 50, 75 and 100
+   rungs — the same shape as that first one, since that is the moment the
+   request pointed at.
+
+   These write `skl.<x>.p += rate` exactly as the base books do. That coexists
+   with section 24's title bonuses because the reconciler there only ever adds
+   and removes its own tracked delta, never assigns.
+
+   --- why a separate lobby entry -------------------------------------------
+
+   The base rungs are drawn by an anonymous click handler created inside
+   chss.t3.sl, so there is no way to append to that screen without replacing
+   the whole of sl(). The continuation is its own lobby entry instead, which
+   appears only once dj1rw6 is set, so the two never overlap and the original
+   is untouched.
+   =========================================================================== */
+
+/* --- A. spirit pills ------------------------------------------------------ */
+
+var MOD_PILLS = [
+  ['sp4', 9101, 'Superior Spirit Pill',      100000,
+   'A pill refined from properly cultivated ki, the kind a sect issues rather than sells.'],
+  ['sp5', 9102, 'Refined Spirit Pill',       600000,
+   'Dense enough that the ki has to be guided rather than simply swallowed.'],
+  ['sp6', 9103, 'Sublime Spirit Pill',      3500000,
+   'The work of an alchemist who has stopped making mistakes. Rare enough to be spoken of.'],
+  ['sp7', 9104, 'Transcendent Spirit Pill', 20000000,
+   'Closer to a condensed lifetime of training than to medicine.']
+];
+
+MOD_PILLS.forEach(function (p, i) {
+  var key = p[0], id = p[1], name = p[2], exp = p[3], flavour = p[4];
+  var it = new Item(); it.id = id;
+  it.name = name;
+  it.rar = 3 + i;
+  it.desc = flavour + dom.dseparator +
+    '<span style="color:orange"> Grants +' + exp.toLocaleString() + ' EXP </span>';
+  it.stype = 4;
+  it.v = Math.max(Math.round(exp / 400), 1);
+  it.use = function () {
+    giveExp(exp, true, true, true);
+    global.stat.plst++; global.stat.medst++;
+    this.amount--;
+  };
+  item[key] = it;
+});
+
+/* --- B. a third grade of skillbook ----------------------------------------
+   Shape copied from item.skl1a, including the reading flow through chss.trd.
+   Named in the author's own register rather than "Master Skillbook (Swords)",
+   since the grade below is "Bladesman Manual".
+   ------------------------------------------------------------------------- */
+
+var MOD_MANUALS = [
+  ['srdc',  9110, 'Sword Saint Manual',  'the sword as the only thing in the world'],
+  ['knfc',  9111, 'Nightblade Manual',   'the knife you never see'],
+  ['axc',   9112, 'Headsman Manual',     'the axe, and where it is meant to land'],
+  ['plrmc', 9113, 'Dragoon Manual',      'the spear held against a charge'],
+  ['hmrc',  9114, 'Earthbreaker Manual', 'the hammer, and what it does to ground'],
+  ['unc',   9115, 'Iron Body Manual',    'the body as the weapon it always was']
+];
+var MOD_MANUAL_RATE = 0.30;
+
+var MOD_MANUAL_ITEMS = [];
+
+MOD_MANUALS.forEach(function (m) {
+  var skillKey = m[0], id = m[1], name = m[2], flavour = m[3];
+  var sk = skl[skillKey];
+  if (!sk) { console.warn('[mod] no skill ' + skillKey + ' for ' + name); return; }
+  var it = new Item(); it.id = id;
+  it.name = '"' + name + '"';
+  it.rar = 4;
+  it.desc = 'A master\'s own notes on ' + flavour + '. Most of it is in the margins.' +
+    dom.dseparator + '<span style="color:deeppink">' + sk.name + ' EXP gain +' +
+    Math.round(MOD_MANUAL_RATE * 100) + '%</span>';
+  it.stype = 4;
+  it.data.time = HOUR * 30;
+  it.use = function () {
+    if (!canRead()) return;
+    if (this.data.timep >= this.cmax) {
+      this.amount--;
+      giveSkExp(sk, 9000);
+      sk.p += MOD_MANUAL_RATE;
+      this.data.read = false; this.data.finished = true;
+      giveItem(item.bookgen);
+    } else chss.trd.sl(this);
+  };
+  item['mod_' + skillKey + '_manual'] = it;
+  MOD_MANUAL_ITEMS.push(it);
+});
+
+/* --- C. the rungs ---------------------------------------------------------
+   Every five levels from 35 to 110, sequential the way the base six are, each
+   needing the one before it. Coin and pills grow with the rung; a manual
+   choice lands at 50, 75 and 100.
+   ------------------------------------------------------------------------- */
+
+function MOD_rungReward(lv) {
+  if (lv <= 45) return { pill: 'sp4', n: lv <= 40 ? 2 : 3, coin: 400 + (lv - 30) * 20 };
+  if (lv <= 70) return { pill: 'sp5', n: lv <= 60 ? 2 : 3, coin: 700 + (lv - 45) * 30 };
+  if (lv <= 95) return { pill: 'sp6', n: lv <= 85 ? 2 : 3, coin: 1500 + (lv - 70) * 60 };
+  return { pill: 'sp7', n: lv >= 110 ? 3 : 2, coin: 3000 + (lv - 95) * 100 };
+}
+
+var MOD_DOJO_RUNGS = [];
+for (var MOD_rl = 35; MOD_rl <= 110; MOD_rl += 5) {
+  var rw = MOD_rungReward(MOD_rl);
+  MOD_DOJO_RUNGS.push({
+    lv: MOD_rl, flag: 'mod_djrw' + MOD_rl,
+    pill: rw.pill, n: rw.n, coin: rw.coin,
+    manual: (MOD_rl === 50 || MOD_rl === 75 || MOD_rl === 100)
+  });
+}
+
+var MOD_RUNG_LINES = {
+  35:  'Still here. Most of the people you started with are not.',
+  50:  'Halfway to something. I have seen two disciples get this far.',
+  75:  'You have outgrown what this hall was built to teach. Take the rest anyway.',
+  100: 'I have nothing left to correct. I am giving you this because I said I would.',
+  110: 'You walked in here unable to hit a straw dummy. Go on, then.'
+};
+
+/* Draw the continuation ladder. Only the first unclaimed rung you qualify for
+   is offered, which is how the base six behave. */
+function MOD_dojoAdvancement() {
+  clr_chs();
+  chs('"Instructor: You are still owed for every five levels. I keep my word, ' +
+      'though I did not expect to keep it this long."', true);
+
+  var next = null, i;
+  for (i = 0; i < MOD_DOJO_RUNGS.length; i++) {
+    if (!global.flags[MOD_DOJO_RUNGS[i].flag]) { next = MOD_DOJO_RUNGS[i]; break; }
+  }
+
+  if (!next) {
+    chs('<span style="color:grey">Nothing further is owed. There is nothing further.</span>', false, 'grey');
+  } else if (you.lvl < next.lv) {
+    chs('<span style="color:grey">Next: level ' + next.lv + ' (you are ' + you.lvl + ')</span>',
+        false, 'grey');
+  } else {
+    chs('"Level ' + next.lv + ' reward"', false, next.lv >= 100 ? 'gold' : 'royalblue')
+      .addEventListener('click', function () {
+        chs('"Instructor: ' + (MOD_RUNG_LINES[next.lv] || 'Good. Keep going.') + '"', true);
+        chs('"Accept"', false, 'lime').addEventListener('click', function () {
+          giveWealth(next.coin);
+          giveItem(item[next.pill], next.n);
+          if (next.manual) { MOD_dojoManualChoice(next); return; }
+          global.flags[next.flag] = true;
+          smove(chss.t3, false);
+        });
+      });
+  }
+
+  chs('"<= Back"', false).addEventListener('click', function () { smove(chss.t3, false); });
+}
+
+/* The manual choice, in the shape of the instructor's first skillbook offer. */
+function MOD_dojoManualChoice(rung) {
+  clr_chs();
+  chs('"Instructor: And pick one of these. You have earned the reading time."', true, 'yellow');
+  MOD_MANUAL_ITEMS.forEach(function (bk) {
+    chs(bk.name, false).addEventListener('click', function () {
+      giveItem(bk);
+      global.flags[rung.flag] = true;
+      smove(chss.t3, false);
+    });
+  });
+  if (!MOD_MANUAL_ITEMS.length) {
+    chs('"..."', false).addEventListener('click', function () {
+      global.flags[rung.flag] = true; smove(chss.t3, false);
+    });
+  }
+}
+
+/* --- D. hanging it off the lobby ------------------------------------------
+   chss.t3.sl draws several different screens; this belongs only on the
+   ordinary lobby one, so the guard repeats the conditions the game's own
+   `else` branch runs under. Every chs() here passes false — chs(txt, true)
+   calls clr_chs() and would wipe the lobby that was just drawn.
+   ------------------------------------------------------------------------- */
+
+var MOD_t3_original_sl = chss.t3.sl;
+
+chss.t3.sl = function () {
+  MOD_t3_original_sl.apply(this, arguments);
+  try {
+    if (global.flags.nbtfail) return;                                    // the scolding
+    if (!global.flags.dj1end) return;                                    // first skillbook choice
+    if (global.flags.trnex1 === true && !global.flags.trnex2) return;    // the accessory gift
+    if (global.flags.trne4e1 && !global.flags.trne4e1b) return;          // the named-manual choice
+    if (!global.flags.dj1rw6) return;                                    // the base six come first
+
+    chs('"Level Advancement (continued)"', false, 'orange')
+      .addEventListener('click', function () { MOD_dojoAdvancement(); });
+  } catch (e) {
+    console.warn('[mod] dojo advancement failed to draw: ' + e.message);
+  }
+};
+
+function modDojo() {
+  var lines = ['Dojo level advancement (you are level ' + you.lvl + '):'];
+  lines.push('  base rungs 5-30: ' + (global.flags.dj1rw6 ? 'complete' : 'not finished'));
+  MOD_DOJO_RUNGS.forEach(function (r) {
+    var done = !!global.flags[r.flag];
+    lines.push('  ' + (done ? '[done] ' : (you.lvl >= r.lv ? '[open] ' : '[    ] ')) +
+      'lv ' + String(r.lv).padStart(3) + '   ' + String(r.coin).padStart(5) + ' coin, ' +
+      item[r.pill].name + ' x' + r.n + (r.manual ? ', a manual of your choice' : ''));
+  });
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+console.log('[mod] dojo advancement extended to level ' +
+            MOD_DOJO_RUNGS[MOD_DOJO_RUNGS.length - 1].lv + ' (' + MOD_DOJO_RUNGS.length +
+            ' rungs), ' + MOD_PILLS.length + ' spirit pill grades, ' +
+            MOD_MANUAL_ITEMS.length + ' master manuals. modDojo() for the ladder.');

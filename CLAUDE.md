@@ -154,6 +154,20 @@ What matters:
   that location. Only the *first* line of an `sl()` may pass `true`; every later
   line, including greyed-out hints, must pass `false`.
 
+## The dojo
+
+`chss.t3.sl` is a long `else` chain with several one-time screens inside it —
+the first skillbook choice, the accessory gift, the named-manual choice — plus
+a **"Level Advancement"** ladder drawn by an anonymous handler nested inside it.
+Read all of it before adding anything: a first attempt at extending the dojo
+missed both Level Advancement and the second grade of skillbook that already
+existed.
+
+Section 27 continues that ladder from 35 to 110 in fives, as its own lobby entry
+gated on `dj1rw6` (the nested handler cannot be appended to). Spirit pills are
+sized against `4*lvl^3 + lvl^2`, the character exp curve — a level at 110 costs
+5.3M, so the base game's best pill is worth 0.3% of one.
+
 ## Titles
 
 Rank (`rar`) runs **1-10 and is derived from the level that earns the title**
