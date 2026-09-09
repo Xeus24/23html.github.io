@@ -5283,3 +5283,196 @@ function modTitles(rankFilter) {
   console.log(out);
   return out;
 }
+
+
+/* ===========================================================================
+   25. THE TITLE PICKER, GROUPED BY SKILL
+   ---------------------------------------------------------------------------
+   Section 24 took the pool from 120 titles to 585. The game's picker is a flat
+   list of every title held, in a 300px column — at five titles per skill that
+   is a scroll of hundreds of near-identical rows, most of them superseded by
+   the one below them.
+
+   So titles that come from the same skill collapse into one row showing the
+   best you hold, with a caret to open the rest:
+
+       > Warmaster of Fighting            (5)
+       > Bastion of Cold Resistance       (3)
+         Thrasher
+         Wolf Slayer
+
+   Titles the game hands out for story events have no skill to group under and
+   stay as plain rows, listed after the groups.
+
+   --- how it hooks in -------------------------------------------------------
+
+   The game's picker is built by an anonymous listener on dom.d3, so it cannot
+   be removed. Rather than clone the node — which would drop `dom.d3.update`
+   and the addDesc tooltip the game attached to it — this adds a SECOND
+   listener. Listeners fire in the order they were added, so the game builds
+   dom.ttlbd first and this rebuilds its contents immediately after, before a
+   frame is ever drawn. Everything the game set up around it is untouched.
+
+   --- which skill a title belongs to ---------------------------------------
+
+   For the 465 generated ones, MOD_SKILL_TITLES already says. For the base
+   game's, the milestone that grants the title is found by scanning `f`
+   source for a giveTitle call — the same trick section 24 uses to date them —
+   so "Civilian", "Trained Civilian", "Fighter" and "Rookie" group under
+   Fighting alongside the generated five, rather than being stranded.
+   =========================================================================== */
+
+/* title key -> skill key, for everything that can be attributed to a skill */
+var MOD_TITLE_SKILL = (function () {
+  var map = {};
+  // generated titles know their own skill
+  for (var i = 0; i < MOD_SKILL_TITLES.length; i++) {
+    map[MOD_SKILL_TITLES[i].key] = MOD_SKILL_TITLES[i].skill;
+  }
+  // the base game's, by reading the milestone that grants them
+  for (var k in skl) {
+    var s = skl[k];
+    if (!s || typeof s !== 'object' || !s.mlstn) continue;
+    for (var j = 0; j < s.mlstn.length; j++) {
+      var src;
+      try { src = String(s.mlstn[j].f); } catch (e) { continue; }
+      if (src.indexOf('giveTitle') < 0) continue;
+      var hits = src.match(/ttl\.[A-Za-z0-9_]+|MOD_title\(['"][A-Za-z0-9_]+['"]\)/g) || [];
+      for (var h = 0; h < hits.length; h++) {
+        var key = hits[h].indexOf('MOD_title') === 0
+          ? 'mod_' + hits[h].match(/['"]([A-Za-z0-9_]+)['"]/)[1]
+          : hits[h].slice(4);
+        if (map[key] === undefined) map[key] = k;
+      }
+    }
+  }
+  return map;
+})();
+
+function MOD_titleKeyOf(title) {
+  for (var k in ttl) if (ttl[k] === title) return k;
+  return null;
+}
+
+var MOD_TTL_OPEN = {};        // which groups the player has expanded, this session
+
+function MOD_closeTitlePicker() {
+  try {
+    empty(dom.ttlcont);
+    document.body.removeChild(dom.ttlcont);
+    empty(global.dscr); global.dscr.style.display = 'none';
+  } catch (e) {}
+  global.flags.ttlscrnopn = false;
+}
+
+function MOD_selectTitle(title) {
+  you.title = title;
+  dom.d3.innerHTML = ' lvl:' + you.lvl + ' \'' + you.title.name + '\'';
+  MOD_closeTitlePicker();
+  try { MOD_applyTitleBonuses(); } catch (e) {}   // worn title decides the bonus
+}
+
+/* One clickable title row, matching the game's own. */
+function MOD_titleRow(parent, title, indent) {
+  var row = addElement(parent, 'div', null, 'youttl');
+  var worn = false;
+  try { worn = you.title && you.title.id === title.id; } catch (e) {}
+  row.innerHTML = (indent ? '&nbsp;&nbsp;&nbsp;&nbsp;' : '') + '"' + title.name + '"' +
+    (title.talent ? " <span style='color:yellow;text-shadow:0px 0px 5px orange'>*</span>" : '');
+  if (worn) row.style.color = 'gold';
+  try { addDesc(row, title, 5); } catch (e) {}
+  row.addEventListener('click', function () { MOD_selectTitle(title); });
+  return row;
+}
+
+function MOD_renderTitlePicker() {
+  var body = dom.ttlbd;
+  if (!body || body._modGrouped) return;
+  body._modGrouped = true;
+  empty(body);
+
+  // held titles, split into skill groups and loose ones
+  var groups = {}, loose = [];
+  for (var i = 0; i < global.titles.length; i++) {
+    var t = global.titles[i];
+    if (!t || !t.name) continue;
+    var key = MOD_titleKeyOf(t);
+    var skillKey = key ? MOD_TITLE_SKILL[key] : null;
+    if (skillKey && skl[skillKey]) {
+      (groups[skillKey] = groups[skillKey] || []).push(t);
+    } else {
+      loose.push(t);
+    }
+  }
+
+  var names = Object.keys(groups).sort(function (a, b) {
+    var an = skl[a].bname || skl[a].name, bn = skl[b].bname || skl[b].name;
+    return an < bn ? -1 : an > bn ? 1 : 0;
+  });
+
+  names.forEach(function (skillKey) {
+    var held = groups[skillKey];
+    // best first: rank, then the level it was earned at
+    held.sort(function (a, b) {
+      return (b.rar || 0) - (a.rar || 0) || (b._modAtLevel || 0) - (a._modAtLevel || 0);
+    });
+
+    if (held.length === 1) { MOD_titleRow(body, held[0], false); return; }
+
+    var open = !!MOD_TTL_OPEN[skillKey];
+    var head = addElement(body, 'div', null, 'youttl');
+    head.style.display = 'flex';
+    head.style.alignItems = 'center';
+
+    var caret = addElement(head, 'span');
+    caret.innerHTML = open ? '&#9662;' : '&#9656;';      // down / right
+    caret.style.cssText = 'flex:0 0 18px;cursor:pointer;color:#8ab;';
+    caret.title = held.length + ' titles from ' + (skl[skillKey].bname || skl[skillKey].name);
+
+    var label = addElement(head, 'span');
+    label.style.cssText = 'flex:1 1 auto;cursor:pointer;';
+    var best = held[0], wornHere = false;
+    try { wornHere = you.title && held.some(function (x) { return x.id === you.title.id; }); } catch (e) {}
+    label.innerHTML = '"' + best.name + '"' +
+      (best.talent ? " <span style='color:yellow;text-shadow:0px 0px 5px orange'>*</span>" : '');
+    if (wornHere) label.style.color = 'gold';
+
+    var count = addElement(head, 'span');
+    count.innerHTML = '(' + held.length + ')';
+    count.style.cssText = 'flex:0 0 auto;color:#7a8a9a;padding-right:4px;';
+
+    try { addDesc(label, best, 5); } catch (e) {}
+    label.addEventListener('click', function () { MOD_selectTitle(best); });
+
+    // the caret toggles without selecting, so re-render in place
+    caret.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      MOD_TTL_OPEN[skillKey] = !MOD_TTL_OPEN[skillKey];
+      body._modGrouped = false;
+      MOD_renderTitlePicker();
+    });
+
+    if (open) for (var n = 1; n < held.length; n++) MOD_titleRow(body, held[n], true);
+  });
+
+  loose.sort(function (a, b) { return (b.rar || 0) - (a.rar || 0); });
+  loose.forEach(function (t) { MOD_titleRow(body, t, false); });
+
+  if (!global.titles.length) {
+    var none = addElement(body, 'div', null, 'youttl');
+    none.innerHTML = '<span style="color:grey">no titles yet</span>';
+  }
+}
+
+/* Second listener on dom.d3 — see the header. Fires after the game has built
+   the window, so dom.ttlbd is there to be rebuilt. */
+if (dom.d3) {
+  dom.d3.addEventListener('click', function () {
+    try { MOD_renderTitlePicker(); } catch (e) {
+      console.warn('[mod] grouped title picker failed, the game\'s own list stands: ' + e.message);
+    }
+  });
+}
+
+console.log('[mod] title picker groups by skill — ' +
+            Object.keys(MOD_TITLE_SKILL).length + ' titles attributed to a skill');

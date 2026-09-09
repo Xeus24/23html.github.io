@@ -1770,6 +1770,27 @@ thresholds were rescaled to the larger pool — level 10 wants 550 titles rather
 than 100 — so it is a real collection project rather than something finished
 early, and it is now load-bearing rather than decorative.
 
+## The title picker, grouped by skill
+
+585 titles in a 300px column is a scroll of hundreds of near-identical rows,
+most superseded by the one below them. Titles from one skill now collapse to a
+single row showing the best held, with a caret to open the rest; story titles
+have no skill to group under and stay as plain rows below.
+
+The hook is worth recording. The game's picker is built by an anonymous listener
+on `dom.d3`, so it cannot be removed, and cloning the node — the trick used for
+`sl_kill` and the version number — would drop `dom.d3.update` and the `addDesc`
+tooltip the game attached to it. So this adds a **second** listener instead:
+listeners fire in the order they were added, so the game builds `dom.ttlbd` and
+this rebuilds its contents immediately after, before a frame is drawn.
+
+Grouping needs to know which skill a title belongs to. The 465 generated ones
+say so themselves. For the base game's, the milestone that grants the title is
+found by scanning `f` source for a `giveTitle` call — the same trick section 24
+uses to date them — so Civilian, Trained Civilian, Fighter and Rookie group
+under Fighting alongside the generated five rather than being stranded in the
+loose list.
+
 ## Perks for the top half of the ladder
 
 Section 19 made level 110 reachable. Nothing was waiting up there. Measured
