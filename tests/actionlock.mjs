@@ -4,8 +4,17 @@ import { chromium } from 'playwright';
 //
 // They used to be granted 2.5s after startup and re-granted on a 5s timer, so a
 // brand-new character had four unexplained abilities before leaving the
-// tutorial. Each now hangs off a milestone on the base-game skill it grows out
-// of, the same way skl.walk level 1 grants the base game's "Run".
+// tutorial. Three now hang off a milestone on the base-game skill they grow out
+// of, the same way skl.walk level 1 grants the base game's "Run":
+//
+//   Toughness 4 -> Endurance Drill    Harvesting 4 -> Forage
+//   Literacy  8 -> Practice Calligraphy
+//
+// Circulate Qi is the exception, and deliberately so. It is the way into the
+// whole cultivation system, so it comes from a story beat rather than a skill
+// level: clearing the dojo's Easiest, Easy and Normal dummies (tr1/2/3_win).
+// That is a tick check rather than a milestone, the same way the base game
+// grants act.scout from a story beat.
 //
 //   PORT=8080 node tests/actionlock.mjs
 
@@ -20,7 +29,7 @@ const fail = [];
 const check = (cond, what) => { if (!cond) fail.push(what); console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${what}`); };
 
 const status = () => p.evaluate(() => ({
-  locked: MOD_ACTION_UNLOCKS.map(u => ({
+  locked: MOD_ACTION_UNLOCKS.filter(u => u.act).map(u => ({
     action: u.act.name, have: u.act.have === true,
     skill: skl[u.skill] ? skl[u.skill].name : u.skill,
     key: u.skill, need: u.lv, at: skl[u.skill] ? skl[u.skill].lvl : -1
@@ -83,11 +92,46 @@ await p.waitForTimeout(4500);
 st = await status();
 check(st.locked.every(u => !u.have), 'a fresh save reloads with all four still locked');
 
+console.log('\n--- Circulate Qi comes from the dojo, not from a skill level');
+const qi = await p.evaluate(() => {
+  const reset = () => { ['tr1_win','tr2_win','tr3_win'].forEach(f => { global.flags[f] = false; });
+    act.mod_qi.have = false;
+    const i = you.skls.indexOf(skl.qic); if (i >= 0) you.skls.splice(i, 1);
+    acts = acts.filter(a => a !== act.mod_qi); };
+  const st = () => ({ have: act.mod_qi.have === true, onSheet: you.skls.indexOf(skl.qic) !== -1 });
+  reset(); MOD_checkQiUnlock(); const none = st();
+  global.flags.tr1_win = true; MOD_checkQiUnlock(); const easiest = st();
+  global.flags.tr2_win = true; MOD_checkQiUnlock(); const easy = st();
+  global.flags.tr3_win = true; MOD_checkQiUnlock(); const normal = st();
+  MOD_checkQiUnlock(); MOD_checkQiUnlock();
+  return { none, easiest, easy, normal, copies: acts.filter(a => a === act.mod_qi).length,
+           // Temperance kept a perk at the same level, so the save's index-keyed
+           // milestone flags do not shift under an existing character
+           rccln5: skl.rccln.mlstn.filter(m => m.lv === 5).length,
+           rcclnGrantsAction: /Circulate/.test(skl.rccln.mlstn.filter(m => m.lv === 5)[0].p) };
+});
+check(!qi.none.have, 'locked with none of the three cleared');
+check(!qi.easiest.have, 'still locked after Easiest');
+check(!qi.easy.have, 'still locked after Easy');
+check(qi.normal.have, 'unlocked once Normal is cleared too');
+check(qi.normal.onSheet, 'and Qi Circulation appears on the skill sheet with it');
+check(qi.copies === 1, `granted once, not once per tick (${qi.copies} in the action list)`);
+check(qi.rccln5 === 1 && !qi.rcclnGrantsAction,
+  'Temperance still has exactly one perk at level 5, now a plain one — no index shift for old saves');
+
 console.log('\n--- the escape hatch still works');
-const granted = await p.evaluate(() => modUnlockAll());
+// Lock everything first. The Qi section above leaves Circulate Qi unlocked, so
+// asserting a raw count here would be measuring test order, not the function.
+const granted = await p.evaluate(() => {
+  MOD_ACTIONS.forEach(a => { a.have = false; });
+  acts = acts.filter(a => MOD_ACTIONS.indexOf(a) === -1);
+  return modUnlockAll();
+});
 st = await status();
-check(granted === 4, `modUnlockAll() granted ${granted}`);
-check(st.locked.every(u => u.have), 'all four present after modUnlockAll()');
+const allFour = await p.evaluate(() => MOD_ACTIONS.filter(a => a.have === true).length);
+check(granted === 4, `modUnlockAll() granted all four from locked (${granted})`);
+check(allFour === 4, `and all four are held afterwards (${allFour})`);
+check(st.locked.every(u => u.have), 'including the three that are skill-gated');
 
 console.log('\n--- and modActions() reports honestly');
 const report = await p.evaluate(() => modActions());

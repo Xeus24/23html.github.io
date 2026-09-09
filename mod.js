@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.6',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '2.7',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -53,6 +53,8 @@ var MOD = {
                      // the script tag is the only edit to the author's files.
                      // v2.6: cultivation realms with breakthroughs, and six
                      // elemental mastery skills whose techniques fire in combat.
+                     // v2.7: Circulate Qi unlocked by the dojo's tutorial fights
+                     // rather than by Temperance 5.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -604,9 +606,15 @@ var MOD_ACTION_UNLOCKS = [
   { skill: 'hst',   lv: 4, act: act.mod_forage,
     f: function () { you.inta += 1; you.stat_r(); },
     p: 'INT +1, unlocks the action "Forage"' },
-  { skill: 'rccln', lv: 5, act: act.mod_qi,
-    f: function () { you.inta += 1; you.stat_r(); },
-    p: 'INT +1, unlocks the action "Circulate Qi"' },
+  /* Circulate Qi used to hang off Temperance 5 like the others. It is the way
+     into the whole cultivation system now — realms are levelled through it —
+     and gating that behind a skill you train by throwing possessions away was
+     obscure. It is granted by finishing the dojo's three tutorial fights
+     instead; see MOD_QI_UNLOCK below. Temperance keeps a perk at the same
+     level so the save's index-keyed milestone flags do not shift. */
+  { skill: 'rccln', lv: 5, act: null,
+    f: function () { you.inta += 1; you.mods.sbonus += 0.02; you.stat_r(); },
+    p: 'INT +1, Energy Effectiveness +2%' },
   { skill: 'rdg',   lv: 8, act: act.mod_calli,
     f: function () { you.inta += 2; you.stat_r(); },
     p: 'INT +2, unlocks the action "Practice Calligraphy"' }
@@ -614,22 +622,76 @@ var MOD_ACTION_UNLOCKS = [
 
 MOD_ACTION_UNLOCKS.forEach(function (u) {
   var sk = skl[u.skill];
-  if (!sk || !u.act) { console.warn('[mod] no unlock for ' + u.skill); return; }
+  if (!sk) { console.warn('[mod] no skill ' + u.skill); return; }
+  if (!u.act) {                                  // a plain perk, no action
+    MOD_addMilestones(sk, [{ lv: u.lv, g: false, p: u.p, f: u.f }]);
+    return;
+  }
   MOD_addMilestones(sk, [{
     lv: u.lv, g: false, p: u.p,
     f: function () { u.f(); try { giveAction(u.act); } catch (e) {} }
   }]);
 });
 
+/* --- Circulate Qi, from the dojo's tutorial fights ------------------------
+   The difficulty select offers "Easiest", "Easy" and "Normal" — areas trn1,
+   trn2 and trn3, which set tr1_win, tr2_win and tr3_win. Clearing all three is
+   the moment the dojo has finished teaching you to fight, which is the right
+   moment to hand over the thing the rest of the mod's cultivation hangs off.
+
+   A tick check rather than a milestone, because the condition is three story
+   flags rather than a skill level — the same way the base game grants
+   act.scout from a story beat rather than a perk. The flags only ever go from
+   false to true, so this is one-way, and giveAction is a no-op once you have
+   it.
+
+   The skill itself is revealed at the same time. The game only shows a skill
+   once it first levels, which would leave you holding an action whose skill is
+   nowhere on the sheet. */
+var MOD_QI_UNLOCK = ['tr1_win', 'tr2_win', 'tr3_win'];
+
+function MOD_qiUnlocked() {
+  for (var i = 0; i < MOD_QI_UNLOCK.length; i++) {
+    if (global.flags[MOD_QI_UNLOCK[i]] !== true) return false;
+  }
+  return true;
+}
+
+function MOD_checkQiUnlock() {
+  try {
+    if (!MOD_qiUnlocked()) return;
+    if (act.mod_qi.have !== true) {
+      giveAction(act.mod_qi);
+      msg('The forms settle into something you can feel moving.', 'plum');
+    }
+    if (skl.qic && you.skls && you.skls.indexOf(skl.qic) === -1) {
+      you.skls.push(skl.qic);
+      if (!global.flags.sklu) { global.flags.sklu = true; dom.ct_bt2.innerHTML = 'skills'; }
+    }
+  } catch (e) { /* never break a tick over an unlock */ }
+}
+
+var MOD_ontick_before_qi = ontick;
+ontick = function () {
+  MOD_ontick_before_qi();
+  MOD_checkQiUnlock();
+};
+
 /* Where the four stand, and what is still needed. */
 function modActions() {
   var lines = ['Added actions:'];
   MOD_ACTION_UNLOCKS.forEach(function (u) {
+    if (!u.act) return;
     var sk = skl[u.skill];
     var have = u.act.have === true;
     lines.push('  ' + (have ? '[unlocked] ' : '[  locked ] ') + u.act.name +
       (have ? '' : '  —  ' + (sk ? sk.name + ' ' + sk.lvl + '/' + u.lv : u.skill + ' ' + u.lv)));
   });
+  var qi = act.mod_qi.have === true;
+  lines.push('  ' + (qi ? '[unlocked] ' : '[  locked ] ') + act.mod_qi.name +
+    (qi ? '' : '  —  clear the dojo\'s Easiest, Easy and Normal dummies (' +
+      MOD_QI_UNLOCK.filter(function (f) { return global.flags[f] === true; }).length +
+      '/3 done)'));
   lines.push('modUnlockAll() grants them regardless, if you would rather not wait.');
   var out = lines.join('\n');
   console.log(out);
@@ -4359,13 +4421,13 @@ function MOD_toggleSlotPanel(force) {
     // of the bar is positioned from the right and would be overlapped.
     var saves = addElement(dom.sl, 'span', null, 'sl');
     saves.innerHTML = 'saves';
-    saves.style.cssText = 'display:inline-block;width:auto;padding:3px 7px;cursor:pointer;';
+    saves.style.cssText = 'width:auto;padding:3px;cursor:pointer;';
     saves.title = 'Three save slots';
     saves.addEventListener('click', function () { MOD_toggleSlotPanel(); });
 
     var fresh = addElement(dom.sl, 'span', null, 'sl');
     fresh.innerHTML = 'new save';
-    fresh.style.cssText = 'display:inline-block;width:auto;padding:3px 7px;cursor:pointer;';
+    fresh.style.cssText = 'width:auto;padding:3px;cursor:pointer;';
     fresh.title = 'Start a new character in a free slot';
     fresh.addEventListener('click', function () {
       var free = MOD_firstEmptySlot();
@@ -4934,7 +4996,7 @@ function modGameChangelog() {
   try {
     var btn = addElement(dom.sl, 'span', null, 'sl');
     btn.innerHTML = 'changelog';
-    btn.style.cssText = 'display:inline-block;width:auto;padding:3px 7px;cursor:pointer;';
+    btn.style.cssText = 'width:auto;padding:3px;cursor:pointer;';
     btn.title = "What this mod changed (the version number opens the game's own)";
     btn.addEventListener('click', modChangelog);
     dom.sl.insertBefore(btn, dom.sl_extra);

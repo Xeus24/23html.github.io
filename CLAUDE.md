@@ -58,6 +58,13 @@ append-only. Getting this wrong corrupts existing saves.
   tracking in `global.flags` or it compounds on every load. See
   `MOD_applyMoneyDrops` for the pattern.
 
+## The bottom bar
+
+Buttons added to `dom.sl` must match the game's own: plain `inline`, `padding:3px`,
+no `display:inline-block`. An inline-block forces the line box to grow, which
+made the fixed bar 32px instead of 24px and covered the bottom of the panel
+above it. The bar is `position:fixed`, so any height it gains eats game screen.
+
 ## DOM constraints in the skill panel
 
 The game's per-second updater reads fixed child indices **within** each skill
@@ -245,11 +252,17 @@ his.
 
 ## Actions
 
-The mod adds four actions. They are **earned**, from milestones on base-game
-skills, the same way `skl.walk` lv 1 grants the base game's "Run":
-Toughness 4 → Endurance Drill, Harvesting 4 → Forage, Temperance 5 → Circulate
-Qi, Literacy 8 → Practice Calligraphy. Do not go back to granting them on a
-timer.
+The mod adds four actions. They are **earned**, not granted on a timer. Three
+come from milestones on the base-game skill they grow out of, the same way
+`skl.walk` lv 1 grants "Run": Toughness 4 → Endurance Drill, Harvesting 4 →
+Forage, Literacy 8 → Practice Calligraphy.
+
+**Circulate Qi is the exception**: it comes from clearing the dojo's three
+tutorial fights (`tr1_win`/`tr2_win`/`tr3_win` — Easiest, Easy, Normal), checked
+on the tick, because the condition is story flags rather than a skill level. It
+is the way into the whole cultivation system, so gating it behind Temperance —
+a skill trained by discarding possessions — was obscure. Temperance keeps a
+plain perk at level 5 so the save's index-keyed milestone flags do not shift.
 
 - Milestone flags are stored **by array index**, so a gating milestone must be
   appended and levels must stay ascending. Section 3 already appended level-50

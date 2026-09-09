@@ -2068,6 +2068,44 @@ problem rather than edited to fix it; it is his to fix.
 
 **Every change from here on gets an entry there.** That is the point of it.
 
+## Circulate Qi comes from the dojo
+
+Three of the four added actions hang off a milestone on a base-game skill.
+Circulate Qi did too — Temperance 5 — and that was wrong once section 28 made it
+the way into the cultivation system: realms are levelled through Qi Circulation,
+and Temperance is trained by throwing your possessions away. An obscure gate on
+the most important thing in the mod.
+
+It is granted by clearing the dojo's three tutorial fights instead — the
+difficulty select's "Easiest", "Easy" and "Normal", which set `tr1_win`,
+`tr2_win` and `tr3_win`. That is the moment the dojo has finished teaching you
+to fight, which is the right moment to hand over what the rest hangs off.
+
+A **tick check rather than a milestone**, because the condition is three story
+flags rather than a skill level — the same way the base game grants `act.scout`
+from a story beat rather than a perk. The flags only go false→true, so it is
+one-way, and `giveAction` is a no-op once you hold it.
+
+The skill itself is revealed at the same time. The game only shows a skill once
+it first levels, which would otherwise leave you holding an action whose skill
+is nowhere on the sheet.
+
+**Temperance keeps a perk at level 5**, now a plain one. Removing the milestone
+would have shifted every later index in `skl.rccln.mlstn`, and those indices are
+what the save keys its "granted" flags to.
+
+## The bottom bar was covering the panel
+
+The mod's three bar buttons were `display:inline-block`; the game's own are
+plain `inline`. Both render 22px tall, but only an inline-block contributes its
+full box to the line box — so `#sl` went from 24px to 32px, and since it is
+`position:fixed` at `bottom:0`, those 8px came straight off the game screen and
+covered the bottom of the panel above it.
+
+Measured rather than guessed: hiding just the three buttons took the bar from
+32px back to 24px. Matching the game's own styling fixes it; the check is that
+the bar's height is identical with the buttons shown and hidden.
+
 ## The added actions are earned now
 
 The four actions this mod adds — Circulate Qi, Forage, Practice Calligraphy,
