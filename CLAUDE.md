@@ -165,6 +165,10 @@ duplicate the save cannot tell apart by index).
 - A title's exp bonus writes to `skl.<x>.p`, which **is saved and is restored
   after milestones fire**. Never set it from milestone code; it is reconciled on
   the tick against `global.flags.mod_ttlxp`, like section 13 does for `you.res`.
+- Colours come from `MOD_RANK_COLOUR` (ten ranks). The game's own rank 7
+  tooltip branch **throws** — it sets `this.dl`, undefined in a type 5 call —
+  so `dscr` is wrapped to park the rank at 1 (a branch-less value) and paint
+  the label afterwards. Do not remove that wrapper.
 - Only the **worn** title applies, until renown level N makes rank ≤ N passive.
   Base-game `talent`s are a separate, already-permanent mechanism — don't
   conflate them.

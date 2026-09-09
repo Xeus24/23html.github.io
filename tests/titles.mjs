@@ -117,6 +117,41 @@ const after = await p.evaluate(sk => ({ p: skl[sk].p, applied: (global.flags.mod
 check(Math.abs(after.p - stack.once) < 1e-9,
   `and it survives a reload at the same value, not doubled (p ${after.p}, was ${stack.once})`);
 
+console.log('\n--- every rank has a colour, and hovering one does not throw');
+const colours = await p.evaluate(() => {
+  const out = {};
+  for (let r = 1; r <= 10; r++) {
+    const key = Object.keys(ttl).find(k => ttl[k] && ttl[k].name && ttl[k].rar === r);
+    if (!key) { out[r] = { titles: 0 }; continue; }
+    const el = document.createElement('div'); document.body.appendChild(el);
+    let threw = null, colour = null, rankLine = false;
+    try {
+      dscr.call(el, { clientX: 10, clientY: 10 }, ttl[key], 5, null, null, null);
+      const lab = global.dscr.querySelector('#d_l');
+      colour = lab ? lab.style.color : null;
+      rankLine = /Rank /.test(global.dscr.textContent);
+    } catch (e) { threw = e.message; }
+    el.remove();
+    out[r] = { titles: Object.keys(ttl).filter(k => ttl[k] && ttl[k].name && ttl[k].rar === r).length,
+               colour, threw, rankLine, style: MOD_rankStyle(r).c };
+  }
+  return out;
+});
+for (let r = 1; r <= 10; r++) {
+  const o = colours[r];
+  console.log(`     rank ${String(r).padStart(2)}  ${String(o.titles).padStart(3)} titles  ${o.threw ? 'THREW: ' + o.threw : 'colour ' + (o.colour || '(none)')}`);
+}
+// rank 7's branch in the base game sets this.dl, which is undefined in a type 5
+// call — it had never run because the base game topped out at rank 5
+check(Object.values(colours).every(o => !o.threw),
+  'no rank throws when hovered (the base game\'s rank 7 branch did)');
+check(Object.values(colours).every(o => !o.titles || (o.colour && o.colour !== '')),
+  'every populated rank renders a colour');
+check(Object.values(colours).every(o => !o.titles || o.rankLine),
+  'and the tooltip states the rank');
+const distinct = new Set(Object.values(colours).map(o => o.style));
+check(distinct.size === 10, `the ten ranks are ten distinct colours (${distinct.size})`);
+
 console.log('\nerrors:', errs.length ? errs : 'none');
 if (errs.length) fail.push('page errors: ' + JSON.stringify(errs));
 await b.close();

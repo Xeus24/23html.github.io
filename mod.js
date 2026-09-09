@@ -5372,14 +5372,20 @@ function MOD_selectTitle(title) {
   try { MOD_applyTitleBonuses(); } catch (e) {}   // worn title decides the bonus
 }
 
-/* One clickable title row, matching the game's own. */
+/* One clickable title row, matching the game's own. The rank colour comes from
+   section 26, which loads after this — fine, because nothing here runs until
+   the player opens the picker. */
 function MOD_titleRow(parent, title, indent) {
   var row = addElement(parent, 'div', null, 'youttl');
   var worn = false;
   try { worn = you.title && you.title.id === title.id; } catch (e) {}
   row.innerHTML = (indent ? '&nbsp;&nbsp;&nbsp;&nbsp;' : '') + '"' + title.name + '"' +
     (title.talent ? " <span style='color:yellow;text-shadow:0px 0px 5px orange'>*</span>" : '');
-  if (worn) row.style.color = 'gold';
+  try { MOD_paintTitle(row, title); } catch (e) {}
+  // The colour slot now carries rank, so "worn" is shown by weight and a tint
+  // instead. Not a glyph: the caret already owns the one that would read best,
+  // and a second triangle in the same column is unreadable.
+  if (worn) { row.style.fontWeight = 'bold'; row.style.backgroundColor = 'rgba(255,255,255,.10)'; }
   try { addDesc(row, title, 5); } catch (e) {}
   row.addEventListener('click', function () { MOD_selectTitle(title); });
   return row;
@@ -5435,7 +5441,8 @@ function MOD_renderTitlePicker() {
     try { wornHere = you.title && held.some(function (x) { return x.id === you.title.id; }); } catch (e) {}
     label.innerHTML = '"' + best.name + '"' +
       (best.talent ? " <span style='color:yellow;text-shadow:0px 0px 5px orange'>*</span>" : '');
-    if (wornHere) label.style.color = 'gold';
+    try { MOD_paintTitle(label, best); } catch (e) {}
+    if (wornHere) { label.style.fontWeight = 'bold'; head.style.backgroundColor = 'rgba(255,255,255,.10)'; }
 
     var count = addElement(head, 'span');
     count.innerHTML = '(' + held.length + ')';
@@ -5476,3 +5483,95 @@ if (dom.d3) {
 
 console.log('[mod] title picker groups by skill — ' +
             Object.keys(MOD_TITLE_SKILL).length + ' titles attributed to a skill');
+
+
+/* ===========================================================================
+   26. TITLE COLOURS FOR TEN RANKS
+   ---------------------------------------------------------------------------
+   The game already colours a title by rank, in the type 5 branch of dscr():
+
+       rar 0 grey   2 cyan   3 lime   4 yellow   5 orange   6 purple
+
+   with two problems that only became problems when section 24 started using
+   the upper ranks.
+
+   RANK 7 THROWS. Its branch sets `this.dl.style`, where every other branch
+   sets `this.label.style`. `this.dl` is assigned in the type 6 and 7 branches
+   of the same function, so in a type 5 call it is undefined and the tooltip
+   dies half-built — the name is placed, the description never is. The base
+   game topped out at rank 5, so the branch had never once run. There are now
+   93 titles at rank 7.
+
+   RANKS 1, 8, 9 AND 10 HAVE NO BRANCH, so 220 titles render with no colour at
+   all, including every rank 10 in the game.
+
+   Rather than patch the switch — it is inside a 200-line function that builds
+   six different tooltip layouts — the title's rank is parked at 1 for the
+   duration of the call, which is a value the switch has no branch for and so
+   cannot throw on, and the label is coloured afterwards from the full ten-rank
+   palette. The author's five colours are kept exactly where they are; the ramp
+   only extends past where they stopped.
+
+   The picker rows are coloured from the same table, which is the point of
+   having it: with five titles per skill, rank is the thing you are reading.
+   =========================================================================== */
+
+/* index 1..10. The first six are the author's own, kept as they were, except
+   purple which is lifted for legibility on the picker's dark blue. */
+var MOD_RANK_COLOUR = {
+  1:  { c: '#c3ccd6', s: '' },
+  2:  { c: 'cyan',    s: '0px 0px 1px blue' },
+  3:  { c: 'lime',    s: '0px 0px 2px lime' },
+  4:  { c: 'yellow',  s: '0px 0px 3px orange' },
+  5:  { c: 'orange',  s: '0px 0px 2px crimson,0px 0px 5px red' },
+  6:  { c: '#c07bff', s: '1px 1px 1px black,0px 0px 3px purple' },
+  7:  { c: '#ff5fb0', s: '0px 0px 2px #ff1e88,0px 0px 6px #7a0040' },
+  8:  { c: '#ff3b3b', s: '0px 0px 3px #ff0000,0px 0px 7px #4a0000' },
+  9:  { c: '#ffd24a', s: '0px 0px 3px #ffae00,0px 0px 8px #6b3b00' },
+  10: { c: '#ffffff', s: '0px 0px 2px #fff,0px 0px 6px #6cf,0px 0px 12px #f6c' }
+};
+
+function MOD_rankStyle(rank) {
+  return MOD_RANK_COLOUR[Math.min(Math.max(Number(rank) || 1, 1), 10)] || MOD_RANK_COLOUR[1];
+}
+
+/* Paint an element as a title of that rank. */
+function MOD_paintTitle(el, title) {
+  if (!el || !title) return el;
+  var st = MOD_rankStyle(title.rar);
+  el.style.color = st.c;
+  el.style.textShadow = st.s;
+  return el;
+}
+
+/* --- the tooltip ---------------------------------------------------------- */
+
+var MOD_dscr_original = dscr;
+
+dscr = function (c, what, type, ttlFlag, dsc, id) {
+  if (type !== 5) return MOD_dscr_original.apply(this, arguments);
+
+  var t = (ttlFlag === true) ? you.title : what;
+  var keep = t ? t.rar : undefined;
+  // 1 is the rank the game's switch has no branch for: no styling, no throw
+  if (t) t.rar = 1;
+  var r;
+  try { r = MOD_dscr_original.apply(this, arguments); }
+  finally { if (t) t.rar = keep; }
+
+  try {
+    if (t) {
+      var label = global.dscr.querySelector('#d_l');
+      if (label) MOD_paintTitle(label, t);
+      // rank is worth stating now that it means a level rather than a mood
+      var line = addElement(global.dscr, 'div', null, 'd_t');
+      var lv = t._modAtLevel;
+      line.innerHTML = '<small style="color:' + MOD_rankStyle(t.rar).c + '">Rank ' +
+        (t.rar || 1) + '</small>' +
+        (lv ? '<small style="color:grey"> — earned at level ' + lv + '</small>' : '');
+    }
+  } catch (e) { /* a tooltip must never break a hover */ }
+  return r;
+};
+
+console.log('[mod] title colours extended to ten ranks (the game\'s rank 7 branch threw)');

@@ -1770,6 +1770,37 @@ thresholds were rescaled to the larger pool — level 10 wants 550 titles rather
 than 100 — so it is a real collection project rather than something finished
 early, and it is now load-bearing rather than decorative.
 
+## Title colours, and a base-game crash the new ranks woke up
+
+The game already colours a title by rank, in the type 5 branch of `dscr()`:
+grey 0, cyan 2, lime 3, yellow 4, orange 5, purple 6. Two problems, neither of
+which could show up until section 24 started using the upper ranks.
+
+**Rank 7 threw.** Its branch sets `this.dl.style` where every other branch sets
+`this.label.style`. `this.dl` is assigned in the type 6 and 7 branches of the
+same function, so in a type 5 call it is undefined, and the tooltip dies
+half-built — the name placed, the description never. The base game topped out at
+rank 5, so the branch had never once run in the game's life. There are now 93
+titles at rank 7.
+
+**Ranks 1, 8, 9 and 10 had no branch**, so 220 titles rendered with no colour at
+all, including every rank 10.
+
+Rather than patch a switch inside a 200-line function that builds six different
+tooltip layouts, the title's rank is parked at 1 for the duration of the call —
+a value the switch has no branch for, and so cannot throw on — and the label is
+coloured afterwards from a full ten-rank table. The author's five colours are
+kept exactly where they were; the ramp only extends past where they stopped.
+The tooltip also states the rank and the level it was earned at, which is worth
+saying now that rank means a level rather than a mood.
+
+The picker rows use the same table, which is the point of having it: with five
+titles per skill, rank is the thing you are reading. That took the colour slot
+away from marking which title is worn, so worn is now weight plus a background
+tint — not a glyph, because the caret already owns the one that would read best
+and two triangles in one column are unreadable. `tests/titlepicker.mjs` caught
+that collision on the first run.
+
 ## The title picker, grouped by skill
 
 585 titles in a 300px column is a scroll of hundreds of near-identical rows,

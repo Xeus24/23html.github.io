@@ -38,6 +38,11 @@ modTitles() prints held/total by rank and which ranks have gone passive; modTitl
 The title screen groups by skill &mdash; one row showing the best you hold, with a caret to open the rest<br>
 &nbsp;&nbsp;Base-game titles group with the generated ones, so Rookie and Fighter sit under Fighting too<br>
 &nbsp;&nbsp;Story titles have no skill and stay as plain rows below the groups<br>
+Titles are coloured by rank, in the picker and in the tooltip, and the tooltip states the rank<br>
+&nbsp;&nbsp;grey 1, cyan 2, lime 3, yellow 4, orange 5, purple 6, pink 7, red 8, gold 9, white 10<br>
+&nbsp;&nbsp;FIXED: the game's own rank 7 tooltip threw an error (it set `this.dl`, which is undefined<br>
+&nbsp;&nbsp;in that branch). It had never run because the base game had no title above rank 5 &mdash;<br>
+&nbsp;&nbsp;there are now 93 at rank 7. Ranks 1, 8, 9 and 10 had no colour at all<br>
 <br>
 
 <span style="color:gold;background-color:black">----MOD 2.2:</span><br>
