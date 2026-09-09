@@ -202,9 +202,11 @@ skill tops out below the highest story cap.
   `you.res` continuously for those skills and reconciles it through
   `global.flags.mod_aff`.
 
-**`changelog/changelog.html` gets an entry for every change.** The mod's block
-sits at the top under a gold header, newest first, above the base game's own
-entries. It is reachable in game from the `changelog` button in the bottom bar.
+**`changelog/changelog.html` gets an entry for EVERY change**, including ones
+that are not gameplay — a README, a build script, repo housekeeping. Mark those
+as such rather than leaving them out; the rule is literal on purpose, so there
+is never a judgement call about what counts. The mod's block sits at the top
+under a gold header, newest first, above the base game's own entries. It is reachable in game from the `changelog` button in the bottom bar.
 This and the one script tag in `index.html` are the only files outside the mod's
 own that it touches.
 
