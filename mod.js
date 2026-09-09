@@ -5849,16 +5849,27 @@ console.log('[mod] dojo advancement extended to level ' +
    advance through, a bottleneck that stops you, and a breakthrough that costs
    something.
 
-   The ladder is the standard one. It is a genre convention rather than any
-   particular author's invention, which is why every xianxia uses it:
+   The ladder is the genre's extended one — a convention rather than any
+   particular author's invention, which is why every xianxia uses some version
+   of it. Ten stages, and the thresholds are NOT written out here: they are
+   MOD_RANK_AT, the same levels section 24 derives title ranks from. Realm 3 is
+   exactly the Qi Circulation level that earns a rank 3 title, and each realm's
+   own title lands at its own rank without being told to.
 
-       0  Mortal
-       1  Qi Refining              Qi Circulation 10
-       2  Foundation Establishment                25
-       3  Core Formation                          45
-       4  Nascent Soul                            65
-       5  Soul Transformation                     85
-       6  Ascendant                              110
+       0  Mortal                      —
+       1  Qi Refining                 Qi Circulation 1
+       2  Foundation Establishment                   8
+       3  Core Formation                            18
+       4  Nascent Soul                              30
+       5  Spirit Severing                           45
+       6  Soul Transformation                       58
+       7  Void Refinement                           70
+       8  Body Integration                          82
+       9  Great Ascension                           90
+      10  Tribulation Transcendence                110
+
+   Deriving rather than restating means the two ladders cannot drift: retune
+   MOD_RANK_AT and the realms follow.
 
    --- the bottleneck is the point ------------------------------------------
 
@@ -5884,22 +5895,39 @@ console.log('[mod] dojo advancement extended to level ' +
    and friends, so it cannot compound across loads.
    =========================================================================== */
 
-var MOD_REALMS = [
-  { n: 0, name: 'Mortal',                   qic: 0,   mult: 1.00, hp: 1.00,
-    desc: 'You breathe. That is all it is, for now.' },
-  { n: 1, name: 'Qi Refining',              qic: 10,  mult: 1.20, hp: 1.30,
-    desc: 'Qi moves where you tell it to, mostly.' },
-  { n: 2, name: 'Foundation Establishment', qic: 25,  mult: 1.55, hp: 1.80,
-    desc: 'The channels are yours now, and they hold what you put in them.' },
-  { n: 3, name: 'Core Formation',           qic: 45,  mult: 2.10, hp: 2.60,
-    desc: 'Something in your dantian has condensed and turned, and it does not stop turning.' },
-  { n: 4, name: 'Nascent Soul',             qic: 65,  mult: 3.00, hp: 3.80,
-    desc: 'There is a second you in there, small and awake.' },
-  { n: 5, name: 'Soul Transformation',      qic: 85,  mult: 4.30, hp: 5.50,
-    desc: 'The body has stopped being the part of you that matters.' },
-  { n: 6, name: 'Ascendant',                qic: 110, mult: 6.00, hp: 8.00,
-    desc: 'You are still standing in the same village. Nothing else is the same.' }
+/* One realm per title rank, at the same thresholds — DERIVED from MOD_RANK_AT
+   rather than restated, so the two ladders cannot drift apart. Realm 3 is
+   exactly the Qi Circulation level that earns a rank 3 title, and each realm's
+   own title comes out at its own rank without being told to.
+
+   The ten-stage ladder is the genre's extended one, the same way the six-stage
+   version was: shared across hundreds of works, invented by none of them. */
+var MOD_REALM_DATA = [
+  ['Qi Refining',              1.10, 1.20, 'Qi moves where you tell it to, mostly.'],
+  ['Foundation Establishment', 1.30, 1.50, 'The channels are yours now, and they hold what you put in them.'],
+  ['Core Formation',           1.55, 1.90, 'Something in your dantian has condensed and turned, and it does not stop turning.'],
+  ['Nascent Soul',             1.85, 2.40, 'There is a second you in there, small and awake.'],
+  ['Spirit Severing',          2.20, 3.00, 'You have cut something loose that most people carry their whole lives.'],
+  ['Soul Transformation',      2.65, 3.80, 'The body has stopped being the part of you that matters.'],
+  ['Void Refinement',          3.15, 4.70, 'You have started refining the space the qi moves through, rather than the qi.'],
+  ['Body Integration',         3.80, 5.80, 'Flesh and spirit stop being two things you have to reconcile.'],
+  ['Great Ascension',          4.80, 7.00, 'There is very little left above you, and it knows your name now.'],
+  ['Tribulation Transcendence',6.00, 8.50, 'You are still standing in the same village. Nothing else is the same.']
 ];
+
+var MOD_REALMS = [{ n: 0, name: 'Mortal', qic: 0, mult: 1, hp: 1,
+                    desc: 'You breathe. That is all it is, for now.' }];
+
+MOD_REALM_DATA.forEach(function (r, i) {
+  MOD_REALMS.push({
+    n: i + 1,
+    name: r[0],
+    qic: MOD_RANK_AT[i],        // the level that earns a rank i+1 title
+    mult: r[1],
+    hp: r[2],
+    desc: r[3]
+  });
+});
 
 MOD.realm_flag = 'mod_realm';
 
@@ -5925,26 +5953,34 @@ function MOD_atBottleneck() {
    bottleneck.
    ------------------------------------------------------------------------- */
 
-var MOD_BREAK_PILLS = [
-  [1, 9120, 'Qi Gathering Pill',      'Coarse, bitter, and enough to force the first channels open.'],
-  [2, 9121, 'Foundation Pill',        'Sets what you have built, so that it stops moving when you do.'],
-  [3, 9122, 'Core Condensing Pill',   'Meant to be swallowed whole. It is not meant to be pleasant.'],
-  [4, 9123, 'Soul Nascence Pill',     'Alchemists argue about whether making this one is permitted.'],
-  [5, 9124, 'Soul Transformation Pill','The recipe is older than the village and shorter than a sentence.'],
-  [6, 9125, 'Ascension Pill',         'There is no record of who made the first one, or of what happened to them.']
+var MOD_PILL_NAMES = [
+  ['Qi Gathering Pill',       'Coarse, bitter, and enough to force the first channels open.'],
+  ['Foundation Pill',         'Sets what you have built, so it stops moving when you do.'],
+  ['Core Condensing Pill',    'Meant to be swallowed whole. It is not meant to be pleasant.'],
+  ['Soul Nascence Pill',      'Alchemists argue about whether making this one is permitted.'],
+  ['Severing Pill',           'Whatever it cuts away does not grow back.'],
+  ['Transformation Pill',     'The recipe is older than the village and shorter than a sentence.'],
+  ['Void Refining Pill',      'It is not clear that this one is made of anything.'],
+  ['Integration Pill',        'Taken by people who have already decided.'],
+  ['Great Ascension Pill',    'Nobody sells these. They are given, or they are taken.'],
+  ['Tribulation Pill',        'There is no record of who made the first one, or of what became of them.']
 ];
+
+var MOD_BREAK_PILLS = MOD_PILL_NAMES.map(function (p, i) {
+  return [i + 1, 9120 + i, p[0], p[1]];
+});
 
 MOD_BREAK_PILLS.forEach(function (b) {
   var realm = b[0], id = b[1], name = b[2], flavour = b[3];
   var it = new Item(); it.id = id;
   it.name = name;
-  it.rar = Math.min(realm + 2, 8);
+  it.rar = Math.min(realm, 10);
   it.desc = flavour + dom.dseparator +
     '<span style="color:hotpink">Breaks through to ' + MOD_REALMS[realm].name + '</span><br>' +
     '<small style="color:grey">Needs Qi Circulation ' + MOD_REALMS[realm].qic +
     ' and the realm below it</small>';
   it.stype = 4;
-  it.v = 200 * Math.pow(4, realm);
+  it.v = Math.round(150 * Math.pow(2.6, realm));
   it.use = function () { MOD_breakthrough(realm, this); };
   item['mod_bp' + realm] = it;
 });
@@ -6161,7 +6197,7 @@ MOD_MASTERY.forEach(function (m) {
 
 var MOD_TECH = {
   perLevel: 0.006,     // per mastery level
-  perRealm: 0.02,      // per realm above Mortal
+  perRealm: 0.012,     // per realm above Mortal — 10 realms now, not 6
   cap: 0.45,           // no single element ever exceeds this
   power: 1.15          // techniques hit slightly above a plain swing
 };

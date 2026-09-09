@@ -156,6 +156,11 @@ What matters:
 
 ## Cultivation
 
+Realms are **derived from `MOD_RANK_AT`** — the same thresholds title ranks use
+— so realm N is the level that earns a rank N title. Never restate the levels;
+retuning the ranks must move the realms with them. `tests/cultivation.mjs`
+asserts the alignment.
+
 Realms live in `global.flags.mod_realm` and the bonus is applied **in
 `allbuff`** — never written into `you.stra`/`strm`, or it would compound on
 every load. Reaching a Qi Circulation level does not advance the realm; it opens

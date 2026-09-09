@@ -27,7 +27,17 @@ const check = (c, what) => { if (!c) fail.push(what); console.log(`  ${c ? 'ok  
 
 console.log('--- the ladder');
 const ladder = await p.evaluate(() => ({
+  count: MOD_REALMS.length - 1,
   realms: MOD_REALMS.map(r => `${r.n} ${r.name} (Qi ${r.qic}, x${r.mult})`),
+  // the realms are DERIVED from MOD_RANK_AT, so realm N must be the level that
+  // earns a rank N title, and each realm's own title must land at rank N.
+  // Asserting it here is what stops the two ladders drifting apart later.
+  aligned: MOD_REALMS.slice(1).every(r =>
+    r.qic === MOD_RANK_AT[r.n - 1] &&
+    MOD_rankForLevel(r.qic) === r.n &&
+    ttl['mod_realm' + r.n] && ttl['mod_realm' + r.n].rar === r.n &&
+    !!item['mod_bp' + r.n]),
+  ranks: MOD_RANK_AT,
   start: MOD_realm().name,
   pills: MOD_BREAK_PILLS.map(b => item['mod_bp' + b[0]].name),
   masteries: MOD_MASTERY.map(m => m.skill.name),
@@ -35,8 +45,14 @@ const ladder = await p.evaluate(() => ({
   wired: MOD_MASTERY.every(m => MOD_KEY_BY_ID[m.skill.id] === m.key && !!MOD_PARENT_OF[m.key])
 }));
 ladder.realms.forEach(r => console.log('     ' + r));
+const MOD_REALM_COUNT = ladder.count;
+const MOD_REALMS_NAME3 = ladder.realms[3];
+check(ladder.count === ladder.ranks.length,
+  `one realm per title rank (${ladder.count} realms, ${ladder.ranks.length} ranks)`);
+check(ladder.aligned,
+  'realm N sits at the level that earns a rank N title, and its own title is rank N');
 check(ladder.start === 'Mortal', 'a new character starts Mortal');
-check(ladder.pills.length === 6, `one breakthrough pill per realm (${ladder.pills.length})`);
+check(ladder.pills.length === MOD_REALM_COUNT, `one breakthrough pill per realm (${ladder.pills.length})`);
 check(ladder.masteries.length === 6, `six mastery skills (${ladder.masteries.join(', ')})`);
 check(ladder.perks.every(n => n === 7), 'each has the same perk ladder every other skill got');
 check(ladder.wired, 'and all six are registered with the cap and skill-panel maps');
@@ -52,18 +68,22 @@ check(wall.atWall, 'the bottleneck is reported');
 
 console.log('\n--- you cannot skip a realm, or break through under-levelled');
 const rules = await p.evaluate(() => {
-  global.flags.mod_realm = 0; skl.qic.lvl = 30;
-  const skip = MOD_breakthrough(3, { amount: 1 });      // two realms ahead
-  global.flags.mod_realm = 0; skl.qic.lvl = 5;
-  const under = MOD_breakthrough(1, { amount: 1 });     // needs Qi 10
-  return { skip, under, realm: MOD_realm().name };
+  // read the requirements rather than hardcoding them: the thresholds come from
+  // MOD_RANK_AT and change whenever the title ranks are retuned
+  const two = MOD_REALMS[2];
+  global.flags.mod_realm = 0; skl.qic.lvl = 999;
+  const skip = MOD_breakthrough(3, { amount: 1 });          // realm 3 from realm 0
+  global.flags.mod_realm = 1; skl.qic.lvl = two.qic - 1;    // one short of realm 2
+  const under = MOD_breakthrough(2, { amount: 1 });
+  return { skip, under, realm: MOD_realm().name, needed: two.qic };
 });
-check(rules.skip === undefined && rules.under === undefined, 'both attempts refused');
-check(rules.realm === 'Mortal', 'and the realm did not move');
+check(rules.skip === undefined, 'skipping a realm is refused');
+check(rules.under === undefined, `breaking through one level short of Qi ${rules.needed} is refused`);
+check(rules.realm !== MOD_REALMS_NAME3, 'and the realm did not move');
 
 console.log('\n--- breaking through costs the pill whether or not it works');
 const attempt = await p.evaluate(() => {
-  global.flags.mod_realm = 0; skl.qic.lvl = 10;
+  global.flags.mod_realm = 0; skl.qic.lvl = MOD_REALMS[1].qic;   // exactly at the wall
   let consumed = 0, wins = 0, losses = 0;
   for (let i = 0; i < 200; i++) {
     global.flags.mod_realm = 0;
@@ -81,17 +101,17 @@ check(Math.abs(attempt.wins / 200 - attempt.odds) < 0.12,
 
 console.log('\n--- consolidating past the requirement improves the odds');
 const odds = await p.evaluate(() => [0, 4, 8].map(over => {
-  skl.qic.lvl = 10 + over;
+  skl.qic.lvl = MOD_REALMS[1].qic + over;
   let wins = 0;
   for (let i = 0; i < 300; i++) { global.flags.mod_realm = 0; if (MOD_breakthrough(1, { amount: 1 })) wins++; }
   return { over, pct: Math.round(wins / 300 * 100) };
 }));
-odds.forEach(o => console.log(`     Qi Circulation ${10 + o.over} (+${o.over} past): ${o.pct}%`));
+odds.forEach(o => console.log(`     +${o.over} past the requirement: ${o.pct}%`));
 check(odds[2].pct > odds[0].pct, 'training past the wall makes it likelier');
 
 console.log('\n--- a realm is worth something, and does not compound over reloads');
 const worth = await p.evaluate(() => {
-  global.flags.mod_realm = 0; skl.qic.lvl = 10;
+  global.flags.mod_realm = 0; skl.qic.lvl = 1;
   you.stat_r(); allbuff(you);
   const mortal = { str: you.str, hp: you.hpmax };
   global.flags.mod_realm = 3;
@@ -99,10 +119,14 @@ const worth = await p.evaluate(() => {
   const core = { str: you.str, hp: you.hpmax };
   for (let i = 0; i < 20; i++) allbuff(you);          // many refreshes
   const after = { str: you.str, hp: you.hpmax };
-  return { strX: +(core.str / mortal.str).toFixed(2), hpX: +(core.hp / mortal.hp).toFixed(2),
+  return { name: MOD_REALMS[3].name, want: MOD_REALMS[3].mult,
+           strX: +(core.str / mortal.str).toFixed(2), hpX: +(core.hp / mortal.hp).toFixed(2),
+           top: MOD_REALMS[MOD_REALMS.length - 1].mult,
            stable: Math.abs(after.str - core.str) < 1e-6 && after.hp === core.hp };
 });
-check(worth.strX > 1.9, `Core Formation is worth x${worth.strX} STR and x${worth.hpX} HP`);
+check(Math.abs(worth.strX - worth.want) < 0.06,
+  `${worth.name} is worth the x${worth.want} it advertises (measured x${worth.strX} STR, x${worth.hpX} HP)`);
+check(worth.top >= 5, `and the top realm is worth x${worth.top}`);
 check(worth.stable, 'twenty allbuff refreshes do not stack it');
 
 console.log('\n--- no technique fires below Qi Refining');

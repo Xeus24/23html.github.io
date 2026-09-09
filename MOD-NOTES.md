@@ -1779,12 +1779,29 @@ stops you, and a breakthrough that costs something.
 
 ### The ladder is a genre convention, not a borrowing
 
-Qi Refining → Foundation Establishment → Core Formation → Nascent Soul → Soul
-Transformation → Ascendant. That ladder, the dantian, meridians, bottlenecks and
-tribulations are shared across hundreds of works and belong to no one; they are
+Qi Refining → Foundation Establishment → Core Formation → Nascent Soul → Spirit
+Severing → Soul Transformation → Void Refinement → Body Integration → Great
+Ascension → Tribulation Transcendence. That ladder, the dantian, meridians,
+bottlenecks and tribulations are shared across hundreds of works and belong to
+no one; they are
 what makes a thing read as xianxia. Nothing here is lifted from any particular
 novel — no names, no settings, no text — which is both the legal answer and the
 right one, since borrowed specifics would sit badly against proto23's own world.
+
+### Scaled off the title ranks, not restated
+
+The ten realms sit on `MOD_RANK_AT` — the same thresholds section 24 derives
+title ranks from — and are **derived from it rather than listed again**. Realm 3
+is exactly the Qi Circulation level that earns a rank 3 title, and each realm's
+own title falls out at its own rank without being told to. Retune the rank
+thresholds and the realms follow; there is no second copy to forget.
+
+`tests/cultivation.mjs` asserts that alignment directly (`r.qic ===
+MOD_RANK_AT[r.n-1]`, `MOD_rankForLevel(r.qic) === r.n`, and the realm title's
+own `rar`), which is what stops the two ladders drifting the next time either is
+touched. The test's other assertions read the thresholds out of `MOD_REALMS`
+too — the first version hardcoded "realm 1 needs Qi 10" and broke the moment the
+ladder was rescaled, which is the same staleness in miniature.
 
 ### The bottleneck is the whole point
 
