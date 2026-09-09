@@ -1770,6 +1770,73 @@ thresholds were rescaled to the larger pool — level 10 wants 550 titles rather
 than 100 — so it is a real collection project rather than something finished
 early, and it is now load-bearing rather than decorative.
 
+## Cultivation, and elements you can actually use
+
+proto23 is already a cultivation game in its furniture — Qi Circulation, spirit
+pills "made from condensed Ki", a dojo, meridians in the skill text — without
+the thing the genre is actually about: a realm you advance through, a wall that
+stops you, and a breakthrough that costs something.
+
+### The ladder is a genre convention, not a borrowing
+
+Qi Refining → Foundation Establishment → Core Formation → Nascent Soul → Soul
+Transformation → Ascendant. That ladder, the dantian, meridians, bottlenecks and
+tribulations are shared across hundreds of works and belong to no one; they are
+what makes a thing read as xianxia. Nothing here is lifted from any particular
+novel — no names, no settings, no text — which is both the legal answer and the
+right one, since borrowed specifics would sit badly against proto23's own world.
+
+### The bottleneck is the whole point
+
+Reaching the Qi Circulation level does **not** advance the realm. It puts you at
+a wall, and breaking through costs a pill you had to find or buy. A realm you
+get for free is just a second name for a level.
+
+The attempt can fail, and failure spends the pill anyway. Odds start at 55% at
+the threshold and improve 5% per level trained past it, capping at 95% — the
+genre's "consolidate before you push" advice, made mechanical. A failure drops
+you to 1 HP but never kills: the game has a real death system
+(`global.stat.deadt`, the `ndthextr` title) and a breakthrough should not
+interact with it silently.
+
+Each realm multiplies every stat and widens the body, up to ×6 at Ascendant.
+The numbers are deliberately large, and safe to make large because section 8's
+enemy model measures the player rather than assuming a curve — a jump is
+absorbed as tougher enemies rather than as a broken game.
+
+The bonus is applied **in `allbuff`**, never written into `you.stra` and
+friends, so it cannot compound across loads. `tests/cultivation.mjs` runs twenty
+consecutive `allbuff` calls and checks the number does not move.
+
+### Elements you can use
+
+The six Absorption skills were purely defensive — trained by being hit by an
+element, reducing what it does to you, with no way to use one. Six Mastery
+skills pair with them.
+
+Combat is automatic (`fght` calls `battle_ai`; there is no per-turn ability
+picker to hang a spell button on), so a technique is a **proc**: `you.battle_ai`
+is wrapped and each swing has a chance to come out as a technique instead of a
+weapon blow, at `0.006 × mastery level + 0.02 × realm`, capped at 45% so a
+weapon never becomes decoration.
+
+The technique is an `Ability` with `stt: 2` and `aff` set to its element, which
+routes it through the **INT branch** of `dmg_calc` — scaling with INT, with
+`you.aff[element]`, and against the target's elemental defence rather than with
+STR and a weapon. A genuinely different attack, not a reskinned one.
+
+Nothing fires at Mortal. You cannot throw fire before your channels are open,
+which is the genre's rule and also a reason for the realm to matter in combat
+rather than only on the character sheet.
+
+Two things worth keeping: the wrapped `battle_ai` swallows any error from the
+proc and falls through to the ordinary attack, so a bug there can never cost you
+a swing (the test forces `MOD_pickTechnique` to throw and checks all 20 swings
+still land). And the six skills had to be **registered with the maps sections 10
+and 11 built before they existed** — `MOD_KEY_BY_ID` for the cap system,
+`MOD_PARENT_OF` for the panel grouping. `rnwn` needed the same in section 17.
+A skill created late is invisible to those maps, and nothing complains.
+
 ## The dojo's Level Advancement, carried to 110
 
 The dojo already has a reward ladder and the instructor already promises it

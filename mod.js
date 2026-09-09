@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.4',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '2.6',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -49,6 +49,10 @@ var MOD = {
                      // v2.4: the dojo's Level Advancement ladder carried to
                      // character level 110, with spirit pills and skillbooks
                      // scaled to match.
+                     // v2.5: the mod's changelog split into its own file, so
+                     // the script tag is the only edit to the author's files.
+                     // v2.6: cultivation realms with breakthroughs, and six
+                     // elemental mastery skills whose techniques fire in combat.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -5834,3 +5838,395 @@ console.log('[mod] dojo advancement extended to level ' +
             MOD_DOJO_RUNGS[MOD_DOJO_RUNGS.length - 1].lv + ' (' + MOD_DOJO_RUNGS.length +
             ' rungs), ' + MOD_PILLS.length + ' spirit pill grades, ' +
             MOD_MANUAL_ITEMS.length + ' master manuals. modDojo() for the ladder.');
+
+
+/* ===========================================================================
+   28. CULTIVATION REALMS
+   ---------------------------------------------------------------------------
+   proto23 is already a cultivation game in its furniture — Qi Circulation,
+   spirit pills "made from condensed Ki", a dojo, meridians in the skill text —
+   without ever having the thing that genre is actually about: a realm you
+   advance through, a bottleneck that stops you, and a breakthrough that costs
+   something.
+
+   The ladder is the standard one. It is a genre convention rather than any
+   particular author's invention, which is why every xianxia uses it:
+
+       0  Mortal
+       1  Qi Refining              Qi Circulation 10
+       2  Foundation Establishment                25
+       3  Core Formation                          45
+       4  Nascent Soul                            65
+       5  Soul Transformation                     85
+       6  Ascendant                              110
+
+   --- the bottleneck is the point ------------------------------------------
+
+   Reaching the level does NOT advance the realm. It puts you AT a bottleneck,
+   and breaking through costs a pill you have to have found or bought. That is
+   the whole shape of the genre: the wall, the resource, the attempt. Without
+   it a realm is just a second name for a level.
+
+   A failed attempt costs the pill and drops you to 1 HP but never kills — the
+   game has a death system with real consequences (`global.stat.deadt`, the
+   `ndthextr` title) and a breakthrough should not silently interact with it.
+
+   --- what a realm is worth -------------------------------------------------
+
+   Each realm multiplies every stat, compounding, and widens what your body can
+   hold: max HP and max energy scale with it too. The numbers are deliberately
+   large — this is the axis the genre cares about, and section 8's enemy model
+   measures the player rather than assuming a curve, so a big jump is absorbed
+   as tougher enemies rather than as a broken game.
+
+   Stored in `global.flags.mod_realm`, which is saved. The bonus is applied
+   through allbuff like every other multiplier, never written into `you.stra`
+   and friends, so it cannot compound across loads.
+   =========================================================================== */
+
+var MOD_REALMS = [
+  { n: 0, name: 'Mortal',                   qic: 0,   mult: 1.00, hp: 1.00,
+    desc: 'You breathe. That is all it is, for now.' },
+  { n: 1, name: 'Qi Refining',              qic: 10,  mult: 1.20, hp: 1.30,
+    desc: 'Qi moves where you tell it to, mostly.' },
+  { n: 2, name: 'Foundation Establishment', qic: 25,  mult: 1.55, hp: 1.80,
+    desc: 'The channels are yours now, and they hold what you put in them.' },
+  { n: 3, name: 'Core Formation',           qic: 45,  mult: 2.10, hp: 2.60,
+    desc: 'Something in your dantian has condensed and turned, and it does not stop turning.' },
+  { n: 4, name: 'Nascent Soul',             qic: 65,  mult: 3.00, hp: 3.80,
+    desc: 'There is a second you in there, small and awake.' },
+  { n: 5, name: 'Soul Transformation',      qic: 85,  mult: 4.30, hp: 5.50,
+    desc: 'The body has stopped being the part of you that matters.' },
+  { n: 6, name: 'Ascendant',                qic: 110, mult: 6.00, hp: 8.00,
+    desc: 'You are still standing in the same village. Nothing else is the same.' }
+];
+
+MOD.realm_flag = 'mod_realm';
+
+function MOD_realm() {
+  var n = Number(global.flags[MOD.realm_flag]) || 0;
+  return MOD_REALMS[Math.min(Math.max(n, 0), MOD_REALMS.length - 1)];
+}
+
+/* The realm you could reach, if you had the pill and the nerve. */
+function MOD_realmEligible() {
+  var lv = skl.qic ? skl.qic.lvl : 0, best = 0;
+  for (var i = 0; i < MOD_REALMS.length; i++) if (lv >= MOD_REALMS[i].qic) best = i;
+  return MOD_REALMS[best];
+}
+
+function MOD_atBottleneck() {
+  return MOD_realmEligible().n > MOD_realm().n;
+}
+
+/* --- the breakthrough pills ----------------------------------------------
+   One per realm above Mortal. Deliberately not craftable and not cheap: the
+   resource is the obstacle, and a breakthrough you can buy in bulk is not a
+   bottleneck.
+   ------------------------------------------------------------------------- */
+
+var MOD_BREAK_PILLS = [
+  [1, 9120, 'Qi Gathering Pill',      'Coarse, bitter, and enough to force the first channels open.'],
+  [2, 9121, 'Foundation Pill',        'Sets what you have built, so that it stops moving when you do.'],
+  [3, 9122, 'Core Condensing Pill',   'Meant to be swallowed whole. It is not meant to be pleasant.'],
+  [4, 9123, 'Soul Nascence Pill',     'Alchemists argue about whether making this one is permitted.'],
+  [5, 9124, 'Soul Transformation Pill','The recipe is older than the village and shorter than a sentence.'],
+  [6, 9125, 'Ascension Pill',         'There is no record of who made the first one, or of what happened to them.']
+];
+
+MOD_BREAK_PILLS.forEach(function (b) {
+  var realm = b[0], id = b[1], name = b[2], flavour = b[3];
+  var it = new Item(); it.id = id;
+  it.name = name;
+  it.rar = Math.min(realm + 2, 8);
+  it.desc = flavour + dom.dseparator +
+    '<span style="color:hotpink">Breaks through to ' + MOD_REALMS[realm].name + '</span><br>' +
+    '<small style="color:grey">Needs Qi Circulation ' + MOD_REALMS[realm].qic +
+    ' and the realm below it</small>';
+  it.stype = 4;
+  it.v = 200 * Math.pow(4, realm);
+  it.use = function () { MOD_breakthrough(realm, this); };
+  item['mod_bp' + realm] = it;
+});
+
+/* --- the attempt ---------------------------------------------------------- */
+
+function MOD_breakthrough(realm, pill) {
+  var here = MOD_realm(), want = MOD_REALMS[realm];
+  if (!want) return;
+
+  if (realm !== here.n + 1) {
+    msg(realm <= here.n ? 'You are already past that' : 'There is a realm between you and that one', 'red');
+    return;
+  }
+  if (skl.qic.lvl < want.qic) {
+    msg('Your qi is too thin for it — Qi Circulation ' + want.qic +
+        ' (you are ' + skl.qic.lvl + ')', 'red');
+    return;
+  }
+  if (global.flags.btl) { msg('Not in the middle of a fight', 'red'); return; }
+
+  if (pill) pill.amount--;
+
+  /* The attempt itself. Failure is possible and costs the pill, because a
+     breakthrough you cannot fail is an inventory transaction. The odds improve
+     with how far past the requirement you are — the genre's "consolidate first"
+     advice, made mechanical. */
+  var over = skl.qic.lvl - want.qic;
+  var odds = Math.min(0.55 + over * 0.05, 0.95);
+  if (random() > odds) {
+    msg('The qi turns back on you. ' + want.name + ' does not open.', 'crimson');
+    msg('You lose the pill, and most of what you had left.', 'grey');
+    you.hp = 1;
+    you.stat_r();
+    return false;
+  }
+
+  global.flags[MOD.realm_flag] = realm;
+  you.stat_r();
+  try { allbuff(you); } catch (e) {}
+
+  msg('— ' + want.name + ' —', 'gold');
+  msg(want.desc, 'plum');
+  try { if (ttl['mod_realm' + realm]) giveTitle(ttl['mod_realm' + realm]); } catch (e) {}
+  try { MOD_updateRenown(); } catch (e) {}
+  return true;
+}
+
+/* A title per realm, so the ladder shows in the places titles already show.
+   Ranked by the Qi Circulation level each needs, the way section 24 ranks
+   everything else. */
+MOD_REALMS.forEach(function (r) {
+  if (!r.n) return;
+  var t = new Title(3900 + r.n);
+  t.name = r.name;
+  t.desc = r.desc;
+  t.rar = MOD_rankForLevel(r.qic);
+  t._modRanked = true;
+  t._modAtLevel = r.qic;
+  ttl['mod_realm' + r.n] = t;
+});
+
+/* --- the bonus ------------------------------------------------------------
+   Applied in allbuff, never written into the stat fields, so it cannot
+   accumulate across loads the way a milestone bonus would.
+   ------------------------------------------------------------------------- */
+
+var MOD_allbuff_before_realm = allbuff;
+
+allbuff = function (who) {
+  MOD_allbuff_before_realm(who);
+  try {
+    if (!who || typeof you === 'undefined' || who.id !== you.id) return;
+    var r = MOD_realm();
+    if (r.n === 0) return;
+    you.str *= r.mult; you.int *= r.mult; you.agl *= r.mult; you.spd *= r.mult;
+    you.hpmax = Math.round(you.hpmax * r.hp);
+    you.satmax = Math.round(you.satmax * r.hp);
+    if (you.hp > you.hpmax) you.hp = you.hpmax;
+  } catch (e) { /* never break a stat refresh */ }
+};
+
+function modRealm() {
+  var here = MOD_realm(), next = MOD_REALMS[here.n + 1];
+  var lines = ['Realm: ' + here.name + (here.n ? '  (all stats x' + here.mult +
+               ', body x' + here.hp + ')' : ''), ''];
+  MOD_REALMS.forEach(function (r) {
+    var mark = r.n === here.n ? ' <- you' :
+               (r.n === here.n + 1 && skl.qic.lvl >= r.qic ? ' <- open, needs ' + item['mod_bp' + r.n].name : '');
+    lines.push('  ' + (r.n <= here.n ? '[x] ' : '[ ] ') + String(r.n) + '  ' +
+      r.name.padEnd(26) + ' Qi Circulation ' + String(r.qic).padStart(3) + mark);
+  });
+  lines.push('', 'Qi Circulation is at ' + (skl.qic ? skl.qic.lvl : 0) + '.');
+  if (next && skl.qic.lvl >= next.qic) {
+    var over = skl.qic.lvl - next.qic;
+    lines.push('You are at a bottleneck. Breaking through succeeds ' +
+      Math.round(Math.min(0.55 + over * 0.05, 0.95) * 100) + '% of the time at this level;' +
+      ' train Qi Circulation past ' + next.qic + ' to improve it.');
+  }
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+console.log('[mod] cultivation realms: ' + (MOD_REALMS.length - 1) + ' above mortal, ' +
+            'currently ' + MOD_realm().name + '. modRealm() for the ladder.');
+
+
+/* ===========================================================================
+   29. ELEMENTAL MASTERY
+   ---------------------------------------------------------------------------
+   The game has six Absorption skills — Fire, Water, Air, Earth, Light, Dark —
+   and they are entirely defensive: they train when you are hit by that element
+   and reduce what it does to you. There is no way to USE an element. For a
+   game with meridians in its skill descriptions that is a conspicuous hole.
+
+   Six Mastery skills fill it, one per element, each paired with the Absorption
+   it shares a channel with.
+
+   --- how a technique lands ------------------------------------------------
+
+   Combat is automatic — `fght` calls `battle_ai`, there is no per-turn ability
+   picker to hang a spell button on. So a technique is a PROC: `you.battle_ai`
+   is wrapped, and each swing has a chance to come out as a technique instead
+   of a weapon blow.
+
+   That chance is the mastery level and the realm together, and it is capped
+   well under 1 so a weapon never becomes decoration.
+
+   The technique itself is an `Ability` with `stt: 2` and `aff` set to its
+   element, which routes it through the INT branch of dmg_calc — so it scales
+   with INT, with `you.aff[element]`, and with the elemental defence of what
+   you are hitting, rather than with STR and your weapon. It is a genuinely
+   different attack, not a reskinned one.
+
+   --- gated on the realm ---------------------------------------------------
+
+   Nothing procs at Mortal. You cannot throw fire before your channels are
+   open, which is both the genre's rule and a reason for section 28 to matter
+   in combat rather than only on the character sheet.
+   =========================================================================== */
+
+/* element index as dmg_calc's own switch uses it:
+   1 air, 2 earth, 3 fire, 4 water, 5 light, 6 dark */
+var MOD_ELEMENTS = [
+  ['fire',  'Fire Mastery',  3, 'abf', 2001, 'Lantern Splitting Palm',
+   'Heat with somewhere to be', 'orangered'],
+  ['water', 'Water Mastery', 4, 'abw', 2002, 'Still Water Draw',
+   'Water does not hurry and does not stop', 'deepskyblue'],
+  ['air',   'Air Mastery',   1, 'aba', 2003, 'Hollow Gale',
+   'The space a blow travels through, turned against it', 'lightcyan'],
+  ['earth', 'Earth Mastery', 2, 'abe', 2004, 'Settling Weight',
+   'Everything is heavier than it wants to be', 'sandybrown'],
+  ['light', 'Light Mastery', 5, 'abl', 2005, 'Noon Without Shade',
+   'Light with nothing merciful in it', 'lightyellow'],
+  ['dark',  'Dark Mastery',  6, 'abd', 2006, 'Lamp Going Out',
+   'What is left when the light is taken away', 'mediumpurple']
+];
+
+var MOD_MASTERY = [];      // {key, skill, elem, techKey}
+
+MOD_ELEMENTS.forEach(function (e, i) {
+  var key = e[0], label = e[1], elem = e[2], absorb = e[3],
+      id = e[4], techName = e[5], flavour = e[6], colour = e[7];
+
+  var sk = new Skill();
+  sk.id = 2010 + i;                       // clear of the mod's other ranges
+  sk.type = 7;                            // the absorptions' own type
+  sk.name = label;
+  sk.desc = flavour + MOD_SEP +
+    '<small style="color:' + colour + '">Your strikes sometimes become "' + techName + '"</small>';
+  sk.mlstn = [];                          // section 22 fills the ladder in below
+  skl['mod_' + key] = sk;
+
+  var tech = new Ability(id);
+  tech.name = techName;
+  tech.stt = 2;                           // INT branch of dmg_calc
+  tech.aff = elem;
+  tech.atrg = ' <span style="color:' + colour + '">' + techName + '</span> -> ';
+  abl['mod_' + key] = tech;
+
+  MOD_MASTERY.push({ key: 'mod_' + key, skill: sk, elem: elem, tech: tech,
+                     absorb: absorb, colour: colour, name: techName });
+});
+
+/* Give the six the same perk ladder every other skill got in section 22, so
+   they are not the only skills in the game with nothing to reach for. */
+MOD_MASTERY.forEach(function (m) {
+  var add = [];
+  for (var i = 0; i < MOD_LADDER.length; i++) {
+    var perk = MOD_ladderPerk(m.key, m.skill, i);
+    if (perk) add.push(perk);
+  }
+  if (add.length) MOD_addMilestones(m.skill, add);
+});
+
+/* Register the six with the machinery sections 10 and 11 built before they
+   existed — the id->key map the cap system reads, and the section/parent
+   grouping the skill panel draws from. `rnwn` needed exactly this in section 17
+   for the same reason: a skill created after those maps are built is invisible
+   to them. */
+MOD_MASTERY.forEach(function (m) {
+  try {
+    MOD_KEY_BY_ID[m.skill.id] = m.key;
+    MOD_PARENT_OF[m.key] = MOD_PARENT_KEY[MOD_sectionOf(m.skill)];
+  } catch (e) { console.warn('[mod] could not register ' + m.key + ': ' + e.message); }
+});
+
+/* --- the proc -------------------------------------------------------------
+   Chance rises with the mastery and with the realm, and is capped so a weapon
+   always matters. Ties go to the highest-levelled mastery rather than to
+   whichever happens to be first in the list.
+   ------------------------------------------------------------------------- */
+
+var MOD_TECH = {
+  perLevel: 0.006,     // per mastery level
+  perRealm: 0.02,      // per realm above Mortal
+  cap: 0.45,           // no single element ever exceeds this
+  power: 1.15          // techniques hit slightly above a plain swing
+};
+
+function MOD_techChance(m) {
+  var realm = MOD_realm().n;
+  if (realm < 1) return 0;                            // channels are not open
+  if (!m.skill.lvl) return 0;
+  return Math.min(m.skill.lvl * MOD_TECH.perLevel + realm * MOD_TECH.perRealm, MOD_TECH.cap);
+}
+
+/* Pick a technique for this swing, or null for an ordinary attack. */
+function MOD_pickTechnique() {
+  var best = null, bestChance = 0;
+  for (var i = 0; i < MOD_MASTERY.length; i++) {
+    var c = MOD_techChance(MOD_MASTERY[i]);
+    if (c <= 0) continue;
+    if (random() < c && c > bestChance) { best = MOD_MASTERY[i]; bestChance = c; }
+  }
+  return best;
+}
+
+var MOD_battle_ai_original = you.battle_ai;
+
+you.battle_ai = function (x, y, z) {
+  try {
+    var m = MOD_pickTechnique();
+    if (m) {
+      giveSkExp(m.skill, 1.2);
+      if (skl[m.absorb]) giveSkExp(skl[m.absorb], 0.3);   // the paired channel
+      if (skl.qic) giveSkExp(skl.qic, 0.4);
+      return attack(x, y, m.tech, MOD_TECH.power);
+    }
+  } catch (e) { /* a failed proc must never cost you the swing */ }
+  return MOD_battle_ai_original.call(this, x, y, z);
+};
+
+/* Live effect lines, the way section 5 does for everything else. */
+MOD_MASTERY.forEach(function (m) {
+  MOD_EFFECTS[m.key] = function (s) {
+    var c = MOD_techChance(m);
+    if (MOD_realm().n < 1) {
+      return '<span style="color:grey">Your channels are closed — no technique will fire ' +
+             'until Qi Refining</span>';
+    }
+    return '"' + m.name + '" fires on ' + Math.round(c * 100) + '% of your strikes' +
+      ' <small style="color:grey">(' + Math.round(MOD_TECH.cap * 100) + '% cap)</small>' +
+      '<br><small style="color:' + m.colour + '">Scales with INT and ' +
+      (skl[m.absorb] ? skl[m.absorb].name : 'its element') + ', not with your weapon</small>';
+  };
+});
+
+function modMastery() {
+  var realm = MOD_realm();
+  var lines = ['Elemental mastery (realm: ' + realm.name + '):'];
+  if (realm.n < 1) lines.push('  Nothing fires below Qi Refining.');
+  MOD_MASTERY.forEach(function (m) {
+    lines.push('  ' + m.skill.name.padEnd(16) + ' lv ' + String(m.skill.lvl).padStart(3) +
+      '   "' + m.name + '"'.padEnd(24) +
+      '  ' + Math.round(MOD_techChance(m) * 100) + '% of strikes');
+  });
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+console.log('[mod] elemental mastery: ' + MOD_MASTERY.length +
+            ' skills with techniques that fire in combat. modMastery() for the rates.');

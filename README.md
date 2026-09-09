@@ -53,6 +53,15 @@ for every one of them, including the reasoning and what was measured, is in
 - Three areas past the base game's last: the Sunken Hollow, the Ashen Spire and
   the Long Vigil, opening in order once the golem arena is cleared.
 
+**Cultivation**
+
+- Seven realms — Mortal through Ascendant — advanced by breaking through a
+  bottleneck, which costs a pill and can fail. Each is worth a compounding
+  multiplier on every stat.
+- Six elemental mastery skills whose techniques fire during combat, scaling
+  with INT and their element rather than with your weapon. Nothing fires until
+  your channels are open.
+
 **Skills, titles and items**
 
 - Four new skills with paired actions, each earned from a milestone on the

@@ -154,6 +154,25 @@ What matters:
   that location. Only the *first* line of an `sl()` may pass `true`; every later
   line, including greyed-out hints, must pass `false`.
 
+## Cultivation
+
+Realms live in `global.flags.mod_realm` and the bonus is applied **in
+`allbuff`** — never written into `you.stra`/`strm`, or it would compound on
+every load. Reaching a Qi Circulation level does not advance the realm; it opens
+a bottleneck that costs a breakthrough pill and can fail.
+
+Elemental techniques are a **proc inside a wrapped `you.battle_ai`**, because
+combat is automatic and there is no ability picker. They use `stt: 2` so they
+route through the INT branch of `dmg_calc`. The wrapper must keep swallowing
+errors and falling through to the ordinary attack — a bug in a proc must never
+cost a swing.
+
+**A skill created after section 10/11 is invisible to their maps.** Register it:
+`MOD_KEY_BY_ID[sk.id] = key` (cap system) and
+`MOD_PARENT_OF[key] = MOD_PARENT_KEY[MOD_sectionOf(sk)]` (panel grouping).
+Nothing errors if you forget — the skill just silently loses its cap and its
+section.
+
 ## The dojo
 
 `chss.t3.sl` is a long `else` chain with several one-time screens inside it —
