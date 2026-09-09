@@ -168,6 +168,14 @@ Realms are **derived from `MOD_RANK_AT`** — the same thresholds title ranks us
 retuning the ranks must move the realms with them. `tests/cultivation.mjs`
 asserts the alignment.
 
+**Every breakthrough pill must have a source.** The ladder shipped once with
+none of them obtainable — the items existed and nothing gave, dropped or sold
+them, so realms were console-only. Realm 1 comes from the instructor at the Qi
+unlock, 2-5 from `vendor.pha1` (the Herbalist), 6-10 from the dojo's
+continuation rungs. `tests/cultivation.mjs` fails if any realm's pill is
+orphaned. Realm 1 must not come from the marketplace: that is gated behind the
+Paper Boy at 40% a visit, and realm 1 opens long before it.
+
 Realms live in `global.flags.mod_realm` and the bonus is applied **in
 `allbuff`** — never written into `you.stra`/`strm`, or it would compound on
 every load. Reaching a Qi Circulation level does not advance the realm; it opens

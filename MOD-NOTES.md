@@ -1803,6 +1803,44 @@ touched. The test's other assertions read the thresholds out of `MOD_REALMS`
 too — the first version hardcoded "realm 1 needs Qi 10" and broke the moment the
 ladder was rescaled, which is the same staleness in miniature.
 
+### Where the pills come from, and the hole where that used to be
+
+The realm system shipped with **no way to obtain a single breakthrough pill.**
+All ten existed as items; nothing gave, dropped or sold them. The whole ladder —
+the thing sections 28 and 29 both hang off — was reachable only from the
+console.
+
+`tests/cultivation.mjs` passed throughout, because it called `MOD_breakthrough`
+directly with `{ amount: 1 }` as the pill. It tested the mechanism and never
+asked where the input came from. That is the specific blind spot of a test that
+supplies its own inputs, and the fix is a test that asks the world instead: it
+now walks the Herbalist's stock list, the dojo's rungs and the Qi-unlock path,
+and fails if any realm's pill is orphaned.
+
+Three sources, matching how far along the realm is:
+
+| realm | source |
+|---|---|
+| 1 | the instructor, when the dojo finishes teaching you |
+| 2-5 | the Herbalist, 900 to 38,000 copper |
+| 6-10 | the dojo's Level Advancement rungs at 45, 60, 75, 90, 105 |
+
+The Herbalist rather than a new alchemist shopfront: it is already the
+marketplace's plants-and-medicine vendor, already stocks `sp1`/`sp2`/`sp3`, and
+xianxia alchemy is herbalism with qi. Appending to `vendor.pha1.items` uses the
+game's own restock and purchase machinery, so there is no second screen to keep
+in step.
+
+Realm 1 is deliberately **not** from the Herbalist. The marketplace is gated
+behind reading a flyer the Paper Boy hands you at 40% per Village Center visit,
+and only after `dj1end` — while realm 1 opens at Qi Circulation 1. Sourcing the
+first pill there would have put the entire ladder behind a random encounter.
+
+Save-safe by inspection: vendor stock is stored by item id and restored by
+scanning `itemgroup[(id+1)/10000|0]`, which for the 912x ids is `item`, where
+these are defined. Verified end to end — the pill appears in real restocked
+stock, survives the round trip, and advances the realm when used.
+
 ### The bottleneck is the whole point
 
 Reaching the Qi Circulation level does **not** advance the realm. It puts you at

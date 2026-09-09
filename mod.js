@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.7',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '2.8',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -55,6 +55,8 @@ var MOD = {
                      // elemental mastery skills whose techniques fire in combat.
                      // v2.7: Circulate Qi unlocked by the dojo's tutorial fights
                      // rather than by Temperance 5.
+                     // v2.8: breakthrough pills given a source — they had none,
+                     // so the realm ladder was unreachable in play.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -663,6 +665,19 @@ function MOD_checkQiUnlock() {
     if (act.mod_qi.have !== true) {
       giveAction(act.mod_qi);
       msg('The forms settle into something you can feel moving.', 'plum');
+      /* And the first breakthrough pill. Realm 1 opens at Qi Circulation 1,
+         long before the marketplace does — the Paper Boy who starts that chain
+         only appears after the dojo, at 40% a visit — so leaving the first
+         pill to the Herbalist would gate the entire ladder behind a random
+         encounter. The instructor hands it over here, which is the right beat
+         anyway. */
+      try {
+        if (item.mod_bp1 && !global.flags.mod_firstpill) {
+          giveItem(item.mod_bp1, 1);
+          global.flags.mod_firstpill = true;
+          msg('Instructor: Take this. When you can feel it moving, swallow it.', 'gold');
+        }
+      } catch (e) {}
     }
     if (skl.qic && you.skls && you.skls.indexOf(skl.qic) === -1) {
       you.skls.push(skl.qic);
@@ -5787,12 +5802,18 @@ function MOD_rungReward(lv) {
   return { pill: 'sp7', n: lv >= 110 ? 3 : 2, coin: 3000 + (lv - 95) * 100 };
 }
 
+/* Realms 6-10 are past what a village herbalist can source, so the dojo
+   carries them. Spread over the continuation rungs rather than clustered, so
+   each one is a reason to come back. */
+var MOD_RUNG_REALM = { 45: 6, 60: 7, 75: 8, 90: 9, 105: 10 };
+
 var MOD_DOJO_RUNGS = [];
 for (var MOD_rl = 35; MOD_rl <= 110; MOD_rl += 5) {
   var rw = MOD_rungReward(MOD_rl);
   MOD_DOJO_RUNGS.push({
     lv: MOD_rl, flag: 'mod_djrw' + MOD_rl,
     pill: rw.pill, n: rw.n, coin: rw.coin,
+    realmPill: MOD_RUNG_REALM[MOD_rl] || null,
     manual: (MOD_rl === 50 || MOD_rl === 75 || MOD_rl === 100)
   });
 }
@@ -5829,6 +5850,10 @@ function MOD_dojoAdvancement() {
         chs('"Accept"', false, 'lime').addEventListener('click', function () {
           giveWealth(next.coin);
           giveItem(item[next.pill], next.n);
+          if (next.realmPill && item['mod_bp' + next.realmPill]) {
+            giveItem(item['mod_bp' + next.realmPill], 1);
+            msg('Instructor: And this. I am not going to pretend I know where it came from.', 'gold');
+          }
           if (next.manual) { MOD_dojoManualChoice(next); return; }
           global.flags[next.flag] = true;
           smove(chss.t3, false);
@@ -5889,7 +5914,8 @@ function modDojo() {
     var done = !!global.flags[r.flag];
     lines.push('  ' + (done ? '[done] ' : (you.lvl >= r.lv ? '[open] ' : '[    ] ')) +
       'lv ' + String(r.lv).padStart(3) + '   ' + String(r.coin).padStart(5) + ' coin, ' +
-      item[r.pill].name + ' x' + r.n + (r.manual ? ', a manual of your choice' : ''));
+      item[r.pill].name + ' x' + r.n + (r.manual ? ', a manual of your choice' : '') +
+      (r.realmPill ? ', ' + item['mod_bp' + r.realmPill].name : ''));
   });
   var out = lines.join('\n');
   console.log(out);
@@ -6046,6 +6072,47 @@ MOD_BREAK_PILLS.forEach(function (b) {
   it.use = function () { MOD_breakthrough(realm, this); };
   item['mod_bp' + realm] = it;
 });
+
+/* --- where the pills come from -------------------------------------------
+   Shipped without this and the whole realm ladder was unreachable in normal
+   play: the ten pills existed as items and nothing gave, dropped or sold them.
+   The test called MOD_breakthrough directly and never asked where a pill came
+   from, which is exactly the gap a test that mocks its inputs leaves open.
+
+   Three sources, matching how far along each realm is:
+
+     realm 1        the instructor, when the dojo finishes teaching you
+     realms 2-5     the Herbalist, who already sells spirit pills
+     realms 6-10    the dojo's Level Advancement rungs
+
+   The Herbalist rather than a new alchemist shopfront: it is the marketplace's
+   plants-and-medicine vendor, it already stocks sp1/sp2/sp3, and xianxia
+   alchemy is herbalism with qi. Appending to `vendor.pha1.items` uses the
+   game's own restock and purchase machinery — no new screen to keep in step.
+
+   Save-safe: vendor stock is stored by item id and restored by scanning
+   `itemgroup[(id+1)/10000|0]`, which for 912x is `item`, where these live.
+   -------------------------------------------------------------------------- */
+
+(function () {
+  try {
+    if (!vendor.pha1 || !vendor.pha1.items) return;
+    // realms 2-5. Rarer and dearer the higher it goes; the top half is not
+    // something a village herbalist can get hold of.
+    [[2, 900, 0.55, 1, 2],
+     [3, 3200, 0.40, 1, 2],
+     [4, 11000, 0.25, 1, 1],
+     [5, 38000, 0.12, 1, 1]].forEach(function (r) {
+      var it = item['mod_bp' + r[0]];
+      if (it) vendor.pha1.items.push({ item: it, p: r[1], c: r[2], min: r[3], max: r[4] });
+    });
+    // and the two spirit pill grades above the ones already on the shelf
+    [[item.sp4, 2600, 0.5, 1, 3], [item.sp5, 14000, 0.3, 1, 2]].forEach(function (r) {
+      if (r[0]) vendor.pha1.items.push({ item: r[0], p: r[1], c: r[2], min: r[3], max: r[4] });
+    });
+    console.log('[mod] Herbalist stocks breakthrough pills for realms 2-5');
+  } catch (e) { console.warn('[mod] could not stock the Herbalist: ' + e.message); }
+})();
 
 /* --- the attempt ---------------------------------------------------------- */
 

@@ -57,6 +57,36 @@ check(ladder.masteries.length === 6, `six mastery skills (${ladder.masteries.joi
 check(ladder.perks.every(n => n === 7), 'each has the same perk ladder every other skill got');
 check(ladder.wired, 'and all six are registered with the cap and skill-panel maps');
 
+console.log('\n--- every breakthrough pill has a source in the game');
+// The realm system shipped once with none of them obtainable: the ten pills
+// existed as items and nothing gave, dropped or sold them, so the whole ladder
+// was console-only. The test called MOD_breakthrough directly and never asked
+// where a pill came from — the gap a test that mocks its inputs leaves open.
+const sources = await p.evaluate(() => {
+  const src = {};
+  for (let n = 1; n <= MOD_REALMS.length - 1; n++) src[n] = [];
+  // the instructor, on the Qi unlock
+  if (/mod_bp1/.test(String(MOD_checkQiUnlock))) src[1].push('dojo (Qi unlock)');
+  // the Herbalist's stock list
+  (vendor.pha1.items || []).forEach(e => {
+    const m = /^mod_bp(\d+)$/.exec(Object.keys(item).find(k => item[k] === e.item) || '');
+    if (m) src[+m[1]].push('Herbalist ' + e.p + 'c');
+  });
+  // the dojo's continuation rungs
+  MOD_DOJO_RUNGS.forEach(r => { if (r.realmPill) src[r.realmPill].push('dojo lv ' + r.lv); });
+  return { src, spirit: (vendor.pha1.items || [])
+    .filter(e => [item.sp4, item.sp5, item.sp6, item.sp7].indexOf(e.item) !== -1)
+    .map(e => e.item.name) };
+});
+Object.keys(sources.src).forEach(n =>
+  console.log(`     realm ${String(n).padStart(2)}  ${sources.src[n].join(', ') || 'NOWHERE'}`));
+const orphans = Object.keys(sources.src).filter(n => !sources.src[n].length);
+check(orphans.length === 0,
+  `every realm's pill is obtainable in play (${orphans.length ? 'orphaned: ' + orphans.join(',') : 'all ' + Object.keys(sources.src).length})`);
+check(sources.src[1].some(s => /dojo/.test(s)),
+  'realm 1 comes from the dojo, not the marketplace — the marketplace is gated behind a 40% encounter');
+check(sources.spirit.length >= 2, `the Herbalist also stocks the new spirit pills (${sources.spirit.join(', ')})`);
+
 console.log('\n--- reaching the level does NOT advance the realm');
 const wall = await p.evaluate(() => {
   global.flags.mod_realm = 0; skl.qic.lvl = 30;
