@@ -154,9 +154,15 @@ What matters:
   until `global.flags.trne4e1` — golem arena IV cleared, the base game's last
   normal area — and then open in order on the same kill counts that drive their
   caps. `tests/areagate.mjs` guards this.
-- **The catacombs are unreachable in the base game.** All 26 locations exist but
-  nothing links into `chss.catamn`, so `mod_t_cata` can never fire and the cap-40
-  rung is dead (harmlessly — arena I-II grants cap 50 anyway). See MOD-NOTES.
+- **The catacombs are reachable now** (section 30). All 26 rooms are the
+  author's; the mod adds only the Village Center entrance, which is where their
+  own exit already led. Gated on `mod_t_deep` **for a reason**: entering sets
+  `mod_t_cata`, the cap-40 rung, so an ungated door would hand a fresh character
+  cap 40 straight out of the tutorial, past the forest's 20 and the deep
+  forest's 30. Any new area that sets a tier flag needs the same care.
+- **The Pill Tower** is `chss.mod_pltwr`, deliberately not `chss.pltwr1` — the
+  author wrote that choice on the Village Center and commented it out, and the
+  two must not collide if they ever finish theirs.
 - `chs(txt, true, ...)` calls `clr_chs()` and wipes everything already drawn for
   that location. Only the *first* line of an `sl()` may pass `true`; every later
   line, including greyed-out hints, must pass `false`.

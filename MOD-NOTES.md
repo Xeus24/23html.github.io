@@ -1364,6 +1364,61 @@ the tier by the base game's own design (Forest-far at level 7, the Catacombs at
 The tier-appropriate endgame is a real fight at 13 hits, and the conditional
 skills still pay for themselves by cutting it hard.
 
+## Two places, both of which the game was already pointing at
+
+The mod had spent a lot of sections adding systems and none adding world. These
+are the two places the game itself had already gestured at.
+
+### The catacombs, finished and unreachable
+
+26 locations exist, fully written, with their own ambient text table and a
+bestiary entry for the ghouls that says they live there. `grep catamn` returns
+three hits: its definition, its own handler, and one `smove(chss.catamn)` from
+*inside* `cata1` going back. Nothing links in. Its own exit leads to the Village
+Center, which is where the entrance was always meant to be.
+
+So the entrance is one `chs()` there — the same trick the Old Path trailhead
+uses. **Not a word of the content is the mod's**; the entrance is the whole
+change, and `tests/places.mjs` asserts that (`mod_cata*` keys: zero).
+
+It has to be gated, and not for flavour. Visiting sets `mod_t_cata`, which is
+the cap-40 rung in `MOD_TIERS` — the rung that has been dead all along precisely
+because nothing could reach it. An open door would hand a fresh character cap 40
+straight out of the tutorial, past the forest's 20 and the deep forest's 30.
+Gated on `mod_t_deep`, the rung below it, so the ladder keeps its order:
+
+    forest 20  ->  deep forest 30  ->  catacombs 40  ->  golem arena 50
+
+That is the general rule for any new area that sets a tier flag, and it is now
+in CLAUDE.md.
+
+### The Pill Tower, which the author started
+
+On the Village Center, in the author's own file:
+
+```js
+//  chs('"=> Visit Pill Tower"',false).addEventListener('click',()=>{
+//    smove(chss.pltwr1);
+//  });
+```
+
+The choice was written and commented away; `chss.pltwr1` was never built. An
+alchemists' tower is exactly what a cultivation game wants and exactly what this
+mod was missing, so this builds it rather than inventing a different shopfront —
+completing their intention instead of imposing mine.
+
+It is `chss.mod_pltwr`, **not** `chss.pltwr1`: if the author ever finishes
+theirs, the two must not collide. The test checks `chss.pltwr1` is still
+undefined.
+
+It carries its own vendor with the grades a village herbalist cannot source
+(realms 6-10, plus the Sublime and Transcendent Spirit Pills), and a spirit
+vein you can sit in once a day for Qi Circulation exp that scales with your
+realm — somewhere for cultivation to *go*, which the ladder otherwise entirely
+lacked. Gated on having a realm at all: they do not let mortals past the door,
+which is the genre's own snobbery and gives the realm ladder a presence in the
+world rather than only on the character sheet.
+
 ## The catacombs are unreachable in the base game
 
 `mod_t_cata` gates the cap-40 rung, and it is set by hooking `chss.catamn` /

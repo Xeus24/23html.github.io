@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.8',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '2.9',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -57,6 +57,8 @@ var MOD = {
                      // rather than by Temperance 5.
                      // v2.8: breakthrough pills given a source — they had none,
                      // so the realm ladder was unreachable in play.
+                     // v2.9: the catacombs wired up (26 of the author's rooms,
+                     // previously unreachable) and the Pill Tower built.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -6395,3 +6397,158 @@ function modMastery() {
 
 console.log('[mod] elemental mastery: ' + MOD_MASTERY.length +
             ' skills with techniques that fire in combat. modMastery() for the rates.');
+
+
+/* ===========================================================================
+   30. TWO PLACES
+   ---------------------------------------------------------------------------
+   The mod had added systems and no world. This adds the two places the game
+   itself was already pointing at.
+
+   --- the catacombs, which were finished and unreachable -------------------
+
+   26 locations exist, fully written, with their own ambient text table and a
+   bestiary entry for the ghouls that says they live there. Nothing links in:
+   `grep catamn` returns its definition, its own handler, and one
+   `smove(chss.catamn)` from INSIDE cata1 going back. Its own exit leads to the
+   Village Center, which is where the entrance was always meant to be.
+
+   So the entrance is one `chs()` on the Village Center — the same trick the
+   Old Path trailhead uses. Nothing here is written by the mod; it opens the
+   author's own rooms.
+
+   It has to be GATED, though, and not for flavour. Visiting sets `mod_t_cata`,
+   which is the cap-40 rung in MOD_TIERS — the rung that has been dead all
+   along because nothing could reach it. Open the door to a fresh character and
+   they take cap 40 straight out of the tutorial, past the forest's 20 and the
+   deep forest's 30. Gated on `mod_t_deep` instead, so the ladder keeps its
+   order: forest 20 -> deep forest 30 -> catacombs 40 -> arena 50.
+
+   --- the Pill Tower, which the author started and commented out -----------
+
+   On the Village Center, in the author's own file:
+
+       //  chs('"=> Visit Pill Tower"',false).addEventListener('click',()=>{
+       //    smove(chss.pltwr1);
+       //  });
+
+   The choice was written and commented away; `chss.pltwr1` was never built.
+   An alchemists' tower is exactly what a cultivation game wants and exactly
+   what this mod was missing, so this builds it rather than inventing a
+   different shopfront.
+
+   The location is `chss.mod_pltwr`, not `chss.pltwr1` — if the author ever
+   finishes theirs, the two must not collide.
+
+   Gated on having a realm: they do not let mortals past the door. That gives
+   the realm ladder somewhere to be visible in the world rather than only on
+   the character sheet, and it is the genre's own snobbery.
+   =========================================================================== */
+
+/* --- A. the catacombs entrance -------------------------------------------- */
+
+MOD.cata_gate = 'mod_t_deep';       // cap 30 — see the header for why
+
+var MOD_lsmain1_original_sl = chss.lsmain1.sl;
+
+chss.lsmain1.sl = function () {
+  MOD_lsmain1_original_sl.apply(this, arguments);
+  try {
+    /* Every chs() here passes false. chs(txt, true) calls clr_chs() and would
+       wipe the Village Center that was just drawn. */
+    if (global.flags[MOD.cata_gate] === true) {
+      chs('"=> Enter the Catacombs"', false, 'darkgrey').addEventListener('click', function () {
+        smove(chss.catamn);
+      });
+    }
+    if (MOD_realm().n >= 1) {
+      chs('"=> Visit the Pill Tower"', false, 'plum').addEventListener('click', function () {
+        smove(chss.mod_pltwr);
+      });
+    }
+  } catch (e) {
+    console.warn('[mod] village center additions failed: ' + e.message);
+  }
+};
+
+/* --- B. the Pill Tower ---------------------------------------------------- */
+
+/* Its own vendor: the grades a village herbalist cannot source. Same shape as
+   the game's own vendors, so restock and the purchase screen work unchanged. */
+vendor.mod_pltwr = new Vendor();
+vendor.mod_pltwr.name = 'Pill Tower';
+vendor.mod_pltwr.infl = 1;
+vendor.mod_pltwr.dfl = 0.25;
+vendor.mod_pltwr.timeorig = 3;                 // restocks every three days
+vendor.mod_pltwr.data = { time: 3, rep: 0 };
+vendor.mod_pltwr.items = [
+  { item: item.mod_bp6,  p: 120000,  c: 0.45, min: 1, max: 1 },
+  { item: item.mod_bp7,  p: 340000,  c: 0.30, min: 1, max: 1 },
+  { item: item.mod_bp8,  p: 900000,  c: 0.20, min: 1, max: 1 },
+  { item: item.mod_bp9,  p: 2400000, c: 0.12, min: 1, max: 1 },
+  { item: item.mod_bp10, p: 7000000, c: 0.06, min: 1, max: 1 },
+  { item: item.sp6,      p: 90000,   c: 0.5,  min: 1, max: 2 },
+  { item: item.sp7,      p: 480000,  c: 0.3,  min: 1, max: 1 }
+].filter(function (e) { return !!e.item; });
+restock(vendor.mod_pltwr);
+
+/* The spirit vein. Somewhere for cultivation to GO — the realm ladder was
+   otherwise entirely a character-sheet affair. Once a day, because a place you
+   can sit in forever is just a faster version of the action you already have.
+   The day is read off `time.day`, which the game already advances. */
+MOD.vein_flag = 'mod_vein_day';
+
+function MOD_veinReady() {
+  return Number(global.flags[MOD.vein_flag] || -1) !== Number(time.day);
+}
+
+function MOD_veinExp() {
+  // scales with the realm, so it stays worth the walk
+  return Math.round(60 * Math.pow(1.9, MOD_realm().n));
+}
+
+chss.mod_pltwr = new Chs(); chss.mod_pltwr.id = 976;
+
+chss.mod_pltwr.sl = function () {
+  global.flags.inside = true;
+  d_loc('Pill Tower');
+  global.lst_loc = 976;
+
+  var realm = MOD_realm();
+  chs('The air inside is thick enough to lean on. Somewhere above, something is being ' +
+      'refined that the attendants will not name.', true);
+  chs('<span style="color:grey">Attendant: ' + realm.name + '. You may go up as far as the ' +
+      'second floor.</span>', false, 'grey');
+
+  chs('"Purchase"', false, 'orange').addEventListener('click', function () {
+    chs_spec(4, vendor.mod_pltwr);
+    chs('"<= Return"', false, '', '', null, null, null, true).addEventListener('click', function () {
+      smove(chss.mod_pltwr, false);
+    });
+  });
+
+  if (MOD_veinReady()) {
+    chs('"Sit in the spirit vein"', false, 'plum').addEventListener('click', function () {
+      var gain = MOD_veinExp();
+      global.flags[MOD.vein_flag] = time.day;
+      try { giveSkExp(skl.qic, gain); } catch (e) {}
+      chs('You sit where the floor is warmest and stop doing anything else.', true, 'plum');
+      chs('<span style="color:#7cf">Qi Circulation +' + gain.toLocaleString() +
+          ' exp. The vein will not give again today.</span>', false);
+      chs('"<= Stand up"', false).addEventListener('click', function () {
+        smove(chss.mod_pltwr, false);
+      });
+    });
+  } else {
+    chs('<span style="color:grey">The vein is spent for today</span>', false, 'grey');
+  }
+
+  chs('"<= Leave"', false).addEventListener('click', function () {
+    smove(chss.lsmain1);
+  });
+};
+
+try { addtosector(sector.vmain1, chss.mod_pltwr); } catch (e) { /* sector optional */ }
+
+console.log('[mod] catacombs entrance (gated on ' + MOD.cata_gate +
+            ') and the Pill Tower added to the Village Center');
