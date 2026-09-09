@@ -1967,14 +1967,20 @@ resolved against `document.baseURI` instead. The version number still works —
 its handler is rebound by replacing the node, the game having attached it
 anonymously.
 
-The mod's entries live at the top of that same file under a gold header, above
-the author's, with the base game's changelog untouched below a divider. That
-makes `changelog/changelog.html` a second file the mod edits, alongside the one
-script tag in `index.html`; `git checkout changelog/changelog.html` puts it
-back. The file also gained an explicit white background, because it sets no
-colours of its own and the author's palette — blue dates, black-backed headers
-— assumes a white page, so a browser in dark mode rendered half of it
-unreadable.
+The mod's entries live in **`changelog/mod-changelog.html`**, its own file.
+
+They did not start there. The first version prepended them to
+`changelog/changelog.html`, above the author's, under a gold header — which
+worked, and read well, and meant the mod was editing a file that was not its
+own. Splitting them out restores the property the whole design rests on: **the
+single script tag in `index.html` is the only change the mod makes to anything
+of the author's.** `git diff origin/main -- changelog/changelog.html` comes back
+empty, and CLAUDE.md says to check that before committing.
+
+The mod's file pins a white background, because the author's sets no colours and
+his palette — blue dates, black-backed headers — assumes a white page, so a
+browser in dark mode renders half of it unreadable. His file is left with that
+problem rather than edited to fix it; it is his to fix.
 
 **Every change from here on gets an entry there.** That is the point of it.
 

@@ -72,8 +72,9 @@ for every one of them, including the reasoning and what was measured, is in
 - Collapsible skill sections, live effect descriptions, and a title picker
   grouped by skill.
 
-Changes are also logged in the game's own changelog, reachable from the
-`changelog` button in the bottom bar.
+Every change is logged in `changelog/mod-changelog.html`, reachable in game from
+the `changelog` button in the bottom bar. The version number next to it opens the
+game's own changelog, which the mod does not touch.
 
 ## The one thing to know before changing anything
 
@@ -114,7 +115,8 @@ copy of the folder.
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
 | `tests/` | 19 Playwright scripts |
-| `index.html` | the author's game, plus one script tag |
+| `changelog/mod-changelog.html` | what changed, every time |
+| `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 
 ## Credit
 

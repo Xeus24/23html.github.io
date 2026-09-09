@@ -4882,42 +4882,47 @@ function modPerks(key) {
 /* ===========================================================================
    23. CHANGELOG ACCESS
    ---------------------------------------------------------------------------
-   The game already has a changelog and already links to it — the version
-   number in the bottom bar is clickable. Two problems with that.
+   Two changelogs, two ways in.
 
-   It is not discoverable: nothing about "v470" says "click me". And the link
-   is `window.open('/changelog/changelog.html')`, an absolute path from the
-   SERVER ROOT, so it only resolves when the game is served from the root of a
-   host. Opened from a file:// URL or from any subdirectory it 404s, which is
-   the more common way to run a local copy.
+       version number  ->  changelog/changelog.html      the game's, the author's
+       "changelog"     ->  changelog/mod-changelog.html  this mod's
 
-   So: a labelled button next to the version, and a path resolved relative to
-   the page rather than to the root. The version number keeps working too —
-   its handler is rebound rather than removed, by replacing the node, since the
-   game attached it anonymously.
+   The mod's entries used to be prepended to the author's file, above his own.
+   They are in their own file now: the only thing the mod changes in anything
+   of his is the single script tag in index.html, which was always the point.
 
-   The mod's own entries live at the top of that same file, above the author's,
-   under a gold header. That does mean changelog/changelog.html is a second
-   file the mod edits, alongside the one script tag in index.html;
-   `git checkout changelog/changelog.html` puts it back.
+   The version number is rebound rather than left alone because the game's own
+   handler is `window.open('/changelog/changelog.html')` — an absolute path from
+   the SERVER ROOT, so it only resolves when the game is served from the root of
+   a host. From a file:// URL or any subdirectory it 404s, which is how a local
+   copy usually gets opened. It now resolves against document.baseURI and goes
+   to the same place it always did. Replacing the node is the only way to drop
+   the game's anonymous listener.
+
+   The labelled button exists because nothing about "v470" says "click me".
    =========================================================================== */
 
-MOD.changelog = 'changelog/changelog.html';
+MOD.changelog = 'changelog/mod-changelog.html';
+MOD.changelog_game = 'changelog/changelog.html';
 
-/* Relative to the document, so it works from file://, from a subdirectory, and
+/* Relative to the document, so it works from file://, from a subdirectory and
    from a server root alike. */
-function MOD_changelogUrl() {
-  try {
-    return new URL(MOD.changelog + '#mod', document.baseURI).href;
-  } catch (e) {
-    return '/' + MOD.changelog + '#mod';
-  }
+function MOD_url(rel) {
+  try { return new URL(rel, document.baseURI).href; }
+  catch (e) { return '/' + rel; }
 }
 
 function modChangelog() {
-  var url = MOD_changelogUrl();
+  var url = MOD_url(MOD.changelog);
   try { window.open(url, '_blank'); } catch (e) {}
-  console.log('[mod] changelog: ' + url);
+  console.log('[mod] mod changelog: ' + url);
+  return url;
+}
+
+function modGameChangelog() {
+  var url = MOD_url(MOD.changelog_game);
+  try { window.open(url, '_blank'); } catch (e) {}
+  console.log('[mod] game changelog: ' + url);
   return url;
 }
 
@@ -4926,20 +4931,18 @@ function modChangelog() {
     var btn = addElement(dom.sl, 'span', null, 'sl');
     btn.innerHTML = 'changelog';
     btn.style.cssText = 'display:inline-block;width:auto;padding:3px 7px;cursor:pointer;';
-    btn.title = 'What changed, mod entries first';
+    btn.title = "What this mod changed (the version number opens the game's own)";
     btn.addEventListener('click', modChangelog);
     dom.sl.insertBefore(btn, dom.sl_extra);
 
-    // Rebind the version number to the same relative URL. Replacing the node is
-    // the only way to drop the game's anonymous listener.
     if (dom.vrs && dom.vrs.parentNode) {
       var v = dom.vrs.cloneNode(true);
       dom.vrs.parentNode.replaceChild(v, dom.vrs);
       dom.vrs = v;
-      v.title = 'Changelog';
-      v.addEventListener('click', modChangelog);
+      v.title = "The game's changelog";
+      v.addEventListener('click', modGameChangelog);
     }
-    console.log('[mod] changelog button added — ' + MOD_changelogUrl());
+    console.log('[mod] changelog button -> ' + MOD_url(MOD.changelog));
   } catch (e) {
     console.warn('[mod] changelog button failed: ' + e.message);
   }
