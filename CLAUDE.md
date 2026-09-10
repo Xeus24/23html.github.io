@@ -264,6 +264,34 @@ git diff origin/main -- changelog/changelog.html    # must be empty
 In game the `changelog` button opens the mod's file; the version number opens
 his.
 
+## The wiki
+
+Section 31. The `wiki` button on the bottom bar and the settings row both call
+`modWiki()`, which builds a complete HTML document as a string and writes it
+into `window.open('', '_blank')`.
+
+**It is generated from the live game data, and that is the point.** It reads
+`skl`, `area`, `item`, `ttl`, `act` and the mod's own tables, so it cannot
+disagree with the game. Never hand-write content into a page builder that could
+be read off an object instead — `tests/wiki.mjs` counts coverage from the game
+rather than from a list, so a skill added without a wiki entry fails the suite
+on its own, and that only works while the pages stay derived.
+
+- `MOD_wikiGroup()` for anything list-shaped. With everything listed, three
+  pages ran past 40,000px; groups collapse by default and the tallest is now
+  5,800. Anything past `MOD_WIKI_ALPHA_AT` gets an alphabetical sub-split.
+- **Spawn shares come from `area.popc`, not `pop[i].c`.** `z_bake` normalises
+  those weights into the `[lo,hi]` bands `mon_gen` rolls against, and they do
+  not have to sum to 1 — the Southern forest's .35/.45/.25 are really 33/43/24%.
+- `area.nwh` and `area.tst` are excluded: the first is where `current_z` parks
+  whenever you are not fighting, the second hangs off `chss.tst`, which has
+  `id -1` and is in no sector. `area.clg` **is** listed and flagged — its `pop`
+  entries carry no weight, so its bands are NaN and nothing can ever spawn
+  there. That is the author's unfinished content, reported rather than fixed.
+- A page builder that throws is caught and says so in place; it must not take
+  the document down.
+- No fetches, no CDN, no dependencies. It has to work from `file://`.
+
 ## Actions
 
 The mod adds four actions. They are **earned**, not granted on a timer. Three

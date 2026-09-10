@@ -2130,6 +2130,110 @@ restore into the slots they were saved from and that appended perks sit after
 them, ungranted unless the level already earns them — which is what it checks
 now, and what will survive the next perk added.
 
+## A wiki, generated rather than written
+
+Section 31. A `wiki` button on the bottom bar and a "Game wiki" row in
+settings, both opening an eleven-page reference in a tab of its own.
+
+The whole design is one decision: **it is generated from the live game data
+every time it is opened.** A hand-written wiki for 100 skills, 595 titles, 371
+items and 19 areas would be wrong within a week, and wrong in the worst way — a
+reference nobody can trust is worse than no reference. Reading `skl`, `item`,
+`area`, `ttl`, `act` and the mod's own tables means the page cannot disagree
+with the game, including changes made from the console mid-session.
+
+It also reads the **save**, so it doubles as a progress sheet: your level in
+every skill, which perks you have taken, which titles you hold, your realm and
+what the next one costs. Everything you have not reached is still listed. It is
+a wiki, not a fog-of-war map.
+
+Two things it deliberately does not do:
+
+* **It does not open inside the game.** The panel is a fixed layout with a fixed
+  bottom bar; a reference wants a sidebar and a wide table.
+* **It does not fetch anything.** The document is a string written into the new
+  window, so it works from `file://`, from a subdirectory and from a server root
+  alike — the same reason `MOD_url` exists for the changelog.
+
+`modWiki()` returns the HTML as well as opening it, so the tests can assert on
+the document without driving a popup.
+
+### Collapsing was not a nicety
+
+The first build listed everything flat. Measured, three of the eleven pages
+were over 40,000 pixels tall — Items 53,723, Titles 46,890, Skills 40,538. That
+is a hundred screens of scrolling, which is functionally the same as not having
+the content. Groups became `<details>`, collapsed by default:
+
+| page | flat | collapsed |
+|---|---|---|
+| Items | 53,723px | 495px |
+| Titles | 46,890px | 5,826px |
+| Skills | 40,538px | 591px |
+
+Skills now opens as its ten sections on one screen. `<details>` rather than a
+click handler because it works with JavaScript off, it is keyboard-reachable for
+free, and the browser can be asked to reach inside it.
+
+Two consequences that had to be handled:
+
+* **Search must open the groups it matches inside.** A match hidden in a
+  collapsed group reads as no match at all, which is worse than having no
+  search.
+* **A group can still be a wall.** 321 of the game's 371 plain items share one
+  inventory type, so grouping by type alone left a group of 321. Anything past
+  `MOD_WIKI_ALPHA_AT` gets an alphabetical sub-split, and the story titles — the
+  one title group with no skill to divide them — split by rank instead, since
+  that is the axis they are already sorted on. The test asserts no group holds
+  more than 60 entries, and it caught the story-titles group at 83 after I had
+  already fixed Items.
+
+The item groups use the game's **own** inventory tabs (`isort`: ALL/WPN/EQP/USE/
+OTHER) rather than new categories, so a group here is a tab there. Names are
+filed under their first *alphanumeric* character — several items are literally
+quoted, the master's manuals among them, and filing `"Sword Saint Manual"` under
+a quotation mark helps nobody.
+
+### Generating it surfaced two things writing it would not have
+
+**Spawn chances were not what `pop[i].c` says.** The first draft printed those
+weights as percentages. They are not percentages: `z_bake` normalises them into
+`area.popc`, a list of `[lo,hi]` bands that `mon_gen` rolls a uniform random
+against, and the weights do not have to sum to 1. The Southern forest's
+`.35/.45/.25` sum to 1.05 and are really 33/43/24%. The wiki reads the bands.
+
+**Nothing can ever spawn in the Damp cellar.** Its two `pop` entries carry no
+`c` at all, so `z_bake` computes `1 - NaN` and both bands come out `[NaN, NaN]`.
+Every comparison in the spawn loop is then false, so no creature can be chosen —
+and the area has `size: 33`, meaning a quest that needs 33 kills there could
+never finish. Nothing in the game travels to `area.clg` either; like
+`chss.pltwr1`, it is an unfinished idea of the author's.
+
+Left as it is and **reported in the wiki** rather than quietly fixed. The mod's
+job here is to describe the game, and an area you cannot fight in is a fact
+about the game worth stating. The flag is derived from the bands, not hard-coded
+against the key, so it stays true if the data changes.
+
+Two areas are excluded outright, on the test of whether you can get to them:
+`area.nwh` ("Somewhere") is where `current_z` parks whenever you are *not* in a
+fight — `mon_gen` skips it explicitly with `area.id !== 101` — and `area.tst`
+("Test") is reached only from `chss.tst`, which has `id -1` and is in no sector.
+Those are machinery. `area.clg` is content, so it is listed with its flag.
+
+### Tested
+
+`tests/wiki.mjs`, 57 checks. The coverage assertions **count from the game**
+rather than from a written list: every skill in `skl`, every area in `area`,
+every item in `item`, `wpn`, `eqp`, `sld` and `acc`, every title in `ttl`, every
+action, realm, technique, manual and pill, and all 974 perk lines. Adding a
+skill without adding it to the wiki therefore fails the suite on its own, which
+is the property that makes generating it worth more than writing it.
+
+The built document is then parsed in a real browser — a page that throws
+halfway renders blank, and a string test would not notice — and the last check
+clicks the actual bottom-bar button and asserts a real tab comes up with a
+working page in it.
+
 ## A changelog you can actually reach
 
 The game has a changelog and already links to it — the version number in the

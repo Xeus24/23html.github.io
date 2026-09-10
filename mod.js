@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '2.9',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.0',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -6552,3 +6552,1050 @@ try { addtosector(sector.vmain1, chss.mod_pltwr); } catch (e) { /* sector option
 
 console.log('[mod] catacombs entrance (gated on ' + MOD.cata_gate +
             ') and the Pill Tower added to the Village Center');
+
+
+/* ===========================================================================
+   31. THE WIKI
+   ---------------------------------------------------------------------------
+   A reference for the game, opened from the bottom bar and from the settings
+   menu, in a tab of its own.
+
+   It is GENERATED FROM THE LIVE GAME DATA, every time it is opened, and that
+   is the whole design. A hand-written wiki for 200-odd skills, 500-odd titles,
+   50 areas and 11 realms would be wrong within a week — and wrong in the worst
+   way, since a reference nobody can trust is worse than none. Reading `skl`,
+   `item`, `area`, `ttl`, `act` and the mod's own tables means the page cannot
+   disagree with the game: if a number changes here, the wiki changes with it,
+   including changes made from the console mid-session.
+
+   It also reads the SAVE, so it doubles as a progress sheet — your level in
+   every skill, which perks you have taken, which titles you hold, what your
+   realm is and what the next one costs. The parts you have not reached are
+   still listed: this is a wiki, not a fog-of-war map.
+
+   Two things it deliberately does not do:
+
+     * It does not open inside the game. The panel is ~700px of a fixed layout
+       with a fixed bottom bar; a reference wants a sidebar and a wide table.
+     * It does not fetch anything. The document is built as a string and written
+       into the new window, so it works from file://, from a subdirectory and
+       from a server root alike — the same reason MOD_url exists for the
+       changelog.
+
+   `modWiki()` returns the HTML rather than only opening it, so tests can assert
+   on the document without driving a popup.
+   =========================================================================== */
+
+var MOD_WIKI = {
+  title: 'proto23 — wiki',
+  /* Nothing in here is user input: every string comes from the game file or
+     from this mod. The one real hazard of building a document as a string is a
+     literal </script> inside content closing the block early, so that is the
+     one thing scrubbed. */
+  safe: function (h) {
+    return String(h === undefined || h === null ? '' : h).replace(/<\/script/gi, '<\\/script');
+  }
+};
+
+/* Descriptions carry real HTML (coloured spans, the game's separator div), so
+   they are passed through rather than escaped — but the separator becomes a
+   rule, since a wiki row is not a tooltip. */
+function MOD_wikiDesc(d) {
+  var s;
+  try { s = (typeof d === 'function') ? d() : d; } catch (e) { s = ''; }
+  if (!s) return '';
+  s = String(s).split('<div class="dseparator">　</div>').join('<br>');
+  return MOD_WIKI.safe(s);
+}
+
+function MOD_wikiNum(n) {
+  if (!isFinite(n)) return '—';
+  return Math.round(n).toLocaleString();
+}
+
+/* An effect line at a level the player has not reached yet. The effect
+   functions read the skill they are handed, so the level is borrowed and put
+   back; anything that throws simply gets no projection. */
+function MOD_wikiEffectAt(key, sk, lvl) {
+  var eff = MOD_EFFECTS[key];
+  if (!eff) return '';
+  var was = sk.lvl, out = '';
+  try { sk.lvl = lvl; out = eff(sk) || ''; }
+  catch (e) { out = ''; }
+  finally { sk.lvl = was; }
+  return MOD_WIKI.safe(out);
+}
+
+/* --- page builders --------------------------------------------------------
+   Each returns the inner HTML of one page. `wk-e` marks a searchable entry and
+   `wk-g` a group that hides itself when all its entries are filtered out.
+   ------------------------------------------------------------------------- */
+
+var MOD_WIKI_PAGES = [];
+
+function MOD_wikiPage(id, label, build) {
+  MOD_WIKI_PAGES.push({ id: id, label: label, build: build });
+}
+
+/* A collapsible group.
+
+   Not decoration: with every skill, item and title listed, three of the eleven
+   pages ran past 40,000 pixels — a hundred screens of scrolling, which is the
+   same as not having the content at all. Collapsed, each of those pages opens
+   as an index you can read in one screen and expand where you want.
+
+   <details> rather than a click handler, so it still works with JavaScript off,
+   the browser's own find can be made to reach inside it, and the summary is
+   keyboard-reachable for free. `level` is the heading level for the summary,
+   since a group is sometimes a section of a page and sometimes a subsection. */
+function MOD_wikiGroup(heading, count, inner, level) {
+  var hn = 'h' + (level || 2);
+  return '<details class="wk-g"><summary><' + hn + '>' + heading +
+    (count !== null && count !== undefined
+      ? ' <span class="dim">(' + count + ')</span>' : '') +
+    '</' + hn + '></summary><div class="wk-gi">' + inner + '</div></details>';
+}
+
+/* --- 1. orientation ------------------------------------------------------- */
+MOD_wikiPage('start', 'Start here', function () {
+  var cap = MOD_levelCap();
+  var realm = MOD_realm();
+  var h = '<h1>proto23</h1>' +
+    '<p class="lede">An idle RPG by truezhangwei, plus a mod. You train skills by ' +
+    'doing things, the things you can do open up as the story does, and none of ' +
+    'it is in a hurry.</p>' +
+
+    '<div class="wk-now"><h3>Where you are right now</h3><table>' +
+    '<tr><td>Character level</td><td>' + MOD_wikiNum(you.lvl) + '</td></tr>' +
+    '<tr><td>Skill level cap</td><td>' + cap + ' <span class="dim">— ' +
+      MOD_WIKI.safe(MOD_CAP.name) + '</span></td></tr>' +
+    '<tr><td>Cultivation realm</td><td>' + MOD_WIKI.safe(realm.name) +
+      ' <span class="dim">(' + realm.n + ' of ' + (MOD_REALMS.length - 1) + ')</span></td></tr>' +
+    '<tr><td>Titles held</td><td>' + MOD_titleCount() + ' <span class="dim">— renown ' +
+      (skl.rnwn ? skl.rnwn.lvl : 0) + '</span></td></tr>' +
+    '<tr><td>Coin</td><td>' + MOD_wikiNum(you.wealth || 0) + '</td></tr>' +
+    '</table></div>' +
+
+    '<h2>The four things worth knowing early</h2>' +
+    '<dl>' +
+    '<dt>Your skill levels are capped by the story, not by grinding.</dt>' +
+    '<dd>The cap starts at 10 and ends at 110, and it moves when you reach a new ' +
+    'place — not when you earn enough experience. If a skill has stopped ' +
+    'levelling, you are not doing it wrong; you need to go somewhere. See ' +
+    '<a href="#progress">Progression</a>.</dd>' +
+
+    '<dt>Armour is subtraction, so levels matter more than they look.</dt>' +
+    '<dd>A hit does the attacker\'s STR minus the defender\'s STR. That means a ' +
+    'small gap in strength is a large gap in damage, and a big enough one takes ' +
+    'your damage to nothing at all rather than merely reducing it. See ' +
+    '<a href="#mechanics">Mechanics</a>.</dd>' +
+
+    '<dt>Most skills have a parent that pulls them along.</dt>' +
+    '<dd>Every section has a parent skill that earns a share of everything its ' +
+    'children do, and any child lagging behind the parent trains faster — up to ' +
+    'twice as fast at ' + MOD_PARENT.maxGap + ' levels behind. A neglected skill is ' +
+    'cheap to bring up later, which is the only reason having this many is ' +
+    'workable.</dd>' +
+
+    '<dt>Cultivation is a second ladder, and it is not automatic.</dt>' +
+    '<dd>Circulating qi levels a skill; the skill does not raise your realm. ' +
+    'Reaching the level opens a bottleneck, and breaking through it costs a pill ' +
+    'and can fail. See <a href="#cultivation">Cultivation</a>.</dd>' +
+    '</dl>' +
+
+    '<h2>What is the mod and what is the game</h2>' +
+    '<p>The game is <code>index.html</code> and it is entirely truezhangwei\'s ' +
+    'work. Everything in <code>mod.js</code> is a modification of it and is not ' +
+    'endorsed by the author. Pages here mark added content with ' +
+    '<span class="tag mod">mod</span> where the distinction matters. The full ' +
+    'list of changes is in the changelog, on the bottom bar.</p>';
+  return h;
+});
+
+/* --- 2. progression ------------------------------------------------------- */
+MOD_wikiPage('progress', 'Progression', function () {
+  var cap = MOD_levelCap();
+  var h = '<h1>Progression</h1>' +
+    '<p class="lede">Skill levels are capped by how far the story has gone. Ten ' +
+    'rungs, 10 through 110. The cap applies to every skill at once; Renown is ' +
+    'the single exception, since it is counted rather than trained.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Cap</th><th>Stage</th>' +
+    '<th>What opens it</th><th></th></tr></thead><tbody>';
+
+  MOD_TIERS.forEach(function (t) {
+    var got = null;
+    try { got = MOD_tierFlag(t); } catch (e) {}
+    var here = (t.cap === cap);
+    var need = t.needText ? t.needText
+      : (t.flags.length ? t.flags.join(' or ') : 'the start of the game');
+    h += '<tr class="wk-e' + (got ? ' done' : '') + (here ? ' here' : '') + '">' +
+      '<td class="num">' + t.cap + '</td>' +
+      '<td>' + MOD_WIKI.safe(t.name) + '</td>' +
+      '<td class="dim">' + MOD_WIKI.safe(need) + '</td>' +
+      '<td>' + (here ? '<span class="tag here">you are here</span>'
+                     : got ? '<span class="tag done">reached</span>' : '') + '</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>The experience curve</h2>' +
+    '<p>The mod replaces the game\'s skill curve, which was super-exponential — ' +
+    'level 109 to 110 alone cost 1.16&times;10<sup>14</sup> experience, so the top ' +
+    'of the ladder was unreachable by a factor of about ten trillion. It is now ' +
+    'geometric:</p>' +
+    '<pre>next level = ' + MOD_XP.base + ' &times; ' + MOD_XP.ratio + '<sup>level</sup></pre>' +
+    '<p>tuned so a skill that ticks steadily reaches 110 in roughly six months at ' +
+    '1&times; speed. Character level uses the game\'s own curve, untouched.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Level</th><th>Experience for the next</th>' +
+    '</tr></thead><tbody>';
+  [1, 10, 25, 50, 60, 75, 90, 109].forEach(function (l) {
+    h += '<tr><td class="num">' + l + '</td><td class="num">' +
+      MOD_wikiNum(MOD_XP.base * Math.pow(MOD_XP.ratio, l)) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+});
+
+/* --- 3. skills ------------------------------------------------------------ */
+MOD_wikiPage('skills', 'Skills', function () {
+  var cap = MOD_levelCap();
+  var bySection = {};
+  var keys = [];
+  for (var k in skl) {
+    var s = skl[k];
+    if (!s || typeof s !== 'object' || !s.name) continue;
+    keys.push(k);
+  }
+  keys.forEach(function (k) {
+    var s = skl[k];
+    var sec = MOD_sectionOf(s);
+    (bySection[sec] = bySection[sec] || []).push(k);
+  });
+
+  var h = '<h1>Skills</h1>' +
+    '<p class="lede">' + keys.length + ' skills in ' +
+    Object.keys(MOD_SECTIONS).length + ' sections. Every one has perks at ' +
+    MOD_LADDER.join(', ') + ', and every one that has milestones grants titles at ' +
+    MOD_TITLE_RUNGS.join(', ') + '. Levels and ticks below are yours.</p>';
+
+  Object.keys(MOD_SECTIONS).forEach(function (sec) {
+    var list = bySection[sec];
+    if (!list || !list.length) return;
+    var parentKey = MOD_PARENT_KEY[sec];
+    var g = '';
+    if (parentKey && skl[parentKey]) {
+      g += '<p class="dim">Parent skill: <b>' +
+        MOD_WIKI.safe(skl[parentKey].bname || skl[parentKey].name) +
+        '</b> — earns ' + Math.round(MOD_PARENT.feed * 100) +
+        '% of what its children earn, and speeds up any child that lags behind it.</p>';
+    }
+    list.sort(function (a, b) { return skl[a].name < skl[b].name ? -1 : 1; });
+    list.forEach(function (k) {
+      var s = skl[k];
+      var lvl = Number(s.lvl) || 0;
+      g += '<div class="wk-e wk-skill">' +
+        '<h3>' + MOD_WIKI.safe(s.bname || s.name) +
+        (s.bname ? ' <span class="dim">(' + MOD_WIKI.safe(s.name) + ')</span>' : '') +
+        '<span class="lv' + (lvl >= cap ? ' capped' : '') + '">lv ' + lvl +
+        (lvl >= cap ? ' — at the cap' : '') + '</span></h3>' +
+        '<div class="desc">' + MOD_wikiDesc(s.desc) + '</div>';
+
+      var at110 = MOD_wikiEffectAt(k, s, 110);
+      if (at110) g += '<div class="proj">At level 110: ' + at110 + '</div>';
+
+      if (s.mlstn && s.mlstn.length) {
+        g += '<table class="wk-perks"><tbody>';
+        s.mlstn.forEach(function (m) {
+          g += '<tr class="' + (m.g === true ? 'done' : '') + '">' +
+            '<td class="num">' + m.lv + '</td>' +
+            '<td>' + MOD_WIKI.safe(m.p || '—') + '</td>' +
+            '<td class="tick">' + (m.g === true ? '&#10003;' : '') + '</td></tr>';
+        });
+        g += '</tbody></table>';
+      }
+      g += '</div>';
+    });
+    h += MOD_wikiGroup(MOD_WIKI.safe(MOD_SECTIONS[sec]), list.length, g, 2);
+  });
+  return h;
+});
+
+/* --- 4. cultivation ------------------------------------------------------- */
+MOD_wikiPage('cultivation', 'Cultivation', function () {
+  var now = MOD_realm();
+  var elig = 0;
+  try { elig = MOD_realmEligible().n; } catch (e) {}
+  var qic = skl.qic ? skl.qic.lvl : 0;
+
+  var h = '<h1>Cultivation</h1>' +
+    '<p class="lede">Ten realms above Mortal. Circulating qi levels the Qi ' +
+    'Circulation skill; the skill does not advance the realm. Reaching the level ' +
+    'opens a bottleneck, and breaking through it costs a pill and can fail — the ' +
+    'pill is spent either way.</p>' +
+    '<div class="wk-now"><h3>Where you are</h3><table>' +
+    '<tr><td>Realm</td><td>' + MOD_WIKI.safe(now.name) + '</td></tr>' +
+    '<tr><td>Qi Circulation</td><td>level ' + qic + '</td></tr>' +
+    '<tr><td>Bottleneck open</td><td>' +
+      (elig > now.n ? 'yes — ' + MOD_WIKI.safe(MOD_REALMS[now.n + 1].name) +
+        ' is within reach' : 'no') + '</td></tr>' +
+    '</table></div>' +
+    '<p>Realm thresholds are the same levels that earn a title rank, so realm N ' +
+    'is the level at which a rank N title arrives. Every realm multiplies all ' +
+    'stats and health, and the multipliers do not stack with each other — the ' +
+    'realm you are in is the one that applies.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Realm</th><th>Name</th><th>Qi Circ.</th>' +
+    '<th>Stats</th><th>Health</th><th>Pill</th></tr></thead><tbody>';
+
+  MOD_REALMS.forEach(function (r) {
+    var pill = r.n >= 1 ? item['mod_bp' + r.n] : null;
+    h += '<tr class="wk-e' + (r.n <= now.n ? ' done' : '') +
+      (r.n === now.n ? ' here' : '') + '">' +
+      '<td class="num">' + r.n + '</td>' +
+      '<td><b>' + MOD_WIKI.safe(r.name) + '</b><div class="dim flav">' +
+        MOD_WIKI.safe(r.desc) + '</div></td>' +
+      '<td class="num">' + r.qic + '</td>' +
+      '<td class="num">&times;' + r.mult + '</td>' +
+      '<td class="num">&times;' + r.hp + '</td>' +
+      '<td>' + (pill ? MOD_WIKI.safe(pill.name) : '<span class="dim">—</span>') +
+      '</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>Where the pills come from</h2>' +
+    '<p>Every breakthrough pill has a source in normal play. None of them are ' +
+    'craftable, and none are cheap — a bottleneck you can buy in bulk is not a ' +
+    'bottleneck.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Realms</th><th>Source</th></tr></thead><tbody>' +
+    '<tr class="wk-e"><td class="num">1</td><td>The dojo instructor, when qi ' +
+      'circulation is first taught</td></tr>' +
+    '<tr class="wk-e"><td class="num">2–5</td><td>The Herbalist in the village ' +
+      '(<code>vendor.pha1</code>), restocked</td></tr>' +
+    '<tr class="wk-e"><td class="num">6–10</td><td>The dojo\'s Level Advancement ' +
+      'ladder, and the Pill Tower</td></tr>' +
+    '</tbody></table>' +
+    '<p class="note">Realm 1 is deliberately <i>not</i> sold at the marketplace: ' +
+    'the marketplace is behind a 40%-a-visit chance encounter, and realm 1 opens ' +
+    'long before that is reliable.</p>' +
+
+    '<h2>Breaking through</h2>' +
+    '<p>The odds improve the further past the threshold you are, and cap short of ' +
+    'certain. A failure costs the pill and nothing else.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Levels past the threshold</th>' +
+    '<th>Chance</th></tr></thead><tbody>';
+  [0, 2, 4, 6, 8].forEach(function (o) {
+    h += '<tr><td class="num">+' + o + '</td><td class="num">' +
+      Math.round(Math.min(0.55 + o * 0.05, 0.95) * 100) + '%</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+});
+
+/* --- 5. elemental mastery ------------------------------------------------- */
+MOD_wikiPage('mastery', 'Elemental mastery', function () {
+  var h = '<h1>Elemental mastery <span class="tag mod">mod</span></h1>' +
+    '<p class="lede">Six masteries, each with a technique that fires on its own ' +
+    'during a fight. Combat is automatic and there is no ability picker, so a ' +
+    'technique is a chance on each of your swings to become something else — one ' +
+    'that scales with INT and the element rather than with your weapon.</p>' +
+    '<p>Nothing fires while you are still Mortal: the channels have to be open ' +
+    'first. Chance is ' + (MOD_TECH.perLevel * 100).toFixed(1) + '% per mastery ' +
+    'level plus ' + (MOD_TECH.perRealm * 100).toFixed(1) + '% per realm, capped at ' +
+    Math.round(MOD_TECH.cap * 100) + '%; a technique lands for &times;' +
+    MOD_TECH.power + ' of a normal strike.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Mastery</th><th>Technique</th>' +
+    '<th>Level</th><th>Chance now</th></tr></thead><tbody>';
+
+  var realm = 0;
+  try { realm = MOD_realm().n; } catch (e) {}
+  MOD_MASTERY.forEach(function (m) {
+    var lvl = Number(m.skill.lvl) || 0;
+    var ch = realm < 1 ? 0
+      : Math.min(lvl * MOD_TECH.perLevel + realm * MOD_TECH.perRealm, MOD_TECH.cap);
+    h += '<tr class="wk-e"><td><b style="color:' + m.colour + '">' +
+      MOD_WIKI.safe(m.skill.name) + '</b></td>' +
+      '<td style="color:' + m.colour + '">' + MOD_WIKI.safe(m.name) + '</td>' +
+      '<td class="num">' + lvl + '</td>' +
+      '<td class="num">' + (realm < 1 ? '<span class="dim">Mortal</span>'
+                                      : (ch * 100).toFixed(1) + '%') + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+});
+
+/* --- 6. titles ------------------------------------------------------------ */
+MOD_wikiPage('titles', 'Titles', function () {
+  var perm = MOD_permanentRank();
+  var held = MOD_titleCount();
+  var total = 0; for (var kk in ttl) if (ttl[kk] && ttl[kk].name) total++;
+
+  var h = '<h1>Titles</h1>' +
+    '<p class="lede">A title\'s rank runs 1 to 10 and is derived from the level ' +
+    'that earns it, so a rank is a statement about where in the game you are. ' +
+    'Only the title you are wearing applies — until renown makes the lower ranks ' +
+    'permanent.</p>' +
+    '<div class="wk-now"><h3>Where you are</h3><table>' +
+    '<tr><td>Titles held</td><td>' + held + ' of ' + total + '</td></tr>' +
+    '<tr><td>Renown level</td><td>' + (skl.rnwn ? skl.rnwn.lvl : 0) +
+      ' of ' + MOD_RENOWN_MAX + '</td></tr>' +
+    '<tr><td>Ranks that apply without wearing</td><td>' +
+      (perm >= 1 ? '1–' + perm : 'none yet') + '</td></tr>' +
+    '</table></div>' +
+
+    '<h2>Ranks</h2><table class="wk-tbl"><thead><tr><th>Rank</th>' +
+    '<th>Earned from level</th><th>Colour</th></tr></thead><tbody>';
+  MOD_RANK_AT.forEach(function (lv, i) {
+    var st = MOD_rankStyle(i + 1);
+    h += '<tr><td class="num">' + (i + 1) + '</td><td class="num">' + lv + '</td>' +
+      '<td><span style="color:' + st.c + ';text-shadow:' + st.s +
+      '">' + '&#9679;&#9679;&#9679;' + '</span></td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>Renown</h2>' +
+    '<p>Renown is not trained. It counts the titles you hold, and each level ' +
+    'multiplies every stat by ' + (1 + MOD_RENOWN_RATE) + ' — compounding, so ' +
+    'level ' + MOD_RENOWN_MAX + ' is &times;' +
+    (Math.round(MOD_renownMult(MOD_RENOWN_MAX) * 1000) / 1000) + '. At renown N, ' +
+    'every title of rank N or below applies permanently.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Renown</th><th>Titles needed</th>' +
+    '<th>All stats</th><th>Passive ranks</th></tr></thead><tbody>';
+  MOD_RENOWN_STEPS.forEach(function (n, i) {
+    h += '<tr class="' + (held >= n ? 'done' : '') + '"><td class="num">' + (i + 1) +
+      '</td><td class="num">' + n + '</td><td class="num">&times;' +
+      (Math.round(MOD_renownMult(i + 1) * 1000) / 1000) + '</td>' +
+      '<td class="num">1–' + (i + 1) + '</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>Every title</h2>' +
+    '<p class="dim">Grouped by the skill that grants it. Titles with no skill of ' +
+    'their own come from the story.</p>';
+
+  var groups = {}, loose = [];
+  for (var k in ttl) {
+    var t = ttl[k];
+    if (!t || !t.name) continue;
+    var sk = MOD_TITLE_SKILL[k];
+    if (sk && skl[sk]) (groups[sk] = groups[sk] || []).push(k); else loose.push(k);
+  }
+  var order = Object.keys(groups).sort(function (a, b) {
+    return skl[a].name < skl[b].name ? -1 : 1;
+  });
+
+  var row = function (k) {
+    var t = ttl[k];
+    var st = MOD_rankStyle(t.rar);
+    var gen = null;
+    for (var i = 0; i < MOD_SKILL_TITLES.length; i++) {
+      if (MOD_SKILL_TITLES[i].key === k) { gen = MOD_SKILL_TITLES[i]; break; }
+    }
+    return '<div class="wk-e wk-title' + (t.have === true ? ' done' : '') + '">' +
+      '<span class="tname" style="color:' + st.c + ';text-shadow:' + st.s + '">' +
+      MOD_WIKI.safe(t.name) + '</span>' +
+      '<span class="rank">rank ' + (t.rar || 1) + '</span>' +
+      (gen ? '<span class="tag mod">lv ' + gen.rung + ' &middot; +' +
+        Math.round(gen.xp * 100) + '% ' + MOD_WIKI.safe(skl[gen.skill].name) +
+        ' exp</span>' : '') +
+      (t.have === true ? '<span class="tag done">held</span>' : '') +
+      '<div class="desc dim">' + MOD_wikiDesc(t.desc) + '</div></div>';
+  };
+
+  var byRank = function (a, b) { return (ttl[a].rar || 1) - (ttl[b].rar || 1); };
+  order.forEach(function (sk) {
+    groups[sk].sort(byRank);
+    h += MOD_wikiGroup(MOD_WIKI.safe(skl[sk].bname || skl[sk].name),
+      groups[sk].length, groups[sk].map(row).join(''), 3);
+  });
+  if (loose.length) {
+    loose.sort(byRank);
+    /* The story titles are the one group with no skill to divide them, and
+       there are enough of them to need dividing. Rank rather than the alphabet:
+       it is the axis they are already sorted on, and the one a reader cares
+       about — a rank is a statement about where in the game a title comes from. */
+    var inner;
+    if (loose.length <= MOD_WIKI_ALPHA_AT) {
+      inner = loose.map(row).join('');
+    } else {
+      var byRankNo = {};
+      loose.forEach(function (k) {
+        var r = Math.min(Math.max(Number(ttl[k].rar) || 1, 1), 10);
+        (byRankNo[r] = byRankNo[r] || []).push(k);
+      });
+      inner = '';
+      Object.keys(byRankNo).sort(function (a, b) { return a - b; }).forEach(function (r) {
+        var st = MOD_rankStyle(r);
+        inner += MOD_wikiGroup('<span style="color:' + st.c + ';text-shadow:' +
+          st.s + '">Rank ' + r + '</span>', byRankNo[r].length,
+          byRankNo[r].map(row).join(''), 4);
+      });
+    }
+    h += MOD_wikiGroup('From the story', loose.length, inner, 3);
+  }
+  return h;
+});
+
+/* --- 7. areas ------------------------------------------------------------- */
+MOD_wikiPage('areas', 'Areas & enemies', function () {
+  var h = '<h1>Areas &amp; enemies</h1>' +
+    '<p class="lede">Every area, what lives in it and at what levels, and what it ' +
+    'drops. Enemy strength is not read off these levels — see the note below the ' +
+    'table.</p>';
+
+  /* Two of the game's 21 areas are not places and listing them misleads:
+       nwh  "Somewhere" — where global.current_z parks whenever you are NOT in
+             a fight, populated by creature.default ("Nothing").
+       tst  "Test" — reached only from chss.tst, which has id -1 and is in no
+             sector, so nothing in the game can travel there.
+     The test for "is this a place" is whether you can get to it, and neither
+     can be. Everything else is listed whether or not you have been. */
+  var MOD_WIKI_NOT_PLACES = { nwh: 1, tst: 1 };
+
+  var keys = [];
+  for (var k in area) {
+    if (area[k] && area[k].pop && !MOD_WIKI_NOT_PLACES[k]) keys.push(k);
+  }
+  /* Ordered by the middle of the level band, which is the closest thing the
+     game has to a difficulty order. */
+  keys.sort(function (a, b) {
+    var mid = function (z) {
+      if (!z.pop.length) return 0;
+      var s = 0; z.pop.forEach(function (e) { s += (e.lvlmin + e.lvlmax) / 2; });
+      return s / z.pop.length;
+    };
+    return mid(area[a]) - mid(area[b]);
+  });
+
+  keys.forEach(function (k) {
+    var z = area[k];
+    /* An area whose baked bands are not finite can never spawn anything — see
+       the note rendered under its table. Derived rather than listed by name, so
+       it stays true if the game changes. */
+    var broken = !z.popc || z.popc.length !== z.pop.length ||
+      z.popc.some(function (band) { return !band || !isFinite(band[1] - band[0]); });
+    h += '<div class="wk-e wk-area"><h3>' + MOD_WIKI.safe(z.name) +
+      ' <span class="dim">' + k + '</span>' +
+      (broken ? '<span class="tag warn">nothing spawns</span>' : '') +
+      '<span class="lv">' + (z.size === -1 ? 'endless' : z.size + ' to clear') +
+      '</span></h3>';
+    if (z.pop.length) {
+      /* The spawn share is NOT pop[i].c. z_bake normalises those weights into
+         area.popc — a list of [lo,hi] bands that mon_gen rolls a uniform
+         random against — and the weights do not have to sum to 1, so they are
+         off wherever they don't. The Southern forest's .35/.45/.25 are really
+         33/43/24%. Read the bands the game actually rolls against. */
+      var bands = z.popc || [];
+      h += '<table class="wk-perks wk-pop"><tbody>';
+      z.pop.forEach(function (e, i) {
+        var c = e.crt || {};
+        var band = bands[i];
+        var share = band ? band[1] - band[0] : NaN;
+        h += '<tr><td>' + MOD_WIKI.safe(c.name || '?') + '</td>' +
+          '<td class="num">lv ' + e.lvlmin +
+            (e.lvlmax !== e.lvlmin ? '–' + e.lvlmax : '') + '</td>' +
+          '<td class="num dim">' + (isFinite(share)
+            ? Math.round(share * 100) + '% of spawns'
+            : '—') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+      if (broken) {
+        h += '<div class="note">Nothing spawns here. The area\'s entries carry ' +
+          'no spawn weight, so the table the game rolls against comes out as ' +
+          'NaN and no creature can ever match it. A bug in the base game, left ' +
+          'as it is — nothing in the game travels to this area either.</div>';
+      }
+    }
+    if (z.drop && z.drop.length) {
+      var d = z.drop.map(function (x) {
+        return MOD_WIKI.safe((x.item && x.item.name) || '?') +
+          ' <span class="dim">' + ((x.c || 0) * 100).toFixed(2) + '%</span>';
+      }).join(', ');
+      h += '<div class="desc"><b>Drops:</b> ' + d + '</div>';
+    }
+    h += '</div>';
+  });
+
+  h += '<h2>How hard an enemy is</h2>' +
+    '<p>Enemies are not fitted to a level. Each spawn is solved against your ' +
+    'actual power at the moment it appears, aiming at roughly ' + MOD_ENEMY.kill +
+    ' swings to kill it and ' + MOD_ENEMY.die + ' before it kills you, with a ' +
+    'guaranteed margin between the two so a fight is never a coin flip. Variety ' +
+    'comes from the area\'s level band and each creature\'s own stat weighting, ' +
+    'not from difficulty scaling.</p>' +
+    '<p>The reason for that: within the first stage alone you go from 1 STR to ' +
+    'around 265, so anything anchored to a level is either trivial at the end of ' +
+    'a stage or impossible at the start of one.</p>';
+  return h;
+});
+
+/* --- 8. items -------------------------------------------------------------
+   The one place where "list everything" needs help: 321 of the game's 371
+   plain items are the same inventory type, so grouping by type alone leaves a
+   single group of 321. Anything past MOD_WIKI_ALPHA_AT gets an alphabetical
+   sub-split as well — the oldest index pattern there is, and derived rather
+   than invented, which a hand-made taxonomy would not be.
+   ------------------------------------------------------------------------- */
+
+var MOD_WIKI_ALPHA_AT = 60;
+
+/* The game's own inventory tabs (isort): ALL / WPN / EQP / USE / OTHER. Using
+   its categories rather than new ones means a group here is a tab there. */
+var MOD_WIKI_STYPE = { 2: 'Weapons', 3: 'Equipment', 4: 'Usable', 5: 'Other' };
+
+function MOD_wikiItemRow(it) {
+  var val = it.v !== undefined ? it.v : (it.val !== undefined ? it.val : null);
+  return '<div class="wk-e wk-item' + (it.have === true ? ' done' : '') + '">' +
+    '<h3>' + MOD_WIKI.safe(it.name) +
+    (it.rar > 1 ? '<span class="rank">rarity ' + it.rar + '</span>' : '') +
+    (val !== null ? '<span class="lv">' + MOD_wikiNum(val) + ' coin</span>' : '') +
+    (it.amount > 0 ? '<span class="tag done">&times;' + it.amount + '</span>' : '') +
+    '</h3><div class="desc">' + MOD_wikiDesc(it.desc) + '</div></div>';
+}
+
+/* The letter a name files under. Several items are quoted — the master's
+   manuals are literally named "Sword Saint Manual" — and filing those under a
+   quotation mark is no use to anyone looking for S. */
+function MOD_wikiLetter(name) {
+  var m = String(name || '').replace(/^[^0-9A-Za-z]+/, '');
+  return (m.charAt(0) || '?').toUpperCase();
+}
+
+function MOD_wikiByLetter(a, b) {
+  var x = MOD_wikiLetter(a.name) + String(a.name || '').toLowerCase();
+  var y = MOD_wikiLetter(b.name) + String(b.name || '').toLowerCase();
+  return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+/* Flat below the threshold, alphabetically sub-grouped above it. Ranges are cut
+   from the entries actually present, so they stay even as content is added. */
+function MOD_wikiAlpha(entries, render, level) {
+  if (entries.length <= MOD_WIKI_ALPHA_AT) return entries.map(render).join('');
+  var per = Math.ceil(entries.length / Math.ceil(entries.length / 40));
+  var out = '';
+  for (var i = 0; i < entries.length; i += per) {
+    var chunk = entries.slice(i, i + per);
+    var first = MOD_wikiLetter(chunk[0].name);
+    var last = MOD_wikiLetter(chunk[chunk.length - 1].name);
+    out += MOD_wikiGroup(first === last ? first : first + '–' + last,
+      chunk.length, chunk.map(render).join(''), level || 4);
+  }
+  return out;
+}
+
+MOD_wikiPage('items', 'Items', function () {
+  var h = '<h1>Items</h1>' +
+    '<p class="lede">Everything the game defines, whether or not you have seen ' +
+    'it. Grouped the way your inventory groups it. Values are the base sell ' +
+    'price where the game gives one.</p>';
+
+  /* item[] first, split by the inventory tab it appears under. */
+  var buckets = {};
+  for (var k in item) {
+    var it = item[k];
+    if (!it || !it.name || it.name === 'dummy') continue;
+    var lab = MOD_WIKI_STYPE[it.stype] || 'Uncategorised';
+    (buckets[lab] = buckets[lab] || []).push(it);
+  }
+  ['Usable', 'Other', 'Weapons', 'Equipment', 'Uncategorised'].forEach(function (lab) {
+    var list = buckets[lab];
+    if (!list || !list.length) return;
+    list.sort(MOD_wikiByLetter);
+    h += MOD_wikiGroup(lab, list.length,
+      MOD_wikiAlpha(list, MOD_wikiItemRow, 4), 2);
+  });
+
+  /* and the equipment objects, which live in their own globals */
+  [['Weapons', wpn], ['Armour', eqp], ['Shields', sld], ['Accessories', acc]]
+    .forEach(function (g) {
+      var list = [];
+      for (var kk in g[1]) {
+        if (g[1][kk] && g[1][kk].name && g[1][kk].name !== 'dummy') list.push(g[1][kk]);
+      }
+      if (!list.length) return;
+      list.sort(MOD_wikiByLetter);
+      h += MOD_wikiGroup(g[0], list.length,
+        MOD_wikiAlpha(list, MOD_wikiItemRow, 4), 2);
+    });
+  return h;
+});
+
+/* --- 9. actions ----------------------------------------------------------- */
+MOD_wikiPage('actions', 'Actions', function () {
+  var unlock = {};
+  MOD_ACTION_UNLOCKS.forEach(function (u) {
+    if (u.act) unlock[u.act.id] = (skl[u.skill] ? skl[u.skill].name : u.skill) +
+      ' level ' + u.lv;
+  });
+  if (typeof act.mod_qi !== 'undefined') {
+    unlock[act.mod_qi.id] = 'clearing the dojo\'s Easiest, Easy and Normal fights';
+  }
+
+  var h = '<h1>Actions</h1>' +
+    '<p class="lede">What you can be doing. One at a time, and only where the ' +
+    'action makes sense — unless "Unrestricted actions" is ticked in settings, ' +
+    'which lets several run at once anywhere. Both limits are deliberate; the ' +
+    'switch is there because they are not to everyone\'s taste.</p>';
+
+  var keys = [];
+  for (var k in act) if (act[k] && act[k].name && act[k].name !== 'dummy') keys.push(k);
+  keys.sort(function (a, b) { return act[a].name < act[b].name ? -1 : 1; });
+
+  keys.forEach(function (k) {
+    var a = act[k];
+    var how = unlock[a.id];
+    h += '<div class="wk-e wk-item' + (a.have === true ? ' done' : '') + '">' +
+      '<h3>' + MOD_WIKI.safe(a.name) +
+      (a.have === true ? '<span class="tag done">unlocked</span>'
+                       : '<span class="tag">locked</span>') +
+      (how ? '<span class="tag mod">from ' + MOD_WIKI.safe(how) + '</span>' : '') +
+      '</h3><div class="desc">' + MOD_wikiDesc(a.desc) + '</div></div>';
+  });
+  return h;
+});
+
+/* --- 10. the dojo --------------------------------------------------------- */
+MOD_wikiPage('dojo', 'The dojo', function () {
+  var h = '<h1>The dojo</h1>' +
+    '<p class="lede">The instructor promises a reward every five levels. The base ' +
+    'game stops delivering at 30; the mod carries the same ladder to 110, on the ' +
+    'same terms.</p>' +
+    '<p>Only the lowest rung you have not claimed is offered, which is how the ' +
+    'first six behave. Rewards are sized against the character experience curve ' +
+    '(4&times;level<sup>3</sup> + level<sup>2</sup>) — a level at 110 costs 5.3 ' +
+    'million, which is why the base game\'s best pill is worth 0.3% of one there.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Level</th><th>Reward</th><th>Coin</th>' +
+    '<th>Also</th><th></th></tr></thead><tbody>';
+
+  MOD_DOJO_RUNGS.forEach(function (r) {
+    var pill = item[r.pill];
+    var extra = [];
+    if (r.realmPill) extra.push('breakthrough pill for realm ' + r.realmPill);
+    if (r.manual) extra.push('a choice of master\'s manual');
+    h += '<tr class="wk-e' + (global.flags[r.flag] ? ' done' : '') + '">' +
+      '<td class="num">' + r.lv + '</td>' +
+      '<td>' + (pill ? MOD_WIKI.safe(pill.name) + ' &times;' + r.n
+                     : '<span class="dim">—</span>') + '</td>' +
+      '<td class="num">' + MOD_wikiNum(r.coin) + '</td>' +
+      '<td class="dim">' + (extra.join(', ') || '—') + '</td>' +
+      '<td>' + (global.flags[r.flag] ? '<span class="tag done">claimed</span>' : '') +
+      '</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>Spirit pills</h2>' +
+    '<p>Character experience in a bottle. The four the mod adds continue the ' +
+    'game\'s own series up to the new curve.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Pill</th><th>Experience</th>' +
+    '</tr></thead><tbody>';
+  MOD_PILLS.forEach(function (p) {
+    h += '<tr class="wk-e"><td>' + MOD_WIKI.safe(p[2]) + '</td><td class="num">' +
+      p[3].toLocaleString() + '</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>Master\'s manuals</h2>' +
+    '<p>A third grade of skillbook, offered at levels 50, 75 and 100 as a choice ' +
+    'the same way the first one was. Each is worth +' +
+    Math.round(MOD_MANUAL_RATE * 100) + '% experience in its skill, permanently.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Manual</th><th>Skill</th>' +
+    '</tr></thead><tbody>';
+  MOD_MANUALS.forEach(function (m) {
+    h += '<tr class="wk-e"><td>' + MOD_WIKI.safe(m[2]) + '</td><td>' +
+      MOD_WIKI.safe(skl[m[0]] ? (skl[m[0]].bname || skl[m[0]].name) : m[0]) +
+      '</td></tr>';
+  });
+  h += '</tbody></table>';
+  return h;
+});
+
+/* --- 11. mechanics -------------------------------------------------------- */
+MOD_wikiPage('mechanics', 'Mechanics', function () {
+  return '<h1>Mechanics</h1>' +
+
+    '<h2>Damage is subtractive, in both directions</h2>' +
+    '<p>A hit does the attacker\'s strength minus the defender\'s strength, plus ' +
+    'the weapon, plus one, before criticals. A defender\'s STR <i>is</i> their ' +
+    'armour — there is no separate armour stat doing that job.</p>' +
+    '<p>Two consequences worth carrying around:</p>' +
+    '<ul>' +
+    '<li><b>Damage does not taper, it stops.</b> Once a defender\'s STR passes ' +
+    'yours, your hits do not get small; they land for nothing. Progress against ' +
+    'something too strong is not slow, it is zero.</li>' +
+    '<li><b>A stat ratio tells you nothing.</b> Comparing your HP to an enemy\'s ' +
+    'strength ignores the subtraction entirely and reads several times off in ' +
+    'either direction.</li>' +
+    '</ul>' +
+    '<p class="note">This is also the reason enemies are never scaled by raising ' +
+    'their strength: it would raise their offence and their armour together, and ' +
+    'the second effect arrives first.</p>' +
+
+    '<h2>Criticals carry the late game</h2>' +
+    '<p>Critical rate reaches about a third at the top of the ladder and a ' +
+    'critical is roughly eight times a normal swing, so around three quarters of ' +
+    'all damage done at that point is critical damage. Anything that raises ' +
+    'critical rate or critical damage is worth more than it looks; Sharp Eye and ' +
+    'War are the two that do.</p>' +
+
+    '<h2>Hit chance</h2>' +
+    '<p>Landing a hit is a contest of agility. It is a ratio rather than a ' +
+    'subtraction, so agility behaves more gently than strength does — falling ' +
+    'behind on it costs you accuracy, not everything.</p>' +
+
+    '<h2>Skill sections and parents</h2>' +
+    '<p>Each of the ' + Object.keys(MOD_SECTIONS).length + ' sections has a parent ' +
+    'skill. A parent earns ' + Math.round(MOD_PARENT.feed * 100) + '% of everything ' +
+    'its children earn and grants no stats of its own. In return, a child below ' +
+    'the parent\'s level trains ' + Math.round(MOD_PARENT.perLevel * 100) +
+    '% faster per level of lag, up to ' + MOD_PARENT.maxGap + ' levels behind. ' +
+    'Bringing one section up makes every skill in it cheaper to catch up.</p>' +
+
+    '<h2>Saving</h2>' +
+    '<p>Three slots, switched from the bottom bar. The game builds its world once ' +
+    'at startup and cannot unload a save, so switching slots or starting a new ' +
+    'game reloads the page. Exporting a save before running anything unusual is ' +
+    'always the safe move.</p>';
+});
+
+/* --- the document ---------------------------------------------------------
+   One string, no fetches, no dependencies: this has to work from file:// as
+   readily as from a server.
+   ------------------------------------------------------------------------- */
+
+function MOD_wikiCss() {
+  return [
+    ':root{color-scheme:dark}',
+    '*{box-sizing:border-box}',
+    'body{margin:0;background:#060a1c;color:#dfe6f5;font:14px/1.6 "MS Gothic",' +
+      '"MS Mincho",monospace;display:flex;min-height:100vh}',
+    'a{color:#7cb0ff}',
+    'nav{width:210px;flex:0 0 210px;background:#081040;border-right:1px solid #46a;' +
+      'position:sticky;top:0;height:100vh;overflow:auto;padding:14px 0}',
+    'nav h2{font-size:13px;color:#9fb4d8;margin:0 0 10px 14px;letter-spacing:1px}',
+    'nav a{display:block;padding:6px 14px;text-decoration:none;color:#cfe0ff;' +
+      'border-left:3px solid transparent}',
+    'nav a:hover{background:#154080}',
+    'nav a.on{background:#123070;border-left-color:#7cb0ff;color:#fff}',
+    'nav .srch{margin:0 10px 12px;width:calc(100% - 20px);background:#050a20;' +
+      'color:#dfe6f5;border:1px solid #46a;padding:5px;font:inherit}',
+    'nav .xall{display:block;margin:12px 10px 0;color:#8296b8;font-size:12px;' +
+      'cursor:pointer;user-select:none}',
+    'nav .xall input{vertical-align:-1px;margin-right:4px}',
+    'details.wk-g{border:1px solid #17224a;background:#0a1130;margin:8px 0}',
+    'details.wk-g>summary{cursor:pointer;padding:7px 12px;list-style:none;' +
+      'background:#0d1740}',
+    'details.wk-g>summary:hover{background:#154080}',
+    'details.wk-g>summary::-webkit-details-marker{display:none}',
+    // a caret drawn rather than borrowed, so it is the same in every browser
+    'details.wk-g>summary::before{content:"\\25B8";color:#7cb0ff;' +
+      'display:inline-block;width:1em;transition:transform .12s}',
+    'details.wk-g[open]>summary::before{transform:rotate(90deg)}',
+    'details.wk-g>summary h2,details.wk-g>summary h3{display:inline;margin:0;' +
+      'font-size:15px;color:#fff}',
+    '.wk-gi{padding:2px 12px 10px}',
+    'details.wk-g details.wk-g>summary h4{display:inline;margin:0;font-size:13px;' +
+      'color:#cfe0ff;font-weight:normal}',
+    'details.wk-g details.wk-g>summary{padding:5px 10px;background:#0b1435}',
+    'main{flex:1;min-width:0;padding:22px 30px 80px;max-width:1000px}',
+    'h1{font-size:26px;margin:0 0 6px;color:#fff;border-bottom:1px solid #46a;' +
+      'padding-bottom:8px}',
+    'h2{font-size:19px;color:#bcd4ff;margin:30px 0 8px}',
+    'h3{font-size:15px;color:#fff;margin:0 0 4px}',
+    'p.lede{color:#a8bcdc;margin:0 0 18px}',
+    '.dim{color:#8296b8;font-weight:normal}',
+    '.flav{font-size:12px;font-style:italic}',
+    '.note{background:#0b1638;border-left:3px solid #46a;padding:8px 12px;' +
+      'color:#a8bcdc;margin:14px 0}',
+    'code,pre{background:#0b1638;border:1px solid #24356e;padding:1px 5px;' +
+      'color:#9fd0ff}',
+    'pre{padding:10px;overflow-x:auto}',
+    'dl dt{color:#fff;margin-top:14px}',
+    'dl dd{margin:2px 0 0 0;color:#a8bcdc}',
+    'ul{color:#a8bcdc}',
+    'table.wk-tbl{border-collapse:collapse;width:100%;margin:10px 0;' +
+      'display:block;overflow-x:auto}',
+    'table.wk-tbl th{text-align:left;color:#9fb4d8;font-weight:normal;' +
+      'border-bottom:1px solid #46a;padding:5px 9px;white-space:nowrap}',
+    'table.wk-tbl td{border-bottom:1px solid #17224a;padding:5px 9px;' +
+      'vertical-align:top}',
+    'table.wk-tbl tr.done td{color:#cfe0ff}',
+    'table.wk-tbl tr.here{background:#123070}',
+    '.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}',
+    '.wk-e{border:1px solid #17224a;background:#081040;padding:9px 12px;' +
+      'margin:7px 0;border-radius:2px}',
+    'tr.wk-e{border:0;background:none}',
+    '.wk-e.done{border-color:#2a4a8c}',
+    '.wk-e h3{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}',
+    '.lv{margin-left:auto;font-size:12px;color:#8296b8;font-weight:normal}',
+    '.lv.capped{color:#ffd24a}',
+    '.rank{font-size:12px;color:#8296b8;font-weight:normal}',
+    '.desc{color:#a8bcdc;font-size:13px}',
+    '.proj{color:#ffd24a;font-size:12px;margin-top:3px}',
+    '.tag{font-size:11px;border:1px solid #46a;color:#9fb4d8;padding:0 5px;' +
+      'border-radius:2px;font-weight:normal}',
+    '.tag.mod{border-color:#7a4ea8;color:#c07bff}',
+    '.tag.done{border-color:#2e7d4f;color:#6fdc9a}',
+    '.tag.here{border-color:#ffd24a;color:#ffd24a}',
+    '.tag.warn{border-color:#a8562e;color:#ff9a5c}',
+    'table.wk-perks{border-collapse:collapse;margin:6px 0 0;width:100%}',
+    'table.wk-perks td{padding:2px 8px 2px 0;font-size:12px;color:#8296b8;' +
+      'border-bottom:1px solid #101a3c}',
+    'table.wk-perks tr.done td{color:#cfe0ff}',
+    'table.wk-perks td.tick{color:#6fdc9a;width:1em;text-align:right}',
+    // fixed columns so the level bands line up between one area and the next
+    'table.wk-pop{table-layout:fixed}',
+    'table.wk-pop td:first-child{width:60%}',
+    'table.wk-pop td:nth-child(2){width:20%}',
+    '.wk-title .tname{font-weight:bold}',
+    '.wk-now{background:#0b1638;border:1px solid #24356e;padding:10px 14px;' +
+      'margin:0 0 18px;display:inline-block;min-width:320px}',
+    '.wk-now h3{color:#9fb4d8;font-weight:normal;font-size:13px;' +
+      'letter-spacing:1px;margin-bottom:6px}',
+    '.wk-now td{padding:2px 16px 2px 0}',
+    '.wk-now td:last-child{color:#fff;text-align:right}',
+    '.pg{display:none}.pg.on{display:block}',
+    'footer{color:#5a6c8c;font-size:12px;border-top:1px solid #17224a;' +
+      'margin-top:40px;padding-top:12px}',
+    '@media(max-width:760px){body{display:block}nav{width:auto;height:auto;' +
+      'position:static;flex:none}main{padding:16px}}'
+  ].join('\n');
+}
+
+/* Filtering, page switching and the hash. Small enough to inline, and inlining
+   it is the point — the document has to stand on its own. */
+function MOD_wikiJs() {
+  return [
+    'var pages=[].slice.call(document.querySelectorAll(".pg"));',
+    'var links=[].slice.call(document.querySelectorAll("nav a[data-p]"));',
+    'function show(id){',
+    '  var found=false;',
+    '  pages.forEach(function(p){var on=p.id==="pg-"+id;if(on)found=true;',
+    '    p.className="pg"+(on?" on":"")});',
+    '  if(!found&&pages.length){pages[0].className="pg on";id=pages[0].id.slice(3)}',
+    '  links.forEach(function(a){a.className=a.dataset.p===id?"on":""});',
+    '  window.scrollTo(0,0);return id;}',
+    'links.forEach(function(a){a.addEventListener("click",function(e){',
+    '  e.preventDefault();location.hash=a.dataset.p;show(a.dataset.p)})});',
+    'window.addEventListener("hashchange",function(){show(location.hash.slice(1))});',
+    'show(location.hash.slice(1)||"start");',
+    // Search filters entries, hides groups left with none, and OPENS the groups
+    // that still have some — a match hidden inside a collapsed group reads as
+    // no match at all, which is worse than not having search.
+    'var box=document.getElementById("srch");',
+    'var xall=document.getElementById("xall");',
+    'var groups=[].slice.call(document.querySelectorAll("details.wk-g"));',
+    'function filter(){',
+    '  var q=box.value.trim().toLowerCase();',
+    '  pages.forEach(function(p){',
+    '    [].slice.call(p.querySelectorAll(".wk-e")).forEach(function(e){',
+    '      e.style.display=(!q||e.textContent.toLowerCase().indexOf(q)>=0)?"":"none"})});',
+    '  groups.forEach(function(g){',
+    '    var any=[].slice.call(g.querySelectorAll(".wk-e")).some(function(e){',
+    '      return e.style.display!=="none"});',
+    '    g.style.display=any?"":"none";',
+    '    g.open=xall.checked||(!!q&&any)}); }',
+    'box.addEventListener("input",filter);',
+    'box.addEventListener("keydown",function(e){if(e.key==="Escape"){box.value="";filter()}});',
+    // Everything is collapsed by default because three of these pages run past
+    // 40,000px open. This is the way back to one long document, which is what
+    // the browser's own find needs.
+    'xall.addEventListener("change",filter);'
+  ].join('\n');
+}
+
+function MOD_wikiBuild() {
+  var nav = '', body = '';
+  MOD_WIKI_PAGES.forEach(function (pg) {
+    nav += '<a href="#' + pg.id + '" data-p="' + pg.id + '">' +
+      MOD_WIKI.safe(pg.label) + '</a>';
+    var inner;
+    /* One page throwing must not take the wiki down with it — the page says so
+       and the rest still renders. */
+    try { inner = pg.build(); }
+    catch (e) {
+      inner = '<h1>' + MOD_WIKI.safe(pg.label) + '</h1><p class="note">This page ' +
+        'could not be built: ' + MOD_WIKI.safe(e.message) + '</p>';
+      console.warn('[mod] wiki page "' + pg.id + '" failed: ' + e.message);
+    }
+    body += '<div class="pg" id="pg-' + pg.id + '">' + inner + '</div>';
+  });
+
+  var stamp = new Date().toLocaleString();
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>' + MOD_WIKI.safe(MOD_WIKI.title) + '</title>' +
+    '<style>' + MOD_wikiCss() + '</style></head><body>' +
+    '<nav><h2>WIKI</h2>' +
+    '<input id="srch" class="srch" type="search" placeholder="search this page" ' +
+    'autocomplete="off">' + nav +
+    '<label class="xall"><input type="checkbox" id="xall">expand every group</label>' +
+    '</nav>' +
+    '<main>' + body +
+    '<footer>Generated from the running game at ' + MOD_WIKI.safe(stamp) +
+    ' — mod ' + MOD_WIKI.safe(MOD.version) + '. Everything here is read from the ' +
+    'live data, including your own save, so it cannot fall out of step with the ' +
+    'game. The game is truezhangwei\'s; the mod is not endorsed by the author.' +
+    '</footer></main>' +
+    '<script>' + MOD_wikiJs() + '<\/script></body></html>';
+}
+
+/* Returns the HTML either way, so this is testable without a popup. */
+function modWiki() {
+  var html;
+  try { html = MOD_wikiBuild(); }
+  catch (e) { console.warn('[mod] wiki failed: ' + e.message); return null; }
+
+  var w = null;
+  try { w = window.open('', '_blank'); } catch (e) {}
+  if (w && w.document) {
+    try {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      try { w.focus(); } catch (e) {}
+    } catch (e) { console.warn('[mod] wiki write failed: ' + e.message); }
+  } else {
+    /* Blocked. Say so where the player is looking rather than only in the
+       console — a button that silently does nothing reads as broken. */
+    try { msg('The wiki opens in a new tab — allow pop-ups for this page', 'gold'); }
+    catch (e) {}
+    console.warn('[mod] wiki: window.open was blocked');
+  }
+  return html;
+}
+
+(function () {
+  try {
+    var btn = addElement(dom.sl, 'span', null, 'sl');
+    btn.innerHTML = 'wiki';
+    /* Plain inline with 3px padding, like the game's own — an inline-block here
+       grows the fixed bottom bar and it eats the panel above it. */
+    btn.style.cssText = 'width:auto;padding:3px;cursor:pointer;';
+    btn.title = 'A reference for skills, areas, items, titles and cultivation, ' +
+                'built from the running game';
+    btn.addEventListener('click', function () { modWiki(); });
+    dom.sl.insertBefore(btn, dom.sl_extra);
+    console.log('[mod] wiki button added — modWiki() opens it, ' +
+      MOD_WIKI_PAGES.length + ' pages');
+  } catch (e) {
+    console.warn('[mod] wiki button failed: ' + e.message);
+  }
+})();
+
+/* And in the settings menu, since that is the other place a player looks. */
+(function () {
+  try {
+    var row = addElement(dom.ctrwin4, 'div', null, 'opt_c');
+    var lab = addElement(row, 'div', null, 'opt_t');
+    lab.innerHTML = 'Game wiki';
+    var b = addElement(row, 'div', null, 'opt_v');
+    b.innerHTML = '[ open ]';
+    b.style.cssText = 'cursor:pointer;text-align:center;';
+    b.addEventListener('click', function () { modWiki(); });
+    try {
+      addDesc(row, null, 2, 'Game wiki',
+        'Opens a reference in a new tab: every skill, area, item, title,<br>' +
+        'action and realm, generated from the running game.<br>' +
+        'It reads your save too, so it shows what you have reached.');
+    } catch (e) {}
+  } catch (e) {
+    console.warn('[mod] wiki settings row failed: ' + e.message);
+  }
+})();

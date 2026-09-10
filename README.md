@@ -28,7 +28,7 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Twenty-seven sections, roughly in the order they were built. The design record
+Thirty-one sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
 [MOD-NOTES.md](MOD-NOTES.md).
 
@@ -80,6 +80,10 @@ for every one of them, including the reasoning and what was measured, is in
   anywhere. Off by default; both are deliberate limits.
 - Collapsible skill sections, live effect descriptions, and a title picker
   grouped by skill.
+- **A wiki**, on the bottom bar and in settings. Eleven pages covering every
+  skill, area, item, title, action and realm — generated from the live game
+  data each time it opens, so it cannot fall out of step, and reading your save,
+  so it doubles as a progress sheet.
 
 Every change is logged in `changelog/mod-changelog.html`, reachable in game from
 the `changelog` button in the bottom bar. The version number next to it opens the
@@ -103,7 +107,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 19 scripts
+npm test                                          # all 22 scripts
 ./tests/run.sh audit combat                       # a subset
 ```
 
@@ -120,10 +124,10 @@ copy of the folder.
 
 | | |
 |---|---|
-| `mod.js` | the entire mod, ~5,800 lines |
+| `mod.js` | the entire mod, ~7,600 lines |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 19 Playwright scripts |
+| `tests/` | 22 Playwright scripts |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 

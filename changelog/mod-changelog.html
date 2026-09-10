@@ -18,6 +18,37 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.0:</span><br>
+<span style="color:blue">[2026/09/09]</span><br>
+<b>A wiki.</b> A <code>wiki</code> button on the bottom bar and a "Game wiki" row in settings, both<br>
+&nbsp;&nbsp;opening a reference in a tab of its own. Eleven pages: Start here, Progression, Skills,<br>
+&nbsp;&nbsp;Cultivation, Elemental mastery, Titles, Areas &amp; enemies, Items, Actions, The dojo, Mechanics<br>
+&nbsp;&nbsp;<span style="color:grey">It is GENERATED from the live game data every time it is opened, not written out.<br>
+&nbsp;&nbsp;A hand-written wiki for 100 skills, 595 titles, 371 items and 19 areas would be wrong<br>
+&nbsp;&nbsp;within a week, and a reference nobody can trust is worse than none. Reading skl, item,<br>
+&nbsp;&nbsp;area, ttl, act and the mod's own tables means it cannot disagree with the game &mdash;<br>
+&nbsp;&nbsp;including changes made from the console mid-session.</span><br>
+&nbsp;&nbsp;It reads the save too, so it doubles as a progress sheet: your level in every skill,<br>
+&nbsp;&nbsp;which perks you have taken, which titles you hold, your realm and what the next one costs<br>
+&nbsp;&nbsp;Everything you have not reached is still listed &mdash; it is a wiki, not a fog-of-war map<br>
+&nbsp;&nbsp;Groups collapse. With everything listed, three pages ran past 40,000 pixels open;<br>
+&nbsp;&nbsp;collapsed, the tallest is 5,800 and Skills opens as ten lines you can take in at once<br>
+&nbsp;&nbsp;Search opens the groups that still have matches, since a match hidden inside a<br>
+&nbsp;&nbsp;collapsed group reads as no match at all<br>
+&nbsp;&nbsp;No fetches and no dependencies &mdash; it works from file:// as readily as from a server<br>
+<b>Two things found by generating it rather than writing it:</b><br>
+&nbsp;&nbsp;<b>Spawn chances were not what pop[i].c says.</b> z_bake normalises those weights into<br>
+&nbsp;&nbsp;area.popc, the [lo,hi] bands mon_gen actually rolls against, and the weights need not<br>
+&nbsp;&nbsp;sum to 1. The Southern forest's .35/.45/.25 are really 33/43/24%. The wiki reads the bands<br>
+&nbsp;&nbsp;<b>Nothing can ever spawn in the Damp cellar</b> (base game). Its pop entries carry no<br>
+&nbsp;&nbsp;weight at all, so z_bake produces NaN bands and no comparison in the spawn loop can be<br>
+&nbsp;&nbsp;true. Nothing in the game travels there either. Left as it is and reported in the wiki<br>
+&nbsp;&nbsp;rather than quietly fixed &mdash; it is the author's unfinished content, like chss.pltwr1 was<br>
+<span style="color:grey">Not listed as places: "Somewhere" (where current_z parks whenever you are not fighting)<br>
+and "Test" (reached only from chss.tst, which has id -1 and is in no sector).</span><br>
+<b>Tests.</b> tests/wiki.mjs &mdash; 57 checks. Coverage is counted from the game rather than<br>
+&nbsp;&nbsp;listed, so adding a skill without adding it to the wiki fails the suite automatically<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 2.9:</span><br>
 <span style="color:blue">[2026/09/08]</span><br>
 <b>The Catacombs are reachable.</b> 26 finished locations &mdash; The Mourning Hall, Eleven Wisemen,<br>
