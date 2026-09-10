@@ -18,6 +18,50 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.1:</span><br>
+<span style="color:blue">[2026/09/09]</span><br>
+<b>Fixed: a hundred Fire Masteries and a hundred Companions Disciplines.</b><br>
+&nbsp;&nbsp;Two skills shared id <code>2010</code> &mdash; the Companions parent (<code>2000 + section 10</code>,<br>
+&nbsp;&nbsp;section 11) and Fire Mastery (<code>2010 + 0</code>, section 29). Ids are the save's key for a<br>
+&nbsp;&nbsp;skill and the loader matches them in a loop with no <code>break</code>, so one shared id pushed<br>
+&nbsp;&nbsp;BOTH skills onto the sheet for BOTH saved entries. The next save wrote all of them.<br>
+&nbsp;&nbsp;<span style="color:grey">It doubled every save/load: 1, 2, 4, 8, 16, 32... A week of play is a hundred of each.</span><br>
+&nbsp;&nbsp;Only Fire Mastery moved (2010 &rarr; 2016), so water through dark keep the ids they were<br>
+&nbsp;&nbsp;saved under and nobody loses those levels<br>
+&nbsp;&nbsp;The Companions parent gets id 2010 back, and with it the level cap that the clash had<br>
+&nbsp;&nbsp;been handing to Fire Mastery instead<br>
+<b>Existing saves are repaired.</b> The duplicates are IN the save, so fixing the id only stopped<br>
+&nbsp;&nbsp;it getting worse. The skill list is now de-duplicated on load and the panel redrawn &mdash;<br>
+&nbsp;&nbsp;a 138-row sheet comes back as 12, with every level intact<br>
+<b>Also fixed: The Sunken Hollow and the Pill Tower both had location id 976</b> (the mod's own,<br>
+&nbsp;&nbsp;from MOD 2.9). <code>global.lst_loc</code> is matched the same way, so both would have drawn.<br>
+&nbsp;&nbsp;The tower is 980 now<br>
+<b>Tests.</b> tests/ids.mjs &mdash; 32 checks. Every namespace (skl, ttl, act, abl, item, wpn, eqp,<br>
+&nbsp;&nbsp;sld, acc, chss, area, creature, quest, rcp) must have distinct ids; five save/load cycles<br>
+&nbsp;&nbsp;must not grow the sheet; and a deliberately damaged sheet must come back clean.<br>
+&nbsp;&nbsp;<span style="color:grey">Nothing checked this before, which is why it shipped.</span><br>
+<br>
+<b>You can get into the Marketplace again.</b><br>
+&nbsp;&nbsp;<span style="color:grey">The base game's chain: finish at the dojo, then a Paper Boy turns up at the village<br>
+&nbsp;&nbsp;center at 40% a visit with a "Pamphlet", then you read it for three hours. Exactly one<br>
+&nbsp;&nbsp;item in the game sets the flag, and the Paper Boy is retired the moment the Pamphlet is<br>
+&nbsp;&nbsp;GIVEN rather than read. MOD 1.x added selling and never marked it a key item &mdash; so you<br>
+&nbsp;&nbsp;could sell it at the food stand, before ever reading it, and lose the marketplace, its<br>
+&nbsp;&nbsp;three shops, the guard-duty quest and the realm 2-5 breakthrough pills permanently.</span><br>
+&nbsp;&nbsp;<b>Key items can no longer be sold.</b> Derived, not listed: the game's own source is scanned<br>
+&nbsp;&nbsp;for flags it ever sets back to <code>false</code>, and an item that sets a flag nothing clears is<br>
+&nbsp;&nbsp;the only copy of something. Six items protected. A Smoke Bomb sets a flag the game does<br>
+&nbsp;&nbsp;clear, so it is state rather than a key, and stays sellable<br>
+&nbsp;&nbsp;<b>The Paper Boy comes back</b> if you no longer have a Pamphlet &mdash; which is what gets a save<br>
+&nbsp;&nbsp;that is already stuck out of the hole, without a console. A fresh character still meets<br>
+&nbsp;&nbsp;him exactly once, through the author's own code<br>
+&nbsp;&nbsp;<b>And the village center says WHY the door is not there</b> instead of silently omitting the<br>
+&nbsp;&nbsp;line: "finish at the dojo first", "read your Pamphlet", or "you do not know the way",<br>
+&nbsp;&nbsp;with the full explanation in the tooltip. The Herbalist inside gets the same treatment<br>
+&nbsp;&nbsp;<span style="color:grey">Added lines sit above the location's "&lt;= Return" and are kept under 50 characters:<br>
+&nbsp;&nbsp;.chs is height:22px with no overflow rule, so a choice that wraps spills into the next row.</span><br>
+<b>Tests.</b> tests/marketplace.mjs &mdash; 30 checks, including that every added line fits on one row.<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.0:</span><br>
 <span style="color:blue">[2026/09/09]</span><br>
 <b>A wiki.</b> A <code>wiki</code> button on the bottom bar and a "Game wiki" row in settings, both<br>

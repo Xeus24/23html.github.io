@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.0',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.1',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -6271,6 +6271,10 @@ var MOD_ELEMENTS = [
    'What is left when the light is taken away', 'mediumpurple']
 ];
 
+/* fire is off the arithmetic on purpose — see the note where it is used */
+var MOD_ELEM_IDS = { fire: 2016, water: 2011, air: 2012,
+                     earth: 2013, light: 2014, dark: 2015 };
+
 var MOD_MASTERY = [];      // {key, skill, elem, techKey}
 
 MOD_ELEMENTS.forEach(function (e, i) {
@@ -6278,7 +6282,21 @@ MOD_ELEMENTS.forEach(function (e, i) {
       id = e[4], techName = e[5], flavour = e[6], colour = e[7];
 
   var sk = new Skill();
-  sk.id = 2010 + i;                       // clear of the mod's other ranges
+  /* Ids are the save's key for a skill, so these are listed rather than
+     computed. `2010 + i` looked clear and was not: section 11 numbers the
+     parent skills `2000 + section`, and section 10 (Companions) is 2010 —
+     exactly what Fire Mastery took.
+
+     A skill id is matched in a loop with no `break`, so one shared id pushes
+     BOTH skills onto the sheet for BOTH saved entries. That doubles on every
+     save/load: 1, 2, 4, 8, 16... which is how a character ends up with a
+     hundred Fire Masteries and a hundred Companions Disciplines.
+
+     Only fire moves. Water through dark keep the ids they were saved under, so
+     nobody loses those levels, and the Companions parent gets 2010 back along
+     with the level cap that MOD_KEY_BY_ID had been handing to fire instead.
+     tests/audit.mjs now fails on any duplicate id in any namespace. */
+  sk.id = MOD_ELEM_IDS[key];
   sk.type = 7;                            // the absorptions' own type
   sk.name = label;
   sk.desc = flavour + MOD_SEP +
@@ -6507,12 +6525,15 @@ function MOD_veinExp() {
   return Math.round(60 * Math.pow(1.9, MOD_realm().n));
 }
 
-chss.mod_pltwr = new Chs(); chss.mod_pltwr.id = 976;
+/* 980, not 976: 976 is chss.mod_hollow (The Sunken Hollow). global.lst_loc is
+   restored by scanning chss for a matching id with no `break`, so two locations
+   sharing one would both draw. */
+chss.mod_pltwr = new Chs(); chss.mod_pltwr.id = 980;
 
 chss.mod_pltwr.sl = function () {
   global.flags.inside = true;
   d_loc('Pill Tower');
-  global.lst_loc = 976;
+  global.lst_loc = 980;
 
   var realm = MOD_realm();
   chs('The air inside is thick enough to lean on. Somewhere above, something is being ' +
@@ -7599,3 +7620,311 @@ function modWiki() {
     console.warn('[mod] wiki settings row failed: ' + e.message);
   }
 })();
+
+
+/* ===========================================================================
+   32. GETTING INTO THE MARKETPLACE
+   ---------------------------------------------------------------------------
+   The marketplace was unreachable, and the mod is what made it so.
+
+   The base game's chain is: finish at the dojo (`dj1end`), then a Paper Boy
+   turns up at the Village Center at 40% a visit and hands you a "Pamphlet",
+   then you read it for three hours and `mkplc1u` opens the door. Exactly one
+   item in the game sets that flag, and `pmfspmkm1` — set the moment the
+   Pamphlet is *given*, not when it is read — retires the Paper Boy for good.
+
+   Section 15 added selling. Nothing marked the Pamphlet as a key item, so it
+   could be sold at the food stand, outside the marketplace, before ever being
+   read. Sell it and the marketplace, the Grocery, the General Store, the
+   Herbalist, the guard-duty quest and — because the Herbalist stocks the
+   breakthrough pills for realms 2-5 — most of the cultivation ladder are gone
+   permanently, with nothing in the game able to give them back.
+
+   Three parts, in the order they matter:
+
+     A. Key items cannot be sold. Derived, not listed: the game's own source is
+        scanned for flags it ever sets back to false, and any item that sets a
+        flag it never clears is a key item.
+     B. The Paper Boy comes back if you no longer have a Pamphlet. This is what
+        un-sticks a save that is already in the hole, without a console.
+     C. The Village Center says WHY the marketplace is not listed, rather than
+        silently omitting the line. "It seems like I can't" was the whole
+        complaint, and an invisible gate is what caused it.
+   =========================================================================== */
+
+/* --- A. key items are not merchandise -------------------------------------
+
+   A one-way flag is one the game sets to true somewhere and never sets back to
+   false. `smkactv` (Smoke Bomb) is set both ways, so it is transient state and
+   the bomb stays sellable; `mkplc1u`, `bstu`, `jnlu`, `hsedchk`, `m_un` and
+   `wp2sgt` are only ever set true, so the items that set them are the only
+   copies of something.
+
+   The whole game is one inline <script>, so its source is readable at runtime
+   through document.scripts — which makes this exact rather than a list I would
+   have to remember to update. Section 24 reads f.toString() for the same kind
+   of reason.
+   ------------------------------------------------------------------------- */
+
+var MOD_KEY_ITEMS = {};        // "group.key" -> [flags it alone can set]
+
+(function () {
+  try {
+    var src = '';
+    for (var i = 0; i < document.scripts.length; i++) {
+      src += document.scripts[i].textContent || '';
+    }
+    if (src.length < 100000) {          // not the game's source; do not guess
+      console.warn('[mod] key items: game source not readable, none protected');
+      return;
+    }
+
+    /* Flags the game ever clears. Anything not in here, once set, stays set. */
+    var cleared = {}, m, re = /flags\.([A-Za-z0-9_]+)\s*=\s*false/g;
+    while ((m = re.exec(src))) cleared[m[1]] = true;
+
+    var groups = { item: item, wpn: wpn, eqp: eqp, sld: sld, acc: acc };
+    var n = 0;
+    for (var g in groups) {
+      for (var k in groups[g]) {
+        var it = groups[g][k];
+        if (!it || !it.name || it.name === 'dummy') continue;
+        var body = '';
+        try { body = String(it.use) + String(it.onGet); } catch (e) { continue; }
+        var set = body.match(/global\.flags\.[A-Za-z0-9_]+\s*=\s*true/g) || [];
+        var oneWay = [];
+        for (var j = 0; j < set.length; j++) {
+          var f = set[j].split('.')[2].split(/\s*=/)[0];
+          if (!cleared[f]) oneWay.push(f);
+        }
+        if (oneWay.length) { MOD_KEY_ITEMS[g + '.' + k] = oneWay; it._modKey = true; n++; }
+      }
+    }
+    console.log('[mod] key items protected from selling: ' + n + ' — ' +
+      Object.keys(MOD_KEY_ITEMS).join(', '));
+  } catch (e) {
+    console.warn('[mod] key item scan failed: ' + e.message);
+  }
+})();
+
+var MOD_sellable_beforeKeyItems = MOD_sellable;
+MOD_sellable = function (it) {
+  if (it && it._modKey === true) return false;
+  return MOD_sellable_beforeKeyItems.apply(this, arguments);
+};
+
+/* --- B. the Paper Boy comes back ------------------------------------------
+
+   The author's own condition is `pmfspmkm1 !== true` — "have you ever been
+   handed one" — so once you have, he is finished with you whatever became of
+   it. The condition that matches the intent is "do you have one", and the
+   outer `!mkplc1u` already covers having read it.
+
+   Drawn from the wrapper rather than by editing the game, and deliberately
+   only in the case the original has given up on (`pmfspmkm1` already true), so
+   a fresh character still meets him exactly once, through the author's code.
+   ------------------------------------------------------------------------- */
+
+MOD.market_flag = 'mkplc1u';
+MOD.market_rate = 0.4;         // the author's own odds
+
+/* chs() appends, so anything a wrapper adds lands under the location's "<=
+   Return" line, which reads as though the way out came first. Every one of the
+   game's 85 back-choices starts with `"<=`, so that is a convention worth
+   using rather than a guess: put the new line above the first of them, and
+   simply append where a location has none (the Village Center is a hub and has
+   no way "back"). */
+function MOD_chsAboveBack(html, colour) {
+  var node = chs(html, false, colour);
+  try {
+    var kids = dom.ctr_2.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i] !== node && /^"<=/.test(kids[i].textContent.trim())) {
+        dom.ctr_2.insertBefore(node, kids[i]);
+        break;
+      }
+    }
+  } catch (e) { /* it is already on screen; position is the only thing at risk */ }
+  return node;
+}
+
+function MOD_hasPamphlet() {
+  try { return item.shppmf.amount > 0; } catch (e) { return false; }
+}
+
+function MOD_marketOpen() {
+  return global.flags[MOD.market_flag] === true;
+}
+
+/* Why the marketplace is not on the menu, in the player's terms. Null once it
+   is open.
+
+   `short` goes on the choice line and `long` in its tooltip, because `.chs` is
+   `height:22px` with no overflow rule: a choice that wraps does not make its
+   row taller, it spills out of it and under the next one. Roughly 55 characters
+   fit at the panel's width, so the line stays under 50 and the sentence lives
+   in the tooltip where it has room. */
+function MOD_marketBlockedBy() {
+  if (MOD_marketOpen()) return null;
+  if (global.flags.dj1end !== true) {
+    return { short: 'finish at the dojo first',
+             long: 'The dojo has not finished with you yet. Nobody hands ' +
+                   'directions to someone who is still in training.' };
+  }
+  if (MOD_hasPamphlet()) {
+    return { short: 'read your "Pamphlet"',
+             long: 'You are carrying the <span style="color:orange">"Pamphlet"</span>. ' +
+                   'It is a wall of shop names and addresses, and reading it ' +
+                   'through is what tells you where the marketplace is.' };
+  }
+  return { short: 'you do not know the way',
+           long: 'You have never been told where it is. Someone will press ' +
+                 'directions on you at the village center sooner or later.' };
+}
+
+var MOD_lsmain1_before_market = chss.lsmain1.sl;
+
+chss.lsmain1.sl = function () {
+  var r = MOD_lsmain1_before_market.apply(this, arguments);
+  try {
+    if (MOD_marketOpen()) return r;
+
+    /* The recovery encounter. Only when the author's own version can no longer
+       fire, so the two can never both draw. chs(txt, true) clears the screen —
+       which is what the author's Paper Boy does too, and it is why this returns
+       immediately afterwards rather than drawing the hint underneath it. */
+    if (global.flags.dj1end === true &&
+        global.flags.pmfspmkm1 === true &&
+        !MOD_hasPamphlet() &&
+        random() < MOD.market_rate) {
+      chs('Paper Boy: Hey, you dropped this! ...you did have one, right?', true);
+      chs('?', false).addEventListener('click', function () {
+        giveItem(item.shppmf);
+        smove(chss.lsmain1, false);
+      });
+      return r;
+    }
+
+    /* C. otherwise, say why the door is not there. */
+    var why = MOD_marketBlockedBy();
+    if (why) {
+      var line = MOD_chsAboveBack('<span style="color:grey">"=> Visit Marketplace" — ' +
+        why.short + '</span>');
+      try { addDesc(line, null, 2, 'The Marketplace', why.long); } catch (e) {}
+      line.addEventListener('click', function () {
+        msg(why.long.replace(/<[^>]*>/g, ''), 'grey');
+      });
+    }
+  } catch (e) {
+    console.warn('[mod] marketplace additions failed: ' + e.message);
+  }
+  return r;
+};
+
+/* The Herbalist is behind a second flag, set by Head Hunter Yamato's delivery
+   job — a real quest, not a dead end, but an unlisted one. It stocks the
+   breakthrough pills for realms 2-5, so a player who cannot find it reads the
+   cultivation ladder as broken. Same treatment: say it is there. */
+var MOD_mrktvg1_before = chss.mrktvg1.sl;
+
+chss.mrktvg1.sl = function () {
+  var r = MOD_mrktvg1_before.apply(this, arguments);
+  try {
+    if (global.flags.phai1udt !== true) {
+      var hint = 'A very unremarkable little building, set back from the road, ' +
+        'with a sign like an alchemist\'s vial. You would walk past it. ' +
+        'A delivery job out of the hunting camp ends at its door.';
+      var line = MOD_chsAboveBack('<span style="color:grey">"Herbalist =>" — ' +
+        'you have not been shown the way</span>');
+      try { addDesc(line, null, 2, 'The Herbalist', hint); } catch (e) {}
+      line.addEventListener('click', function () { msg(hint, 'grey'); });
+    }
+  } catch (e) {
+    console.warn('[mod] marketplace hint failed: ' + e.message);
+  }
+  return r;
+};
+
+console.log('[mod] marketplace: Paper Boy returns if the Pamphlet is gone, ' +
+  'and the Village Center says why the door is missing');
+
+
+/* ===========================================================================
+   33. REPAIRING A SHEET THAT ALREADY HAS DUPLICATES
+   ---------------------------------------------------------------------------
+   Section 29 gave Fire Mastery id 2010, which section 11 had already given the
+   Companions parent. The game's loader matches a saved entry to a skill with
+
+       for (a in a6) for (b in skl) if (a6[a].id === skl[b].id) you.skls.push(skl[b])
+
+   and no `break`. One shared id therefore pushes both skills for both entries,
+   the next save writes all of them, and the count doubles every cycle:
+   1, 2, 4, 8, 16, 32... A character who has played for a week has a hundred of
+   each, and the skill panel renders one row per entry.
+
+   The id is fixed, but that only stops it getting worse. The duplicates are IN
+   the save — `a6` still has a hundred entries — so they come back on every load
+   until something removes them. This does, once, by identity: `you.skls` is a
+   list of references to the objects in `skl`, so the same skill appearing twice
+   is always a bug, whatever caused it.
+
+   Deliberately not limited to the two skills that collided. This repairs the
+   damage rather than the cause, and it is worth having as a standing guard —
+   the panel's per-row updater reads fixed child indices against `you.skls`, so
+   a duplicated row is not merely cosmetic.
+   =========================================================================== */
+
+function MOD_dedupeSkills(why) {
+  try {
+    if (!you || !you.skls || !you.skls.length) return 0;
+    var seen = [], out = [], dropped = 0, i;
+    for (i = 0; i < you.skls.length; i++) {
+      var s = you.skls[i];
+      if (!s) { dropped++; continue; }
+      if (seen.indexOf(s) !== -1) { dropped++; continue; }
+      seen.push(s); out.push(s);
+    }
+    if (!dropped) return 0;
+    /* In place: the panel and the save both hold this array. */
+    you.skls.length = 0;
+    for (i = 0; i < out.length; i++) you.skls.push(out[i]);
+    console.log('[mod] skill sheet repaired' + (why ? ' (' + why + ')' : '') +
+      ': dropped ' + dropped + ' duplicate row' + (dropped === 1 ? '' : 's') +
+      ', ' + out.length + ' left');
+    return dropped;
+  } catch (e) {
+    console.warn('[mod] skill dedupe failed: ' + e.message);
+    return 0;
+  }
+}
+
+/* On load, because that is where they are re-created, and the panel is drawn
+   from you.skls immediately afterwards. */
+var MOD_load_beforeDedupe = load;
+load = function () {
+  var r = MOD_load_beforeDedupe.apply(this, arguments);
+  try {
+    var n = MOD_dedupeSkills('after load');
+    if (n) {
+      msg('Repaired the skill list: removed ' + n +
+          ' duplicated row' + (n === 1 ? '' : 's'), 'lime');
+      /* Redraw, or the panel keeps the rows it already built. The game has no
+         named "redraw the skill panel" — it empties dom.skcon and re-renders
+         from you.skls in four places — so do the same thing here. */
+      try {
+        empty(dom.skcon);
+        for (var m = 0; m < you.skls.length; m++) {
+          renderSkl(you.skls[m]);
+          if (m === you.skls.length - 1) {
+            dom.skcon.children[m].style.borderBottom = '1px solid #46a';
+          }
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return r;
+};
+
+/* And once at boot, for the save the game read through its own window load
+   listener before this file could wrap anything. */
+setTimeout(function () { MOD_dedupeSkills('at startup'); }, 3000);

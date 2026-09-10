@@ -264,6 +264,54 @@ git diff origin/main -- changelog/changelog.html    # must be empty
 In game the `changelog` button opens the mod's file; the version number opens
 his.
 
+## Ids are the save's primary key
+
+**No two things in a namespace may share an id, and nothing enforced this until
+`tests/ids.mjs`.** The game matches ids in loops with no `break`:
+
+```js
+for (a in a6) for (b in skl) if (a6[a].id === skl[b].id) you.skls.push(skl[b])
+for (gg in chss) if (chss[gg].id === global.lst_loc) chss[gg].sl()
+```
+
+So a duplicate is not a clash, it is corruption that compounds. Section 29 gave
+Fire Mastery `2010 + 0`; section 11 had already given the Companions parent
+`2000 + 10`. Every save/load pushed both skills for both entries and the sheet
+**doubled each cycle** — 1, 2, 4, 8, 16 — until a played-in character had a
+hundred of each. `MOD_KEY_BY_ID` is id-keyed too, so the clash also silently
+took the Companions parent's level cap.
+
+- Ranges in use: parents `2000+section` (2001-2010), masteries 2011-2016,
+  Renown 2100. Mod locations 975-980. **Check `tests/ids.mjs` before picking.**
+- Prefer an explicit table to arithmetic when two schemes could ever meet:
+  `MOD_ELEM_IDS` lists the six rather than computing them, and says why fire is
+  out of line.
+- Changing an id loses that skill's saved level, so move the *newest* claimant.
+- `MOD_dedupeSkills` (section 33) prunes `you.skls` on load. It repairs damage
+  already written into saves; it is not a licence to leave a duplicate id.
+
+## Choice lines have a fixed height
+
+`.chs` is `height:22px` with no overflow rule, so a choice that wraps does not
+grow its row — it spills over the next one and off the bottom of the panel.
+Roughly 55 characters fit. Keep an added line under 50 and put the sentence in
+`addDesc(node, null, 2, title, text)`, which is what the game does. Use
+`MOD_chsAboveBack()` so the line lands above the location's `"<= Return"`; all
+85 of the game's back-choices start with `"<=`.
+
+## Selling and key items
+
+Section 15 added selling, which the base game does not have, so **the mod owns
+the question of what must never be sold.** `MOD_KEY_ITEMS` (section 32) derives
+it: the game is one inline `<script>`, so its source is readable at runtime
+through `document.scripts`; a flag the game never sets back to `false` is a
+one-way unlock, and an item that sets one is the only copy of something.
+
+This shipped broken — the "Pamphlet" is the only thing in the game that opens
+the marketplace, and selling it took the marketplace, its three shops, a quest
+and the realm 2-5 breakthrough pills away permanently. Add a source of selling
+and re-check this.
+
 ## The wiki
 
 Section 31. The `wiki` button on the bottom bar and the settings row both call

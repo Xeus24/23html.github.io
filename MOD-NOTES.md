@@ -2130,6 +2130,142 @@ restore into the slots they were saved from and that appended perks sit after
 them, ungranted unless the level already earns them — which is what it checks
 now, and what will survive the next perk added.
 
+## A hundred Fire Masteries
+
+Reported as "why do i have like 100 fire mastery skills and companion
+discipline", and the two skills named were the whole diagnosis:
+
+```
+skl.par_10   "Companions Discipline"   id 2000 + 10   (section 11)
+skl.mod_fire "Fire Mastery"            id 2010 +  0   (section 29)
+```
+
+Both 2010. Two numbering schemes, each sensible alone, that met at exactly one
+value.
+
+An id is the save's key for a skill, and the game's loader matches on it in a
+loop with **no `break`**:
+
+```js
+for (let a in a6) for (let b in skl) if (a6[a].id === skl[b].id) {
+  you.skls.push(skl[b]); ...
+}
+```
+
+So one shared id pushes *both* skills for *both* saved entries. The next save
+writes all four. Measured over four cycles:
+
+| save/load | Fire Mastery rows | Companions rows | sheet |
+|---|---|---|---|
+| 1 | 2 | 2 | 14 |
+| 2 | 4 | 4 | 18 |
+| 3 | 8 | 8 | 26 |
+| 4 | 16 | 16 | 42 |
+
+It doubles. Seven cycles is 128 of each, which is what the player saw.
+
+`MOD_KEY_BY_ID` is id-keyed too, so `MOD_KEY_BY_ID[2010]` resolved to
+`mod_fire` and the Companions parent had quietly lost its level cap as well.
+
+**Only Fire Mastery moved** — 2010 to 2016. Water through dark keep 2011-2015,
+the ids they were saved under, so nobody loses those levels; the Companions
+parent gets 2010 and its cap back; and the one genuinely ambiguous value goes
+to the skill that claimed it first. The six are now an explicit table rather
+than `2010 + i`, because arithmetic is what made two schemes collide.
+
+### Fixing the id only stops it getting worse
+
+The duplicates are *in* the save. `a6` still holds a hundred entries, so they
+come back on every load until something removes them. `MOD_dedupeSkills`
+(section 33) prunes `you.skls` by object identity after load and redraws the
+panel. A deliberately damaged save — 138 rows — comes back as 12 through a real
+page reload, with every level intact.
+
+Not limited to the two skills that collided. It repairs the damage rather than
+the cause, and it is worth keeping: the panel's per-second updater reads fixed
+child indices against `you.skls`, so a duplicated row is not merely cosmetic.
+
+### The same mistake, already made twice more
+
+Scanning every namespace for duplicates turned up one more of the mod's own:
+`chss.mod_hollow` and `chss.mod_pltwr` both had location id **976**, from MOD
+2.9. `global.lst_loc` is restored by the same kind of break-less scan, so both
+locations would have drawn. The tower is 980 now.
+
+(`chss.tst` and `chss.tstauto` share `id -1`. That is the author's marker on two
+unreachable dev stubs, nothing dispatches to it, and it is not the mod's to
+change — so the test skips it explicitly rather than silently.)
+
+`tests/ids.mjs` now checks all fourteen namespaces. Nothing checked before,
+which is why it shipped.
+
+## Getting into the marketplace
+
+Reported as "make it so that i can enter the marketplace bc right now it seems
+like i cant". It was unreachable, and the mod is what made it so.
+
+The base game's chain: finish at the dojo (`dj1end`), then a Paper Boy turns up
+at the village center at 40% a visit and hands you a `"Pamphlet"`, then you read
+it for three hours and `mkplc1u` opens the door. Two things about that chain
+matter:
+
+* **Exactly one item in the game sets `mkplc1u`.** There is no second route.
+* **`pmfspmkm1` is set when the Pamphlet is *given*, not when it is read**, and
+  it retires the Paper Boy permanently.
+
+Section 15 added selling. Nothing marked the Pamphlet a key item, so it could be
+sold at the food stand — outside the marketplace, before ever being read — and
+that takes the marketplace, the Grocery, the General Store, the Herbalist, the
+guard-duty quest and, because the Herbalist stocks the realm 2-5 breakthrough
+pills, most of the cultivation ladder. Permanently. Reproduced in a test before
+touching anything: sell it, then 500 village-center visits with no Paper Boy and
+no door.
+
+### Key items, derived rather than listed
+
+The game is one inline `<script>`, so its own source is readable at runtime
+through `document.scripts`. That makes the rule exact instead of a list someone
+has to maintain:
+
+> A flag the game never sets back to `false` is a one-way unlock. An item whose
+> `use` or `onGet` sets one is the only copy of something.
+
+Six items qualify — the Pamphlet, the Woven Wallet, the Bestiary, the Rotten
+Illustration, the Property Deed and the Empty Journal. A Smoke Bomb sets
+`smkactv`, which the game *does* clear, so it is transient state rather than a
+key and stays sellable. That distinction is the reason for deriving it: a
+blanket "sets a flag" rule would have wrongly protected the bomb.
+
+### Getting an already-stuck save out
+
+The author's condition is `pmfspmkm1 !== true` — "have you ever been handed
+one" — so once you have, he is finished with you whatever became of it. The
+condition that matches the intent is "do you have one", and the outer
+`!mkplc1u` already covers having read it.
+
+Drawn from the wrapper, and deliberately only in the case the original has given
+up on (`pmfspmkm1` already true), so the two can never both fire and a fresh
+character still meets him exactly once through the author's own code.
+
+### An invisible gate is what caused the report
+
+"It seems like I can't" is the real bug. The village center simply omitted the
+line, with nothing to say the marketplace existed or what would open it. It now
+says which of the three things is missing, with the sentence in a tooltip. The
+Herbalist inside gets the same treatment — it is behind Yamato's delivery job, a
+real quest, but an unlisted one, and it is where the mod sells realm 2-5 pills.
+
+Two layout constraints found while doing it:
+
+* **`.chs` is `height:22px` with no overflow rule.** A choice that wraps does not
+  make its row taller; it spills into the next one and off the bottom of the
+  panel. The first draft's 87-character hint did exactly that. Every added line
+  is now under 50 characters and the test measures `scrollHeight` to prove it.
+* **`chs()` appends**, so a wrapper's line lands under the location's `"<=
+  Return"`. All 85 of the game's back-choices start with `"<=`, so
+  `MOD_chsAboveBack()` puts the line above the first of them, and falls back to
+  appending where a location has none (the village center is a hub).
+
 ## A wiki, generated rather than written
 
 Section 31. A `wiki` button on the bottom bar and a "Game wiki" row in
