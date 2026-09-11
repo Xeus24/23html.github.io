@@ -132,7 +132,7 @@ check(notPlaces.exist, 'both are defined in the game');
 check(!notPlaces.nwh, '"Somewhere" (nwh) is not listed as an area');
 check(!notPlaces.tst, '"Test" (tst) is not listed as an area');
 check(notPlaces.reachable === -1, `chss.tst is still the unreachable id -1 (${notPlaces.reachable})`);
-check(notPlaces.listed === 19, `19 real areas are listed (${notPlaces.listed})`);
+check(notPlaces.listed === 29, `29 real areas are listed (${notPlaces.listed})`);
 
 console.log('\n--- spawn shares come from the bands the game rolls against');
 // pop[i].c is a WEIGHT, not a probability: z_bake normalises those into

@@ -148,6 +148,31 @@ What matters:
   it) but `modCaps()` and the tests still read it. Tests select a tier by
   **index** (`setTier(9)`), not by cap number.
 
+### Known and unfixed: the player's real max HP is not the one the tests measure
+
+Found while building the rank ladder, **not fixed** — it is a separate piece of
+work and it touches the whole balance model.
+
+Section 9/10's `hpTrack` raises `you.hpmax` at the end of the `allbuff`
+wrapper. But `allbuff` opens with `who.stat_r()`, and `stat_r` recomputes
+`hpmax` from `(hp_r+hpa)*hpm*hpe` — so the raised value survives only until the
+next `stat_r`, which the tick, `fght`, `update_d` and `allbuff` itself all call
+constantly. Sampled 43 times across six seconds of real ticking on a cap-60
+character, `you.hpmax` was **10,050 every single time**; the hpTrack value,
+184,754, never appeared. The HP bar agrees: `hp: 2,438/10,050`.
+
+Every balance script measures `you.hpmax` immediately after `allbuff`, so they
+all see 184,754. `MOD_scaleEnemy` does too, and sizes `_modDmg` against it. So
+the enemy's damage is built for a character with ~18x the health the character
+actually has, and the divergence grows with skill level — it is ~1x early and
+worst in the endgame. All 2,790 `allareas` matchups are validating against a
+number the player never holds.
+
+The fix is the one `MOD_scaleEnemy` already documents for enemies: **write the
+multiplier, not the total** — set `you.hpm` (which `stat_r` reapplies from the
+base every time) rather than assigning `you.hpmax`. Check first whether `hpm`
+is in the save, or the bonus will compound on load like `you.res` did.
+
 ## Content gating
 
 - The three added areas (Sunken Hollow / Ashen Spire / Long Vigil) are hidden
@@ -263,6 +288,40 @@ git diff origin/main -- changelog/changelog.html    # must be empty
 
 In game the `changelog` button opens the mod's file; the version number opens
 his.
+
+## The rank ladder
+
+`you.rank()` is the base game's **Power rank** — the number under the portrait,
+lowest is strongest. It is **derived from live stats on every read**, not
+stored, so there is no field to award. Rank 1 is reachable on stats alone, but
+only with **every** skill at 110: measured, the whole of ranks 1-10 lives inside
+the last fifteen skill levels (at 108 across the board you are still rank 3),
+after a game in which the number is an unreadable ten-digit blob.
+
+Section 34 adds a second way to hold one. Ten challengers in the Hall of the
+First Gate, off the Old Path trailhead.
+
+- **The rank is a flag, and `you.rank` is wrapped to floor at it.** Never write
+  it into a stat — `you.res` and `skl.p` are the cautionary tales. It floors,
+  never caps: hold rank 6 with rank-900 stats and it shows 6; pass it and it
+  shows the better number. `you = new You()` runs once at game init and `load()`
+  restores fields into that instance rather than replacing it, which is the only
+  reason the wrapper survives a load. `tests/ranks.mjs` asserts both directions.
+- **Difficulty steps into fight length, and the margin is re-derived.** Each
+  duel is a `protected` one-creature `size 1` area, which is exactly what
+  `MOD_scaleEnemy` reads as an arena boss, so it is already anchored to the
+  player. `MOD_scaleRankDuel` then reads back the `_modKillT`/`_modDieT` it
+  stored, multiplies the length, and **re-asserts `kill < die` itself**. Do not
+  "just make it harder" by scaling both targets in opposite directions: margin
+  1.5 over step^1.5 is already under 1.2 by a step of 1.16, so the guarantee is
+  gone by rung three.
+- **Challenger `rnk` stays ≤ 14.** That is the monster danger grade, not the
+  ladder rank — the coin drop is `rand(lvl, lvl/4) ** (1 + rnk/5 << 0)`, so
+  rnk 15 pushes the exponent from 3 to 4 and multiplies an endgame drop by a
+  hundred. The base game's toughest creature sits at rnk 10, in the same bucket.
+- Areas 981-990, creatures 990-999, the hall at `chss.mod_hall` 979. Adding a
+  rung means adding a row to `MOD_RANK_LADDER`; the hall, the wiki page and
+  `modRankLadder()` are all drawn from it.
 
 ## Ids are the save's primary key
 

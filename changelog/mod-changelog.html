@@ -18,6 +18,53 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.2:</span><br>
+<span style="color:blue">[2026/09/11]</span><br>
+<b>Rank 1 is reachable. It just never felt like it.</b><br>
+&nbsp;&nbsp;<span style="color:grey">The number under your portrait is the base game's Power rank, and it is DERIVED from<br>
+&nbsp;&nbsp;your stats every time it is drawn &mdash; there is no stored field. Measured on a character<br>
+&nbsp;&nbsp;built to each rung of the ladder: rank 21,617,349,975 at tier 0, 65,544 at tier 5, 258 at<br>
+&nbsp;&nbsp;tier 7, 20 at tier 8, and 1 at the very top. Ranks 1&ndash;10 all live inside the last fifteen<br>
+&nbsp;&nbsp;skill levels &mdash; at 108 across the board you are still rank 3 &mdash; after a whole game in<br>
+&nbsp;&nbsp;which the number is an unreadable ten-digit blob.</span><br>
+<b>So there is a second way to hold a rank: take it off whoever has it.</b><br>
+&nbsp;&nbsp;<b>The Hall of the First Gate</b>, off the Old Path trailhead past the Western Woods gate.<br>
+&nbsp;&nbsp;Ten named challengers, rank 10 down to rank 1. Beating one takes that rank<br>
+&nbsp;&nbsp;<b>Strictly in order.</b> Rank N opens only when rank N+1 has been taken, and each rung also<br>
+&nbsp;&nbsp;wants a character level (60, 65, 70 ... 100, 110), so the ten fights span the endgame<br>
+&nbsp;&nbsp;instead of being one evening<br>
+&nbsp;&nbsp;<b>The rank you hold floors the rank you are shown</b>, and never caps it &mdash; hold rank 6 with<br>
+&nbsp;&nbsp;rank-900 stats and it shows 6; pass it on your own and it shows the better number. A held<br>
+&nbsp;&nbsp;rank is painted gold<br>
+&nbsp;&nbsp;<span style="color:grey">Implemented by wrapping <code>you.rank</code> and keeping the earned rank in <code>global.flags</code>, like<br>
+&nbsp;&nbsp;<code>mod_realm</code>. Nothing is written into a stat, so there is no delta to track and nothing<br>
+&nbsp;&nbsp;compounds on load &mdash; the trap <code>you.res</code> and <code>skl.p</code> both fell into.</span><br>
+&nbsp;&nbsp;<b>Losing costs nothing but the walk back.</b> A rank you have not taken cannot be taken off<br>
+&nbsp;&nbsp;you, and a rank you have taken is never lost<br>
+<b>The duels get longer, not deadlier.</b> Each is a protected one-creature area, so the enemy<br>
+&nbsp;&nbsp;scaling already treats it as an arena boss and anchors it to your power as you walk in.<br>
+&nbsp;&nbsp;Each rung then steps up ~7% into FIGHT LENGTH &mdash; the rank 1 duel runs 1.77x the rank 10<br>
+&nbsp;&nbsp;one &mdash; and the kill&lt;die guarantee is re-derived from the targets afterwards rather than<br>
+&nbsp;&nbsp;hoped for<br>
+&nbsp;&nbsp;<span style="color:grey">Scaling both targets in opposite directions does not survive ten rungs: margin 1.5 over<br>
+&nbsp;&nbsp;step^1.5 is already under 1.2 by a step of 1.16.</span><br>
+<b>Wiki.</b> A new "The rank ladder" page, after Progression: the formula, what a maxed<br>
+&nbsp;&nbsp;character actually measures at, and the ten rungs with their gates and payouts<br>
+<b>Found, not fixed: the player's real max HP is not the one the balance model uses.</b><br>
+&nbsp;&nbsp;<span style="color:grey">Section 9's hpTrack assigns <code>you.hpmax</code> at the end of the allbuff wrapper, but allbuff<br>
+&nbsp;&nbsp;opens with <code>stat_r()</code>, which recomputes hpmax from the base &mdash; so the raised value only<br>
+&nbsp;&nbsp;survives until the next stat_r, and the tick calls that constantly. Sampled 43 times over<br>
+&nbsp;&nbsp;six seconds of real play on a cap-60 character, <code>you.hpmax</code> was 10,050 every time; the<br>
+&nbsp;&nbsp;hpTrack value of 184,754 never appeared. Every balance script reads it in the one instant<br>
+&nbsp;&nbsp;it is standing, so enemy damage is sized for ~18x the health you really have. Harmless<br>
+&nbsp;&nbsp;early, worst in the endgame. Written up in MOD-NOTES and CLAUDE.md; the fix is its own<br>
+&nbsp;&nbsp;job, because it moves a number all 2,790 matchups are measured against.</span><br>
+<b>Tests.</b> tests/ranks.mjs &mdash; 31 checks. The wrapper must floor and never cap; the held rank<br>
+&nbsp;&nbsp;must survive a save/load; the hall must offer exactly one rung at a time and every line<br>
+&nbsp;&nbsp;must fit a 22px row; and all 100 matchups (10 rungs x 10 story tiers) must keep kill&lt;die<br>
+&nbsp;&nbsp;with zero whiffs, measured through the game's own dmg_calc. allareas is now 2,790<br>
+&nbsp;&nbsp;matchups across 31 areas<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.1:</span><br>
 <span style="color:blue">[2026/09/09]</span><br>
 <b>Fixed: a hundred Fire Masteries and a hundred Companions Disciplines.</b><br>

@@ -28,7 +28,7 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Thirty-three sections, roughly in the order they were built. The design record
+Thirty-four sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
 [MOD-NOTES.md](MOD-NOTES.md).
 
@@ -52,6 +52,12 @@ for every one of them, including the reasoning and what was measured, is in
   note below on why the obvious approach does not work here.
 - Three areas past the base game's last: the Sunken Hollow, the Ashen Spire and
   the Long Vigil, opening in order once the golem arena is cleared.
+- **The rank ladder.** The Power rank under your portrait is computed from your
+  stats, and rank 1 was only reachable by taking every single skill to 110 — at
+  108 across the board you are still rank 3. The Hall of the First Gate adds ten
+  named challengers, rank 10 down to rank 1, fought strictly in order. Beating
+  one takes that rank, and the rank you hold floors the rank you are shown
+  without ever capping it.
 
 **Cultivation**
 
@@ -107,7 +113,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 24 scripts
+npm test                                          # all 25 scripts
 ./tests/run.sh audit combat                       # a subset
 ```
 
@@ -115,7 +121,7 @@ They drive a real browser against a served copy of the game, so they test the
 actual thing rather than a model of it. [tests/README.md](tests/README.md)
 explains what each one covers. The broadest is `allareas.mjs`: every area, every
 creature, both ends of every level band, ten story tiers, three skill builds —
-2,490 matchups, all of which must be winnable.
+2,790 matchups, all of which must be winnable.
 
 **Several tests write to the save.** Export one first, or run them against a
 copy of the folder.
@@ -124,10 +130,10 @@ copy of the folder.
 
 | | |
 |---|---|
-| `mod.js` | the entire mod, ~7,900 lines |
+| `mod.js` | the entire mod, ~8,450 lines |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 24 Playwright scripts |
+| `tests/` | 25 Playwright scripts |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 

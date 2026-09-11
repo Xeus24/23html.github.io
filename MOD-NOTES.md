@@ -2370,6 +2370,160 @@ halfway renders blank, and a string test would not notice — and the last check
 clicks the actual bottom-bar button and asserts a real tab comes up with a
 working page in it.
 
+## The rank ladder, and whether rank 1 was ever reachable
+
+The question was "can you actually get to rank 1?", and answering it first
+meant working out which rank was meant. The game has three unrelated things
+called rank:
+
+* **`you.rank()`** — the Power rank under the portrait, tooltip *"Your power
+  position in this realm. The lower the number the stronger you are."* This is
+  the one.
+* **`mon.rnk` + `global.text.eranks`** — the monster danger grades, `???` / `G`
+  / … / `SSS++`, forty of them. A different ladder entirely.
+* **Title rarity `rar` 1-10** — the mod's own, derived from `MOD_RANK_AT`.
+
+### It is derived, not stored
+
+From the `You` constructor:
+
+```
+rank = ceil( 5e13 * sqrt((agl+str+int+spd/lvl) * 512 / (luck*.1+1))
+             / (agl+str+weapon+spd+int)^2 )
+```
+
+Recomputed every time `dom.d6.update` asks, which the global tick does once a
+second. There is no field. It falls as roughly the stat scale to the power
+−1.5 — ten times the stats is about thirty times the rank — and `ceil` floors
+it at 1, so rank 1 is a destination rather than an asymptote.
+
+### Measured
+
+Built the character the way the balance scripts do — every skill at the tier
+cap, every milestone fired, character level driven through the game's own
+`lvlup` — and read `you.rank()` at each rung:
+
+| tier | char lv | cap | STR | rank |
+|---|---|---|---|---|
+| 0 | 5 | 10 | 578 | 21,617,349,975 |
+| 3 | 30 | 30 | 87,641 | 17,143,237 |
+| 5 | 55 | 50 | 3.4e6 | 65,544 |
+| 7 | 85 | 75 | 1.1e8 | 258 |
+| 8 | 100 | 90 | 5.3e8 | 20 |
+| 9 | 110 | 110 | 2.8e9 | 1–2 |
+
+and holding everything else at the top while sweeping skill level: 90 → rank
+18, 95 → 11, 100 → 7, 105 → 4, 108 → 3, 110 → 1. Cultivation confirms it is
+not tight — realm 0 already reaches rank 1 at cap 110, and realm 10 takes STR
+to 1.7e10, six times more than rank 1 needs.
+
+**So the answer is yes, and that was the problem.** Rank 1 is reachable, but
+only by a completionist max of every skill, and all ten ranks live inside the
+last fifteen skill levels after a whole game in which the number is an
+unreadable ten-digit blob. It is earned by a spreadsheet, not by anything that
+happens in the world.
+
+### The Hall of the First Gate
+
+Ten named challengers, rank 10 down to rank 1, off the Old Path trailhead —
+the same endgame branch as the Sunken Hollow, so it inherits the `trne4e1`
+gate. Strictly ordered: rank N opens only when rank N+1 has been taken, and
+each rung also wants a character level (60, 65, 70 … 100, 110), so the ten
+fights span the endgame rather than being one evening. Character level is the
+right spine for it: it is the game's own headline progression, it is slow, and
+section 27 already prices it to 110.
+
+### Awarding a rank you cannot write
+
+Because the rank is derived, "giving" one means keeping it in `global.flags`
+(saved, like `mod_realm`) and **wrapping `you.rank`** to return the better of
+the two. It floors, never caps:
+
+```
+held 6, stats say 900  ->  6      the ladder carries you
+held 6, stats say 2    ->  2      your own power has passed it
+```
+
+Nothing is written into a stat, so there is no delta to track and nothing
+compounds on load — the trap `you.res` and `skl.p` both fell into. The wrapper
+is safe because `you = new You()` runs once at game init and `load()` restores
+fields *into* that instance rather than replacing it; `tests/ranks.mjs`
+asserts that explicitly, since it is the assumption the whole design rests on.
+
+`dom.d6.update` is wrapped too, only to paint a held rank gold — "I took this"
+should not look the same as "my stats drifted here".
+
+### Why the rungs get longer rather than deadlier
+
+Each duel is a `protected`, one-creature, `size 1` area, which is exactly the
+shape `MOD_scaleEnemy` already reads as an arena boss — so every rung is
+anchored to the player's power at the moment they walk in, and cannot be
+out-geared or walled off. On top of that each rung takes a ~7% step, and the
+step goes into **fight length**.
+
+The obvious version — scale the kill target up and the die target down — does
+not survive ten rungs. The effective margin is `1.5 / step^1.5`, which is
+already under 1.2 at a step of 1.16. So `MOD_scaleRankDuel` reads back the
+`_modKillT` / `_modDieT` that `MOD_scaleEnemy` left on the spawn, applies the
+step, and **re-asserts `kill < die` from those numbers** rather than hoping the
+arithmetic worked out. Measured: the rank 1 duel runs 1.77× the length of the
+rank 10 one, and all 100 rung × tier matchups hold the guarantee with zero
+whiffs.
+
+One number is deliberately conservative. The challengers' `rnk` — the monster
+danger grade, not the ladder rank — stops at 14. The base game's coin drop is
+`rand(lvl, lvl/4) ** (1 + rnk/5 << 0)`, so rnk 15 would push that exponent
+from 3 to 4 and multiply an endgame drop by a hundred. `creature.kksh`, the
+toughest thing the author shipped, sits at rnk 10 in the same bucket.
+
+Losing costs nothing but the walk back: a rank you have not taken cannot be
+taken off you, and a rank you have taken is never lost. Winning pays 15% of a
+character level at the level the rung asked for, which is worth taking and
+cannot skip you up the ladder it gates.
+
+## Known and unfixed: hpTrack's max HP is transient
+
+Turned up while testing the rank duels end to end through `attack()` rather
+than through a damage sample. Recorded here because it invalidates a number
+every balance script in the repo relies on, and because it is a separate job.
+
+`hpTrack` (section 9, carried into section 10's consolidated `allbuff`) sets
+
+```js
+you.hpmax = Math.round(hpRef * Math.pow(ratio, MOD_PLAYER.hpTrack));
+```
+
+at the end of the wrapper. `allbuff` begins with `who.stat_r()`, and `stat_r`
+recomputes `hpmax` from `(hp_r+hpa)*hpm*hpe`. So the assignment is overwritten
+by the very next `stat_r` — and the tick, `fght`, `update_d`, `update_m` and
+`allbuff` itself all call it constantly.
+
+Measured on a cap-60 character with every skill at the cap, sampling
+`you.hpmax` every 137 ms across six seconds of the page's real game loop: **43
+samples, all 10,050.** The hpTrack value of 184,754 appeared in none of them,
+and the game's own HP bar read `hp: 2,438/10,050`.
+
+The balance scripts never caught it because they read `you.hpmax` in the
+instant after `allbuff`, when the raised value is still standing.
+`MOD_scaleEnemy` reads it at the same moment and sets `_modDmg` from it, so the
+enemy's damage is sized for roughly eighteen times the health the character
+actually has. It is harmless early — `ratio` is near 1 until the mod's skills
+have levels — and worst at the top of the ladder, which is exactly where the
+rank ladder sits.
+
+The fix is the one `MOD_scaleEnemy`'s own header already spells out for
+enemies: write the **multiplier**, not the total. `you.hpm` is what `stat_r`
+reapplies from the base on every call, so setting that is idempotent and
+survives. Two things to check before doing it: whether `hpm` is in the save
+(if it is, it needs the delta treatment `you.res` gets in section 13, or it
+compounds on load), and what happens to `allareas` once the player really has
+the health its 2,790 matchups have always assumed.
+
+A first attempt at a narrower fix — restoring `you.hp` after the wrapper so the
+game's clamp ran against the final `hpmax` rather than the unbuffed one — was
+written and reverted. It is correct as far as it goes, but `hpmax` reverts on
+the next `stat_r` regardless, so it fixes a symptom and leaves the cause.
+
 ## A changelog you can actually reach
 
 The game has a changelog and already links to it — the version number in the

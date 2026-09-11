@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.1',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.2',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -59,6 +59,11 @@ var MOD = {
                      // so the realm ladder was unreachable in play.
                      // v2.9: the catacombs wired up (26 of the author's rooms,
                      // previously unreachable) and the Pill Tower built.
+                     // v3.0-3.1: the wiki, the marketplace reopened, and the
+                     // id clash that was doubling the skill sheet.
+                     // v3.2: the rank ladder. you.rank() is derived, so rank 1
+                     // was reachable only by taking every skill to 110; ten
+                     // ranked challengers give it somewhere to be won instead.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -7928,3 +7933,515 @@ load = function () {
 /* And once at boot, for the save the game read through its own window load
    listener before this file could wrap anything. */
 setTimeout(function () { MOD_dedupeSkills('at startup'); }, 3000);
+
+
+/* ===========================================================================
+   34. THE RANK LADDER
+   ---------------------------------------------------------------------------
+   `you.rank()` is the base game's Power rank — the number under the portrait,
+   tooltip "Your power position in this realm. The lower the number the
+   stronger you are". It is DERIVED, never stored (index.html, the You
+   constructor):
+
+       rank = ceil( 5e13 * sqrt((agl+str+int+spd/lvl) * 512 / (luck*.1+1))
+                    / (agl+str+weapon+spd+int)^2 )
+
+   so it falls as roughly S^-1.5 in the stat scale S, and Math.ceil floors it
+   at 1. Rank 1 is a real destination, not an asymptote.
+
+   --- is rank 1 reachable? measured, not guessed ----------------------------
+
+   Built the character the way the balance scripts do — every skill at the tier
+   cap, every milestone fired, character level driven through the game's own
+   lvlup — and read you.rank() at each rung of the story ladder:
+
+       tier 0   char lv   5   cap  10    STR 578        rank 21,617,349,975
+       tier 3   char lv  30   cap  30    STR 87,641     rank 17,143,237
+       tier 5   char lv  55   cap  50    STR 3.4e6      rank 65,544
+       tier 7   char lv  85   cap  75    STR 1.1e8      rank 258
+       tier 8   char lv 100   cap  90    STR 5.3e8      rank 20
+       tier 9   char lv 110   cap 110    STR 2.8e9      rank 1-2
+
+   and holding everything else at the top while sweeping skill level:
+
+       all skills 90 -> rank 18       all skills 105 -> rank 4
+       all skills 95 -> rank 11       all skills 108 -> rank 3
+       all skills 100 -> rank 7       all skills 110 -> rank 1
+
+   So yes — rank 1 IS reachable, but only by taking EVERY skill to 110. At 108
+   across the board you are still rank 3. Ranks 1-10 all live inside the last
+   fifteen skill levels, after an entire game in which the number is an
+   unreadable ten-digit blob. Technically reachable, practically invisible, and
+   earned by a spreadsheet rather than by anything that happens in the world.
+
+   --- what this adds --------------------------------------------------------
+
+   A second way to hold a rank: take it off whoever is holding it.
+
+   Ten ranked challengers, 10 down to 1, in a hall past the Old Path. The
+   ladder is strictly ordered — rank N opens only when rank N+1 has been taken
+   — and each rung also wants a character level, so the ten fights span the
+   endgame instead of being a single evening. Winning rung N writes
+   `global.flags.mod_rank = N`.
+
+   --- how the rank is awarded, and why it is a wrapper ----------------------
+
+   `you.rank` is a FUNCTION on the You instance, recomputed from live stats
+   every time `dom.d6.update` asks. There is no field to write. So the rank is
+   held in `global.flags` (saved, like `mod_realm`) and `you.rank` is wrapped
+   to return the better of the two:
+
+       held rank 6, stats say 900   ->  6      the ladder carries you
+       held rank 6, stats say 2     ->  2      your own power has passed it
+
+   It only ever floors, never caps, and nothing is written into a stat — so
+   there is no delta to track and nothing compounds on load, which is the trap
+   `you.res` and `skl.p` both fell into. `you = new You()` runs once at game
+   init and `load()` restores fields into it rather than replacing it, so the
+   wrapper survives a load.
+
+   --- difficulty, and why it is not simply "harder" -------------------------
+
+   Each duel is a protected one-creature area, so MOD_scaleEnemy already treats
+   it as an arena boss and anchors it to the player's power at spawn. On top of
+   that each rung takes a step up — but the step goes almost entirely into
+   FIGHT LENGTH, not into incoming damage, and the margin is then re-derived
+   rather than hoped for:
+
+       killT * step, and dieT floored at killT * 1.25
+
+   Scaling both targets in opposite directions is what would break `kill < die`
+   (margin 1.5 divided by step^1.5 is under 1.2 by step 1.16 alone). Reading
+   back the targets MOD_scaleEnemy stored on the spawn and re-asserting the
+   guarantee keeps every rung winnable at every tier, which tests/ranks.mjs and
+   tests/allareas.mjs both check.
+   =========================================================================== */
+
+/* --- A. the ten challengers ------------------------------------------------
+   `rnk` is the monster danger grade (global.text.eranks), NOT the ladder rank —
+   two different systems that happen to share a word. Kept in 11-14 ('-D' to
+   '-C', above anything else in the game) deliberately: the base game's coin
+   drop uses `rand(lvl, lvl/4) ** (1 + rnk/5 << 0)`, so rnk 15 would push that
+   exponent from 3 to 4 and multiply an endgame drop by a hundred. The toughest
+   thing the author shipped (creature.kksh) sits at rnk 10 / exponent 3, and
+   these stay in the same bucket.
+   -------------------------------------------------------------------------- */
+
+var MOD_RANK_STEP = 0.07;      // per rung above rank 10, into fight length
+var MOD_RANK_MARGIN = 1.25;    // re-asserted kill<die headroom after the step
+
+var MOD_RANK_LADDER = [
+  { rank: 10, key: 'rk10', id: 990, aid: 981, name: 'Ket the Doorkeeper',
+    need: 60,  lvl: 62,  rnk: 11, exp: 150, stat_p: [1.1, 0.8, 0.8, 0.6],
+    line: 'Keeps the list. Has been rank 10 for nineteen years and is not sentimental about it.' },
+  { rank: 9,  key: 'rk9',  id: 991, aid: 982, name: 'Brother Vey',
+    need: 65,  lvl: 68,  rnk: 11, exp: 190, stat_p: [0.8, 1.0, 1.0, 0.8],
+    line: 'Came down from a mountain order that no longer exists. Fights like he is still being marked.' },
+  { rank: 8,  key: 'rk8',  id: 992, aid: 983, name: 'Mira of the Wet Stones',
+    need: 70,  lvl: 74,  rnk: 12, exp: 240, stat_p: [0.9, 0.7, 1.3, 0.9],
+    line: 'Fast, and content to stay out of reach until you are tired.' },
+  { rank: 7,  key: 'rk7',  id: 993, aid: 984, name: 'The Tallyman',
+    need: 75,  lvl: 80,  rnk: 12, exp: 300, stat_p: [1.3, 0.9, 0.6, 0.8],
+    line: 'Counts your swings out loud. Nobody has yet heard him reach the end of the count.' },
+  { rank: 6,  key: 'rk6',  id: 994, aid: 985, name: 'Onvar Thrice-Broken',
+    need: 80,  lvl: 86,  rnk: 13, exp: 380, stat_p: [1.2, 1.1, 0.7, 0.7],
+    line: 'Named for the three times it did not take. There has not been a fourth.' },
+  { rank: 5,  key: 'rk5',  id: 995, aid: 986, name: 'Sister Quill',
+    need: 85,  lvl: 92,  rnk: 13, exp: 470, stat_p: [0.8, 0.8, 1.0, 1.3],
+    line: 'Teaches. The lesson is the fight; there is no other part of it.' },
+  { rank: 4,  key: 'rk4',  id: 996, aid: 987, name: 'Hanu the Still',
+    need: 90,  lvl: 98,  rnk: 13, exp: 580, stat_p: [1.2, 1.0, 0.9, 1.0],
+    line: 'Does not move first, and has never needed to move second more than once.' },
+  { rank: 3,  key: 'rk3',  id: 997, aid: 988, name: 'The Kiln Warden',
+    need: 95,  lvl: 104, rnk: 14, exp: 700, stat_p: [1.3, 1.2, 0.8, 0.9],
+    line: 'Something was fired wrong and then kept anyway. It holds rank three on merit.' },
+  { rank: 2,  key: 'rk2',  id: 998, aid: 989, name: 'Shan, Second Under Heaven',
+    need: 100, rnk: 14, lvl: 110, exp: 850, stat_p: [1.1, 1.2, 1.1, 1.1],
+    line: 'Has held second for a long time, and is widely believed to prefer it.' },
+  { rank: 1,  key: 'rk1',  id: 999, aid: 990, name: 'Tsai, First Under Heaven',
+    need: 110, rnk: 14, lvl: 120, exp: 1000, stat_p: [1.2, 1.2, 1.2, 1.2],
+    line: 'First. The hall is named for the gate behind her, and she has never opened it.' }
+];
+
+/* One creature and one protected single-spawn area per rung. Ids: creatures
+   990-999 (the base game tops out at 137, the mod used none), areas 981-990
+   (the base game tops out at 118, the mod uses 970-972). tests/ids.mjs checks
+   every namespace for clashes, so both ranges were picked against it. */
+MOD_RANK_LADDER.forEach(function (r) {
+  var c = new Creature();
+  c.name = r.name;
+  c.id = r.id;
+  c.desc = r.line;
+  c.exp = r.exp;
+  c.hp_r = 400 + r.lvl * 6;
+  c.stat_p = r.stat_p.slice();
+  c.str_r = 20 + (10 - r.rank) * 3;
+  c.agl_r = 40 + (10 - r.rank) * 4;
+  c.spd_r = 4;
+  c.ctype = 2;
+  c.rnk = r.rnk;
+  c.pts = 1200 + (10 - r.rank) * 400;
+  c.un = true;                      /* a named individual, not a population */
+  creature[r.key] = c;
+
+  var z = new Area();
+  z.id = r.aid;
+  z.name = r.name;
+  z.pop = [{ crt: c, lvlmin: r.lvl, lvlmax: r.lvl, c: 1 }];
+  z.size = 1;
+  z.protected = true;               /* MOD_scaleEnemy reads this as "arena boss" */
+  z.drop = [];
+  z._modRung = r.rank;              /* read off the AREA, not the spawn: mon_gen
+                                       hands back a copy(), and global.current_z
+                                       is set before lvlup runs */
+  z_bake(z);
+  area['mod_rank' + r.rank] = z;
+  r.area = z;
+  r.creature = c;
+});
+
+/* --- B. the rank you hold --------------------------------------------------
+   A flag, not a stat. 0 means unranked.
+   -------------------------------------------------------------------------- */
+
+MOD.rank_flag = 'mod_rank';
+
+function MOD_heldRank() {
+  try {
+    var n = Number(global.flags[MOD.rank_flag]);
+    return (isFinite(n) && n >= 1 && n <= 10) ? n : 0;
+  } catch (e) { return 0; }
+}
+
+/* The next rung you are allowed to challenge. Unranked starts at 10. */
+function MOD_nextRung() {
+  var held = MOD_heldRank();
+  return held === 0 ? 10 : held - 1;      // 0 once rank 1 is held
+}
+
+function MOD_rungByRank(n) {
+  for (var i = 0; i < MOD_RANK_LADDER.length; i++) {
+    if (MOD_RANK_LADDER[i].rank === n) return MOD_RANK_LADDER[i];
+  }
+  return null;
+}
+
+/* The rank the stats alone would give — the base game's number, before the
+   ladder floors it. Kept separate so the display and the wiki can show both. */
+var MOD_rank_original = you.rank;
+
+function MOD_rawRank() {
+  try { return MOD_rank_original.call(you); } catch (e) { return Infinity; }
+}
+
+/* Floors, never caps. dom.d6.update calls you.rank() directly and the global
+   tick calls dom.d6.update(), so nothing else has to be told about this. */
+you.rank = function () {
+  var r = MOD_rank_original.apply(this, arguments);
+  try {
+    var held = MOD_heldRank();
+    if (held > 0 && (!isFinite(r) || held < r)) return held;
+  } catch (e) {}
+  return r;
+};
+
+/* Show a held rank in gold, so "I took this" reads differently from "my stats
+   drifted here". Wrapped rather than replaced — the base game's line does its
+   own format3() and that stays the source of truth for the unheld case. */
+var MOD_d6_update_original = dom.d6.update;
+
+dom.d6.update = function () {
+  MOD_d6_update_original.apply(this, arguments);
+  try {
+    var held = MOD_heldRank();
+    if (held > 0 && held <= MOD_rawRank()) {
+      this.innerHTML = 'rank: <span style="color:gold">' + held + '</span>';
+    }
+  } catch (e) { /* the base line is already painted; colour is all that is lost */ }
+};
+
+/* --- C. the step up between rungs ------------------------------------------
+   MOD_scaleEnemy has already run inside the wrapped lvlup and left its two
+   targets on the spawn. Re-derive from those rather than re-solving, and
+   re-assert kill < die afterwards — see the header for why scaling both
+   targets in opposite directions does not survive ten rungs.
+   -------------------------------------------------------------------------- */
+
+function MOD_rankStep(rank) {
+  return 1 + (10 - rank) * MOD_RANK_STEP;      // rank 10 -> 1.00, rank 1 -> 1.63
+}
+
+function MOD_scaleRankDuel(p) {
+  var z = (typeof global !== 'undefined') ? global.current_z : null;
+  if (!z || !z._modRung || !p || !p._modKillT) return;
+
+  var E = MOD_ENEMY;
+  var step = MOD_rankStep(z._modRung);
+
+  var killT = p._modKillT * step;
+  var dieT = Math.max(p._modDieT / Math.sqrt(step), killT * MOD_RANK_MARGIN);
+
+  /* HP is the only thing the length target touches, and hpm is a multiplier
+     stat_r() reapplies from hp_r, so this stays idempotent. */
+  var hpm = p.hpm * step;
+  p.hpm = isFinite(hpm) ? Math.min(Math.max(hpm, 0.05), MOD_ENEMY_MAX) : p.hpm;
+  p.stat_r();
+  p.hp = p.hpmax;
+
+  p._modDmg = Math.max(you.hpmax / Math.max(dieT * E.hit, 0.01), 1);
+  p._modKillT = killT;
+  p._modDieT = dieT;
+
+  /* exp tracks how much tougher it actually is, the same way MOD_scaleEnemy
+     does — and against the same stored factor, so the two do not double up. */
+  var F = Math.pow(Math.max(p.hpm, 1), E.expRate);
+  p.exp = Math.max(1, Math.round((p.exp / (p._modExpF || 1)) * F));
+  p._modExpF = F;
+}
+
+var MOD_lvlup_beforeRanks = lvlup;
+
+lvlup = function (p, t) {
+  MOD_lvlup_beforeRanks(p, t);
+  try { MOD_scaleRankDuel(p); } catch (e) { /* never break a spawn */ }
+};
+
+/* --- D. winning, and what it pays ------------------------------------------
+   The exp is a fraction of one character level at the level the rung asks for
+   (the game's own curve is 4*lvl^3 + lvl^2), so it is worth taking and cannot
+   skip you up the ladder it gates.
+   -------------------------------------------------------------------------- */
+
+function MOD_rankReward(r) {
+  var lvlCost = 4 * Math.pow(r.need, 3) + r.need * r.need;
+  return { exp: Math.round(lvlCost * 0.15), wealth: r.need * 400 };
+}
+
+function MOD_takeRank(r) {
+  var held = MOD_heldRank();
+  if (held === 0 || r.rank < held) global.flags[MOD.rank_flag] = r.rank;
+  var pay = MOD_rankReward(r);
+  try { giveExp(pay.exp); } catch (e) {}
+  try { giveWealth(pay.wealth); } catch (e) {}
+  try { dom.d6.update(); } catch (e) {}
+}
+
+MOD_RANK_LADDER.forEach(function (r) {
+  r.area.onEnd = function () {
+    MOD_takeRank(r);
+    smove(chss.mod_hall, false);
+    msg('You hold rank ' + r.rank + '.', 'gold');
+  };
+  r.area.onDeath = function () {
+    /* The base game has already sent you home and cleared the battle flags by
+       the time this runs. Nothing is lost but the walk back — a rank you have
+       not taken cannot be taken off you. */
+    msg(r.name + ' is still rank ' + r.rank + '.', 'grey');
+  };
+});
+
+/* --- E. the hall -----------------------------------------------------------
+   One location, ten fights, drawn from the ladder table rather than written
+   out — so a rung added or retuned above needs nothing here.
+
+   `.chs` is a fixed 22px row with no overflow rule, so every line below stays
+   under ~50 characters and the sentence goes in an addDesc tooltip. Only the
+   first chs() passes true; a later one would call clr_chs() and wipe the hall.
+   -------------------------------------------------------------------------- */
+
+chss.mod_hall = new Chs(); chss.mod_hall.id = 979;
+
+chss.mod_hall.sl = function () {
+  global.flags.inside = true;
+  d_loc('The Hall of the First Gate');
+  global.lst_loc = 979;
+
+  var held = MOD_heldRank();
+  var next = MOD_nextRung();
+
+  chs('A long room with a board at the end of it. Ten names, in order, and ' +
+      'room at the top for one more.', true);
+  chs('<span style="color:grey">You hold: ' +
+      (held ? 'rank ' + held : 'no rank') + '</span>', false, 'grey');
+
+  MOD_RANK_LADDER.forEach(function (r) {
+    var taken = held > 0 && r.rank >= held;
+    if (taken) {
+      var doneNode = chs('Rank ' + r.rank + ' — ' + r.name, false, 'darkseagreen');
+      try { addDesc(doneNode, null, 2, r.name, 'You took this rank. ' + r.line); } catch (e) {}
+      return;
+    }
+    if (r.rank !== next) return;                 /* strictly one rung at a time */
+
+    if (you.lvl < r.need) {
+      var lockNode = chs('Rank ' + r.rank + ' — needs level ' + r.need, false, 'grey');
+      try {
+        addDesc(lockNode, null, 2, r.name,
+          r.name + ' will not take a challenge from below character level ' +
+          r.need + '. You are level ' + you.lvl + '.');
+      } catch (e) {}
+      return;
+    }
+
+    var node = chs('"Challenge ' + r.name + '"', false, 'orange');
+    try {
+      addDesc(node, null, 2, r.name + ' — rank ' + r.rank,
+        r.line + ' Winning takes rank ' + r.rank + '.');
+    } catch (e) {}
+    node.addEventListener('click', function () {
+      chs('"' + r.name + ' steps off the board."', true, 'orange');
+      if (!global.flags.dm1ap) { appear(dom.d1m); global.flags.dm1ap = true; }
+      r.area.size = 1;              /* onDeath decrements it to 0 on a win */
+      area_init(r.area);
+    });
+  });
+
+  if (next === 0) {
+    chs('<span style="color:gold">There is no eleventh name.</span>', false, 'gold');
+  }
+
+  chs('"<= Leave the hall"', false).addEventListener('click', function () {
+    smove(chss.mod_gate);
+  });
+};
+
+chss.mod_hall.onEnter = function () { area_init(area.nwh); };
+
+/* Linked from the Old Path trailhead, which is where the endgame already
+   lives. Wrapped, like every other addition to a location the mod does not
+   own — except that this one the mod DOES own, so the wrap is only to keep
+   section 8 readable on its own. */
+(function () {
+  var origSl = chss.mod_gate.sl;
+  chss.mod_gate.sl = function () {
+    origSl.apply(this, arguments);
+    try {
+      MOD_chsAboveBack('"=> The Hall of the First Gate"', 'gold')
+        .addEventListener('click', function () { smove(chss.mod_hall); });
+    } catch (e) {
+      console.warn('[mod] rank hall entrance failed: ' + e.message);
+    }
+  };
+})();
+
+/* --- F. console summary ---------------------------------------------------- */
+
+function modRankLadder() {
+  var held = MOD_heldRank();
+  var rows = ['Power rank: ' + you.rank().toLocaleString() +
+              '  (stats alone: ' + MOD_rawRank().toLocaleString() + ')',
+              'Held by the ladder: ' + (held ? 'rank ' + held : 'none') +
+              '   character level ' + you.lvl, ''];
+  MOD_RANK_LADDER.forEach(function (r) {
+    var state = (held > 0 && r.rank >= held) ? 'held'
+      : (r.rank !== MOD_nextRung()) ? 'locked'
+      : (you.lvl < r.need) ? 'needs level ' + r.need
+      : 'ready';
+    rows.push('  rank ' + (r.rank < 10 ? ' ' : '') + r.rank + '  ' +
+      (r.name + '                          ').slice(0, 26) +
+      ' lv ' + r.lvl + '  x' + MOD_rankStep(r.rank).toFixed(2) + '  ' + state);
+  });
+  rows.push('', 'The hall is off the Old Path trailhead, past the Western Woods gate.');
+  var out = rows.join('\n');
+  console.log(out);
+  return out;
+}
+
+console.log('[mod] rank ladder: ten challengers off the Old Path. modRankLadder() for details.');
+
+/* --- G. the wiki page ------------------------------------------------------
+   Built from MOD_RANK_LADDER and from you.rank() itself, not from a copy of
+   the numbers — tests/wiki.mjs counts coverage against the live game, and that
+   only works while the pages stay derived.
+
+   Spliced in after "Progression" rather than appended, because that is where a
+   reader looking for "how do I get stronger" will already be. The nav is built
+   from MOD_WIKI_PAGES in order, so the splice is the whole of it.
+   -------------------------------------------------------------------------- */
+
+MOD_wikiPage('rank', 'The rank ladder', function () {
+  var held = MOD_heldRank();
+  var raw = MOD_rawRank();
+  var h = '<h1>The rank ladder</h1>' +
+    '<p class="lede">The number under your portrait is the <b>Power rank</b>: your ' +
+    'position in the realm, lowest is strongest. The base game computes it from ' +
+    'your stats. The mod adds a second way to hold one — beat the person who ' +
+    'has it.</p>' +
+
+    '<div class="wk-now"><h3>Where you are right now</h3><table>' +
+    '<tr><td>Power rank shown</td><td>' + MOD_wikiNum(you.rank()) + '</td></tr>' +
+    '<tr><td>From your stats alone</td><td>' + MOD_wikiNum(raw) + '</td></tr>' +
+    '<tr><td>Held from the ladder</td><td>' + (held ? 'rank ' + held : 'none') + '</td></tr>' +
+    '<tr><td>Character level</td><td>' + MOD_wikiNum(you.lvl) + '</td></tr>' +
+    '</table></div>' +
+
+    '<h2>How the number is worked out</h2>' +
+    '<p>It is derived every time it is displayed, never stored:</p>' +
+    '<pre>rank = ceil( 5e13 &times; &radic;((agl+str+int+spd/lvl) &times; 512 / (luck&times;0.1+1))\n' +
+    '             / (agl+str+weapon+spd+int)&sup2; )</pre>' +
+    '<p>It falls as roughly the stat scale to the power &minus;1.5, so ten times the ' +
+    'stats is about thirty times the rank. <code>ceil</code> floors it at 1, so ' +
+    'rank 1 is a real destination rather than something you approach forever.</p>' +
+
+    '<h2>Reaching rank 1 on stats alone</h2>' +
+    '<p>Measured on a character built to each rung of the story ladder — every ' +
+    'skill at the cap, every milestone fired:</p>' +
+    '<table class="wk-perks"><tbody>' +
+    '<tr><td>skills at 90</td><td class="num">rank 18</td></tr>' +
+    '<tr><td>skills at 95</td><td class="num">rank 11</td></tr>' +
+    '<tr><td>skills at 100</td><td class="num">rank 7</td></tr>' +
+    '<tr><td>skills at 105</td><td class="num">rank 4</td></tr>' +
+    '<tr><td>skills at 108</td><td class="num">rank 3</td></tr>' +
+    '<tr><td>skills at 110</td><td class="num">rank 1</td></tr>' +
+    '</tbody></table>' +
+    '<div class="note">So it is reachable — but only with every skill at 110. ' +
+    'Ranks 1 to 10 all live inside the last fifteen skill levels, after a whole ' +
+    'game in which the number is an unreadable ten-digit blob.</div>' +
+
+    '<h2>The Hall of the First Gate</h2>' +
+    '<p>Off the Old Path trailhead, past the Western Woods gate — the same ' +
+    'endgame branch as the Sunken Hollow. Ten ranked challengers, in order: ' +
+    'rank N opens only when rank N+1 has been taken, and each also wants a ' +
+    'character level, so the ten fights span the endgame.</p>' +
+    '<p>Each duel is a protected single-enemy area, so it is scaled against ' +
+    'your power at the moment you walk in — you cannot out-gear it, and you ' +
+    'cannot be walled out of it either. The rungs step up in <i>length</i> ' +
+    'rather than in incoming damage, and killing it always takes meaningfully ' +
+    'fewer swings than dying to it.</p>' +
+    '<p>Winning writes the rank to your save, and the displayed rank is then ' +
+    'the better of the two — the ladder floors it, your own stats can still ' +
+    'beat it. A rank you hold is shown in <span style="color:gold">gold</span>.</p>';
+
+  h += '<table class="wk-perks"><thead><tr><th>Rank</th><th>Challenger</th>' +
+    '<th class="num">Needs</th><th class="num">Their level</th>' +
+    '<th class="num">Step</th><th class="num">Pays</th></tr></thead><tbody>';
+  MOD_RANK_LADDER.forEach(function (r) {
+    var pay = MOD_rankReward(r);
+    var state = (held > 0 && r.rank >= held) ? ' <span class="tag done">held</span>'
+      : (r.rank === MOD_nextRung()) ? ' <span class="tag warn">next</span>' : '';
+    h += '<tr class="wk-e wk-rank"><td class="num">' + r.rank + '</td>' +
+      '<td>' + MOD_WIKI.safe(r.name) + state +
+      '<div class="dim">' + MOD_WIKI.safe(r.line) + '</div></td>' +
+      '<td class="num">char lv ' + r.need + '</td>' +
+      '<td class="num">lv ' + r.lvl + '</td>' +
+      '<td class="num">&times;' + MOD_rankStep(r.rank).toFixed(2) + '</td>' +
+      '<td class="num">' + MOD_wikiNum(pay.exp) + ' exp<div class="dim">' +
+        MOD_wikiNum(pay.wealth) + ' coin</div></td></tr>';
+  });
+  h += '</tbody></table>';
+
+  h += '<div class="note">Losing costs nothing but the walk back. A rank you ' +
+    'have not taken cannot be taken off you, and a rank you have taken is ' +
+    'never lost.</div>';
+  return h;
+});
+
+/* The splice. Registered last by MOD_wikiPage, moved to sit after Progression. */
+(function () {
+  var page = MOD_WIKI_PAGES.pop();
+  var at = -1;
+  for (var i = 0; i < MOD_WIKI_PAGES.length; i++) {
+    if (MOD_WIKI_PAGES[i].id === 'progress') { at = i; break; }
+  }
+  MOD_WIKI_PAGES.splice(at >= 0 ? at + 1 : MOD_WIKI_PAGES.length, 0, page);
+})();
