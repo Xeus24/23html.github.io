@@ -257,6 +257,40 @@ duplicate the save cannot tell apart by index).
   Base-game `talent`s are a separate, already-permanent mechanism — don't
   conflate them.
 
+### How a title finds its group
+
+`MOD_TITLE_SKILL` attributes a title to a skill in four passes, each derived
+from something already stated — never a per-title table:
+
+1. `MOD_SKILL_TITLES` — the generated five per skill know their own skill.
+2. `MOD_FLAGSHIP` — section 17 already pairs the skill with the title it
+   grants. Read the pairing; the milestone closure captures the row in a
+   variable, so pass 3's source scan cannot see a literal to match.
+3. Scanning each milestone's `f` source for a `giveTitle(ttl.x)` /
+   `MOD_title('x')` literal.
+4. **The author's numbered tiers**, keyed `<skill><n>` — `tghs1/2/3`,
+   `srd3/srd4`, `dth4`, `rtr1`, `axc3`. Most are granted by nothing at all, so
+   pass 3 cannot see them. **The trailing digit is load-bearing**: without it
+   the stem of `ttl.thr` ("Thrasher", for smashing the dojo's equipment) is
+   `thr`, which is `skl.thr`, Throwing. Only the numbered convention is safe to
+   read this way, and an ambiguous stem prefix is left alone.
+
+What no skill claims is bucketed by the same digit-stripped stem into
+**ladders** — `kill1..5`, `geti1..4`, `ttsttl1..4`, `mod_realm1..10` and so on.
+Membership is derived; `MOD_TITLE_FAMILY` holds only a *label per family*, with
+the lowest-ranked member's name as the fallback. A family of one is not a
+family — it falls back to a plain row. The picker and the wiki's title page
+both read this, so they cannot drift apart.
+
+- The picker **skips** a title with no usable name; the wiki **keeps** it and
+  tags it "unfinished", the same call `area.clg` gets. The author left five:
+  `ttl.ddcd` (name and desc are the literal string `"null"`) and the blank
+  `shpt2` / `shpt3` / `mone3`. None is granted by anything.
+- `tests/wiki.mjs` caps the tallest page at 6,000px, which is why the ladders
+  nest under one "Ladders of their own" group rather than sitting beside the
+  skills — eleven more top-level summaries cost ~530px on the page that is
+  already the tallest.
+
 ## Perks and the changelog
 
 Every skill has perks at `10/25/50/60/75/90/110` (section 22). New ones are

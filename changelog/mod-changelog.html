@@ -18,6 +18,41 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.4:</span><br>
+<span style="color:blue">[2026/09/15]</span><br>
+<b>The title picker groups the titles it used to leave in a heap.</b><br>
+&nbsp;&nbsp;<span style="color:grey">595 titles, 512 grouped by skill &mdash; and 83 in a flat list at the bottom, which is the<br>
+&nbsp;&nbsp;wall of rows the grouping existed to remove, just smaller. Reading them, almost none<br>
+&nbsp;&nbsp;were really one-offs.</span><br>
+&nbsp;&nbsp;<b>+19 folded into the skill they belong to.</b> The flagship titles (Executioner,<br>
+&nbsp;&nbsp;Deathless, Sage...) are paired with their skill in the mod's own table, and the<br>
+&nbsp;&nbsp;author's numbered tiers are keyed &lt;skill&gt;&lt;n&gt; &mdash; tghs1/2/3 under Toughness, srd3/srd4<br>
+&nbsp;&nbsp;under Swordsmanship, dth4 under Death, rtr1 under Retreating<br>
+&nbsp;&nbsp;<span style="color:grey">Most of those numbered tiers are granted by NOTHING &mdash; giveTitle never mentions them<br>
+&nbsp;&nbsp;anywhere in the game. Unfinished content, like the Damp cellar. They group correctly<br>
+&nbsp;&nbsp;whether or not they are ever earned.</span><br>
+&nbsp;&nbsp;<b>+40 are ladders of their own</b> and now collapse like a skill does: the ten cultivation<br>
+&nbsp;&nbsp;realms, five for creatures killed, four for items gathered, four for titles collected,<br>
+&nbsp;&nbsp;four for punch power, three each for time indoors / shields / jobs, and more<br>
+&nbsp;&nbsp;<b>Each ladder says what it is</b> on the row &mdash; "Nameless (4)" could be punch power or<br>
+&nbsp;&nbsp;titles collected, so the label sits beside it rather than only in the tooltip<br>
+&nbsp;&nbsp;<b>595 titles held now renders as 126 rows</b>, and the flat tail is down from 83 to 23 &mdash;<br>
+&nbsp;&nbsp;Nobody, Initiate, Thrasher, Wolf Slayer, Safehouse and friends, which really are<br>
+&nbsp;&nbsp;one-off story titles with nothing to group under<br>
+&nbsp;&nbsp;<span style="color:grey">Membership is derived from the key, not typed out: only a LABEL per ladder is written<br>
+&nbsp;&nbsp;down, eleven of them, and a ladder with no label falls back to its lowest title's name.</span><br>
+<b>The wiki's title page uses the same grouping</b>, so the two cannot drift apart. It had the<br>
+&nbsp;&nbsp;same problem solved worse &mdash; everything skill-less under "From the story", split into<br>
+&nbsp;&nbsp;rank buckets. The ladders nest under "Ladders of their own"<br>
+<b>Found: five titles the author never finished.</b> <code>ttl.ddcd</code> has the literal string "null"<br>
+&nbsp;&nbsp;for its name AND its description; shpt2, shpt3 and mone3 are blank. Nothing grants any<br>
+&nbsp;&nbsp;of them. The picker skips them rather than drawing a blank row; the wiki lists them and<br>
+&nbsp;&nbsp;tags them "unfinished", the same call the Damp cellar got<br>
+<b>Tests.</b> tests/titlepicker.mjs gains 8 checks &mdash; the ladders group, every one has a<br>
+&nbsp;&nbsp;readable label, no label names a ladder that does not exist, and "Thrasher" is NOT<br>
+&nbsp;&nbsp;filed under Throwing on a bare stem match (which is what the trailing-digit rule is<br>
+&nbsp;&nbsp;there to prevent). Its group counts are derived now instead of hardcoded<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.3:</span><br>
 <span style="color:blue">[2026/09/15]</span><br>
 <b>Fixed: every title was listed twice after loading a save.</b><br>

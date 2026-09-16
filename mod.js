@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.3',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.4',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -68,6 +68,8 @@ var MOD = {
                      // same shape of bug as the skill sheet, from the other
                      // direction (giveTitle pushes to titlese, load appends it
                      // to an array it has already rebuilt).
+                     // v3.4: the 83 titles the picker could not group now do —
+                     // 19 folded into their skill, 40 into ladders of their own.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -5420,14 +5422,29 @@ function modTitles(rankFilter) {
    Fighting alongside the generated five, rather than being stranded.
    =========================================================================== */
 
-/* title key -> skill key, for everything that can be attributed to a skill */
+/* title key -> skill key, for everything that can be attributed to a skill.
+
+   Four passes, in order of how certain each is. Nothing here is a per-title
+   table: every attribution is read off something the game or the mod already
+   states. Anything none of the four can place stays out and is handled by the
+   family pass below. */
 var MOD_TITLE_SKILL = (function () {
   var map = {};
-  // generated titles know their own skill
+  // 1. generated titles know their own skill
   for (var i = 0; i < MOD_SKILL_TITLES.length; i++) {
     map[MOD_SKILL_TITLES[i].key] = MOD_SKILL_TITLES[i].skill;
   }
-  // the base game's, by reading the milestone that grants them
+  // 2. the flagship titles from section 17: MOD_FLAGSHIP already pairs the
+  //    skill with the title it grants, so read the pairing rather than the
+  //    milestone closure — the closure captures the row in a variable, so the
+  //    source scan in pass 3 cannot see a literal to match on.
+  try {
+    for (var f = 0; f < MOD_FLAGSHIP.length; f++) {
+      var fk = 'mod_' + MOD_FLAGSHIP[f][5];
+      if (ttl[fk] && map[fk] === undefined) map[fk] = MOD_FLAGSHIP[f][0];
+    }
+  } catch (e) { /* section 17 may be absent in a stripped build */ }
+  // 3. the base game's, by reading the milestone that grants them
   for (var k in skl) {
     var s = skl[k];
     if (!s || typeof s !== 'object' || !s.mlstn) continue;
@@ -5444,8 +5461,84 @@ var MOD_TITLE_SKILL = (function () {
       }
     }
   }
+  // 4. the author's numbered tiers. Thirty-odd titles are keyed <skill><n> —
+  //    tghs1/2/3 under Toughness, srd3/srd4 under Swordsmanship, dth4 under
+  //    Death, rtr1 under Retreating — and most of them are never granted by
+  //    any milestone, so pass 3 cannot see them. Several are never granted at
+  //    all; they are the author's unfinished tiers, and grouping them costs
+  //    nothing if they are.
+  //
+  //    The TRAILING DIGIT is load-bearing, not decoration. Without it the stem
+  //    of `ttl.thr` ("Thrasher", for smashing the dojo's equipment) is `thr`,
+  //    which is skl.thr, Throwing — a title filed under a skill it has nothing
+  //    to do with. Only the author's numbered convention is safe to read this
+  //    way. A stem is accepted when it IS a skill key, or is the prefix of
+  //    exactly one skill key (srd -> srdc); an ambiguous prefix is left alone.
+  var skillKeys = [];
+  for (var sk in skl) if (skl[sk] && typeof skl[sk] === 'object' && skl[sk].name) skillKeys.push(sk);
+  for (var tk in ttl) {
+    if (map[tk] !== undefined) continue;
+    if (!/[0-9]$/.test(tk)) continue;
+    var stem = tk.replace(/[0-9]+$/, '');
+    if (!stem) continue;
+    var hit = null;
+    if (skillKeys.indexOf(stem) >= 0) hit = stem;
+    else {
+      var pre = skillKeys.filter(function (x) { return x.indexOf(stem) === 0; });
+      if (pre.length === 1) hit = pre[0];
+    }
+    if (hit) map[tk] = hit;
+  }
   return map;
 })();
+
+/* --- the titles that belong to no skill ------------------------------------
+   Forty of them are still ladders, just not a skill's: five for creatures
+   killed, four for items gathered, four for titles collected, ten for the
+   cultivation realms. They share a key stem the same way the numbered skill
+   tiers do, so MEMBERSHIP is derived — only the label is written here, one per
+   family rather than one per title, because a human name for "the ttsttl
+   ladder" cannot be read off anything.
+
+   A stem with no label still groups; it falls back to the name of its lowest
+   title, which is how these ladders are introduced in play anyway.
+   -------------------------------------------------------------------------- */
+
+var MOD_TITLE_FAMILY = {
+  mod_realm: 'Cultivation',
+  kill:      'Creatures killed',
+  geti:      'Items gathered',
+  ttsttl:    'Titles collected',
+  hstr:      'Punch power',
+  neet:      'Time spent indoors',
+  sld:       'Shields',
+  jbs:       'Jobs done',
+  eat:       'Eating',
+  mone:      'Money',
+  shpt:      'Shopping'
+};
+
+/* The stem a title would group under, or null if it is attributed to a skill.
+   Digits only — `mod_realm10` and `mod_realm1` must land on the same stem. */
+function MOD_titleStem(key) {
+  if (!key || MOD_TITLE_SKILL[key] !== undefined) return null;
+  var stem = key.replace(/[0-9]+$/, '');
+  return stem || null;
+}
+
+/* Order-independent on purpose: the picker sorts its members best-first and
+   the wiki sorts them lowest-first, and a label that depended on which would
+   quietly differ between the two. */
+function MOD_titleFamilyLabel(stem, members) {
+  if (MOD_TITLE_FAMILY[stem]) return MOD_TITLE_FAMILY[stem];
+  var low = null;
+  for (var i = 0; i < members.length; i++) {
+    var m = members[i];
+    if (!m || !m.name) continue;
+    if (!low || (Number(m.rar) || 1) < (Number(low.rar) || 1)) low = m;
+  }
+  return low ? low.name : stem;
+}
 
 function MOD_titleKeyOf(title) {
   for (var k in ttl) if (ttl[k] === title) return k;
@@ -5495,35 +5588,44 @@ function MOD_renderTitlePicker() {
   body._modGrouped = true;
   empty(body);
 
-  // held titles, split into skill groups and loose ones
-  var groups = {}, loose = [];
+  // held titles, split three ways: a skill's, a non-skill ladder's, or neither
+  var groups = {}, fams = {}, loose = [];
   for (var i = 0; i < global.titles.length; i++) {
     var t = global.titles[i];
-    if (!t || !t.name) continue;
+    /* A title with no usable name would render as an empty row, or as the
+       string "null" — the author left five of those defined (ttl.ddcd, and the
+       blank shpt2/shpt3/mone3). None are granted by the game, but a blank row
+       in the picker is not worth risking over one condition. */
+    if (!t || !t.name || t.name === 'null') continue;
     var key = MOD_titleKeyOf(t);
     var skillKey = key ? MOD_TITLE_SKILL[key] : null;
     if (skillKey && skl[skillKey]) {
       (groups[skillKey] = groups[skillKey] || []).push(t);
-    } else {
-      loose.push(t);
+      continue;
     }
+    var stem = MOD_titleStem(key);
+    if (stem) { (fams[stem] = fams[stem] || []).push(t); continue; }
+    loose.push(t);
   }
 
-  var names = Object.keys(groups).sort(function (a, b) {
-    var an = skl[a].bname || skl[a].name, bn = skl[b].bname || skl[b].name;
-    return an < bn ? -1 : an > bn ? 1 : 0;
+  /* A family of one is not a group — it reads better as a plain row, which is
+     also what a skill with a single held title already does. */
+  Object.keys(fams).forEach(function (stem) {
+    if (fams[stem].length < 2) { loose.push(fams[stem][0]); delete fams[stem]; }
   });
 
-  names.forEach(function (skillKey) {
-    var held = groups[skillKey];
-    // best first: rank, then the level it was earned at
-    held.sort(function (a, b) {
-      return (b.rar || 0) - (a.rar || 0) || (b._modAtLevel || 0) - (a._modAtLevel || 0);
-    });
+  // best first: rank, then the level it was earned at
+  var byBest = function (a, b) {
+    return (b.rar || 0) - (a.rar || 0) || (b._modAtLevel || 0) - (a._modAtLevel || 0);
+  };
 
+  /* One collapsed group. Shared by the skill groups and the ladders, because
+     they differ only in what the heading says and what the caret remembers. */
+  function drawGroup(id, held, tip, subtitle) {
+    held.sort(byBest);
     if (held.length === 1) { MOD_titleRow(body, held[0], false); return; }
 
-    var open = !!MOD_TTL_OPEN[skillKey];
+    var open = !!MOD_TTL_OPEN[id];
     var head = addElement(body, 'div', null, 'youttl');
     head.style.display = 'flex';
     head.style.alignItems = 'center';
@@ -5531,7 +5633,7 @@ function MOD_renderTitlePicker() {
     var caret = addElement(head, 'span');
     caret.innerHTML = open ? '&#9662;' : '&#9656;';      // down / right
     caret.style.cssText = 'flex:0 0 18px;cursor:pointer;color:#8ab;';
-    caret.title = held.length + ' titles from ' + (skl[skillKey].bname || skl[skillKey].name);
+    caret.title = tip;
 
     var label = addElement(head, 'span');
     label.style.cssText = 'flex:1 1 auto;cursor:pointer;';
@@ -5541,6 +5643,16 @@ function MOD_renderTitlePicker() {
       (best.talent ? " <span style='color:yellow;text-shadow:0px 0px 5px orange'>*</span>" : '');
     try { MOD_paintTitle(label, best); } catch (e) {}
     if (wornHere) { label.style.fontWeight = 'bold'; head.style.backgroundColor = 'rgba(255,255,255,.10)'; }
+
+    /* A skill group's best title says what it is — "Titan of Toughness". A
+       ladder's does not: "Nameless (4)" could be the punch-power ladder or the
+       title-count one. So the ladders carry their label on the row, not only in
+       the caret's tooltip. */
+    if (subtitle) {
+      var sub = addElement(head, 'span');
+      sub.innerHTML = subtitle;
+      sub.style.cssText = 'flex:0 0 auto;color:#7a8a9a;font-size:11px;padding-right:6px;';
+    }
 
     var count = addElement(head, 'span');
     count.innerHTML = '(' + held.length + ')';
@@ -5552,12 +5664,34 @@ function MOD_renderTitlePicker() {
     // the caret toggles without selecting, so re-render in place
     caret.addEventListener('click', function (ev) {
       ev.stopPropagation();
-      MOD_TTL_OPEN[skillKey] = !MOD_TTL_OPEN[skillKey];
+      MOD_TTL_OPEN[id] = !MOD_TTL_OPEN[id];
       body._modGrouped = false;
       MOD_renderTitlePicker();
     });
 
     if (open) for (var n = 1; n < held.length; n++) MOD_titleRow(body, held[n], true);
+  }
+
+  var names = Object.keys(groups).sort(function (a, b) {
+    var an = skl[a].bname || skl[a].name, bn = skl[b].bname || skl[b].name;
+    return an < bn ? -1 : an > bn ? 1 : 0;
+  });
+  names.forEach(function (skillKey) {
+    drawGroup(skillKey, groups[skillKey],
+      groups[skillKey].length + ' titles from ' + (skl[skillKey].bname || skl[skillKey].name));
+  });
+
+  /* The ladders, after the skills and before the one-offs, sorted by the label
+     the reader actually sees rather than by the key stem. */
+  var famIds = Object.keys(fams);
+  famIds.forEach(function (stem) { fams[stem].sort(byBest); });
+  famIds.sort(function (a, b) {
+    var al = MOD_titleFamilyLabel(a, fams[a]), bl = MOD_titleFamilyLabel(b, fams[b]);
+    return al < bl ? -1 : al > bl ? 1 : 0;
+  });
+  famIds.forEach(function (stem) {
+    var lbl = MOD_titleFamilyLabel(stem, fams[stem]);
+    drawGroup('fam_' + stem, fams[stem], fams[stem].length + ' titles — ' + lbl, lbl);
   });
 
   loose.sort(function (a, b) { return (b.rar || 0) - (a.rar || 0); });
@@ -6997,16 +7131,28 @@ MOD_wikiPage('titles', 'Titles', function () {
   h += '</tbody></table>' +
 
     '<h2>Every title</h2>' +
-    '<p class="dim">Grouped by the skill that grants it. Titles with no skill of ' +
-    'their own come from the story.</p>';
+    '<p class="dim">Grouped by the skill that grants it. What is left is either ' +
+    'a ladder of its own &mdash; creatures killed, items gathered, the ' +
+    'cultivation realms &mdash; or a one-off from the story.</p>';
 
-  var groups = {}, loose = [];
+  var groups = {}, fams = {}, loose = [];
   for (var k in ttl) {
     var t = ttl[k];
-    if (!t || !t.name) continue;
+    /* Unlike the picker, the wiki KEEPS the author's broken entries and says
+       so — same call as area.clg, which is listed and tagged "nothing spawns"
+       rather than quietly dropped. A reader looking for why a title never
+       appears is better served by the row than by its absence. */
+    if (!t || t.name === undefined || t.name === null) continue;
     var sk = MOD_TITLE_SKILL[k];
-    if (sk && skl[sk]) (groups[sk] = groups[sk] || []).push(k); else loose.push(k);
+    if (sk && skl[sk]) { (groups[sk] = groups[sk] || []).push(k); continue; }
+    var stem = MOD_titleStem(k);
+    if (stem) { (fams[stem] = fams[stem] || []).push(k); continue; }
+    loose.push(k);
   }
+  /* Same rule as the picker: a family of one is not a family. */
+  Object.keys(fams).forEach(function (stem) {
+    if (fams[stem].length < 2) { loose.push(fams[stem][0]); delete fams[stem]; }
+  });
   var order = Object.keys(groups).sort(function (a, b) {
     return skl[a].name < skl[b].name ? -1 : 1;
   });
@@ -7018,9 +7164,14 @@ MOD_wikiPage('titles', 'Titles', function () {
     for (var i = 0; i < MOD_SKILL_TITLES.length; i++) {
       if (MOD_SKILL_TITLES[i].key === k) { gen = MOD_SKILL_TITLES[i]; break; }
     }
+    /* The author left a handful unfinished: ttl.ddcd carries the literal string
+       "null" for both name and description, and shpt2/shpt3/mone3 are blank.
+       None is granted by anything, so none can be earned. */
+    var broken = !t.name || t.name === 'null';
     return '<div class="wk-e wk-title' + (t.have === true ? ' done' : '') + '">' +
       '<span class="tname" style="color:' + st.c + ';text-shadow:' + st.s + '">' +
-      MOD_WIKI.safe(t.name) + '</span>' +
+      MOD_WIKI.safe(t.name || '(unnamed)') + '</span>' +
+      (broken ? '<span class="tag warn">unfinished</span>' : '') +
       '<span class="rank">rank ' + (t.rar || 1) + '</span>' +
       (gen ? '<span class="tag mod">lv ' + gen.rung + ' &middot; +' +
         Math.round(gen.xp * 100) + '% ' + MOD_WIKI.safe(skl[gen.skill].name) +
@@ -7035,6 +7186,28 @@ MOD_wikiPage('titles', 'Titles', function () {
     h += MOD_wikiGroup(MOD_WIKI.safe(skl[sk].bname || skl[sk].name),
       groups[sk].length, groups[sk].map(row).join(''), 3);
   });
+  /* The ladders that belong to no skill, by the same derivation the picker
+     uses — so the two cannot drift apart. Sorted by the label, since that is
+     what the reader scans. */
+  var famList = Object.keys(fams)
+    .map(function (stem) {
+      fams[stem].sort(byRank);
+      return { stem: stem,
+               label: MOD_titleFamilyLabel(stem, fams[stem].map(function (k) { return ttl[k]; })) };
+    })
+    .sort(function (a, b) { return a.label < b.label ? -1 : a.label > b.label ? 1 : 0; });
+  if (famList.length) {
+    /* Nested one level down rather than sitting beside the skills. Eleven more
+       top-level summaries cost ~530px on a page that is already the tallest in
+       the wiki, and these are a different KIND of thing from a skill anyway. */
+    var famInner = '', famTotal = 0;
+    famList.forEach(function (f) {
+      famTotal += fams[f.stem].length;
+      famInner += MOD_wikiGroup(MOD_WIKI.safe(f.label), fams[f.stem].length,
+        fams[f.stem].map(row).join(''), 4);
+    });
+    h += MOD_wikiGroup('Ladders of their own', famTotal, famInner, 3);
+  }
   if (loose.length) {
     loose.sort(byRank);
     /* The story titles are the one group with no skill to divide them, and

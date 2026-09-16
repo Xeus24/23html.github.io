@@ -2481,6 +2481,92 @@ taken off you, and a rank you have taken is never lost. Winning pays 15% of a
 character level at the level the rung asked for, which is worth taking and
 cannot skip you up the ladder it gates.
 
+## Grouping the titles that had no group
+
+The picker groups by skill, and after the last audit it was worth asking what
+it was *not* grouping. Measured: 595 titles, 512 attributed to a skill, **83 in
+a flat list** at the bottom — which is the wall of rows the grouping existed to
+remove, just smaller.
+
+Reading the 83, almost none of them were really one-offs.
+
+### Two more attributions, both derived
+
+**The flagship titles.** `MOD_FLAGSHIP` (section 17) already pairs a skill with
+the title it grants — `['kllr', ..., 'exct']`. The existing pass scanned each
+milestone's `f` source for a `giveTitle(ttl.x)` literal, and these milestones
+are built from the table, so the closure holds a variable and the scan sees
+nothing. Reading `MOD_FLAGSHIP` directly attributes 10.
+
+**The author's numbered tiers.** Around thirty titles are keyed `<skill><n>` —
+`tghs1/2/3` (Scarred, Thickskinned, Brute) under Toughness, `srd3/srd4` under
+Swordsmanship, `dth4` (Carcass) under Death, `rtr1` (Coward) under Retreating,
+`axc3`, `hmr3`. **Most of them are granted by nothing at all** — `giveTitle`
+never mentions them anywhere in the game's source. They are unfinished tiers,
+like `area.clg`, and they group correctly whether or not they are ever earned.
+That pass attributes 9 more.
+
+The trailing digit in that rule is not decoration. `ttl.thr` is "Thrasher", for
+smashing the dojo's equipment; its bare stem is `thr`, which is `skl.thr`,
+Throwing. A stem match without the digit files it under a skill it has nothing
+to do with. Only the author's numbered convention is safe to read this way, and
+an ambiguous prefix (`sld` matches no skill; `lnc` matches none) is left alone
+rather than guessed at.
+
+### The ladders
+
+That still left 63, and 40 of them were ladders of their own:
+
+| stem | titles | |
+|---|---|---|
+| `mod_realm` | 10 | the cultivation realms |
+| `kill` | 5 | Pest Control → Sentinel |
+| `geti` | 4 | Collector → Treasure Hunter |
+| `ttsttl` | 4 | titles collected |
+| `hstr` | 4 | punch power |
+| `neet` | 3 | Hikikomori → Hermit |
+| `sld` | 3 | Protector → Bastion |
+| `jbs` | 3 | Errand Boy → Hired Hand |
+| `eat`, `mone`, `shpt` | 2+ | |
+
+They share a key stem exactly the way the numbered skill tiers do, so
+**membership is derived** — bucket by the digit-stripped stem, and any stem with
+two or more members becomes a collapsed group like a skill's.
+
+`MOD_TITLE_FAMILY` holds one *label per family*, not one per title. A human name
+for "the ttsttl ladder" cannot be read off anything, and eleven labels is a
+different thing from 83 mappings. A stem with no label falls back to the name of
+its lowest-ranked member, which is how these ladders introduce themselves in
+play anyway.
+
+A skill group's header is self-describing — "Titan of Toughness". A ladder's is
+not: "Nameless (4)" could be the punch-power ladder or the title-count one. So
+the ladders carry their label on the row, dim and right-aligned before the
+count, rather than only in the caret's tooltip.
+
+Result: **595 titles held renders as 126 collapsed rows**, and the flat tail is
+down from 83 to 23 genuine one-offs — Nobody, Initiate, Thrasher, Wolf Slayer,
+Quartermaster, Glass Bones, Safehouse and the like, which really are story
+titles with nothing to group under.
+
+### The wiki uses the same derivation
+
+Its title page had the same shape of problem, solved worse: everything without a
+skill went under "From the story", split into rank buckets. It now takes the
+same families, nested one level down under "Ladders of their own" — eleven more
+*top-level* summaries cost about 530px on what is already the tallest page in
+the wiki, and `tests/wiki.mjs` caps it at 6,000. It reads the mod's own tables,
+so the picker and the wiki cannot drift apart.
+
+### Five unfinished titles, found on the way
+
+`ttl.ddcd` carries the literal string `"null"` as both name and description, and
+`shpt2`, `shpt3` and `mone3` have empty ones. None is granted by anything, so
+none can be earned. The picker **skips** them — a blank row, or one reading
+"null", is not worth risking over one condition. The wiki **keeps** them and
+tags them "unfinished", which is the same call `area.clg` got: a reader looking
+for why a title never appears is better served by the row than by its absence.
+
 ## The title list was doubling too
 
 Found by auditing after the rank ladder went in, not reported by anyone.

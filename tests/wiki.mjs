@@ -286,15 +286,25 @@ check(biggest.n <= 60,
 
 // Several items are literally quoted — the master's manuals are named
 // "Sword Saint Manual" — and filing those under a quotation mark helps nobody.
-const filing = await page.evaluate(() => {
+// MOD_TITLE_FAMILY lives in the game page, not in the wiki document this
+// assertion runs against, so read it there and pass it across.
+const ladderLabels = await p.evaluate(() =>
+  Object.keys(MOD_TITLE_FAMILY).map(k => MOD_TITLE_FAMILY[k]));
+const filing = await page.evaluate((ladders) => {
   const labels = [].slice.call(document.querySelectorAll('details.wk-g details.wk-g summary'))
     .map(s => s.textContent.trim().replace(/\s*\(\d+\)$/, ''));
   const alpha = labels.filter(l => /^[0-9A-Z](–[0-9A-Z])?$/.test(l));
-  return { labels, alpha: alpha.length,
-           odd: labels.filter(l => !/^[0-9A-Z](–[0-9A-Z])?$/.test(l) && !/^Rank \d+$/.test(l)) };
-});
+  // The title ladders nest one level down under "Ladders of their own", so
+  // their labels are a third valid shape.
+  return { labels, alpha: alpha.length, ladders,
+           odd: labels.filter(l => !/^[0-9A-Z](–[0-9A-Z])?$/.test(l) &&
+                                   !/^Rank \d+$/.test(l) &&
+                                   ladders.indexOf(l) < 0) };
+}, ladderLabels);
 check(filing.odd.length === 0,
-  `every sub-group label is a letter range or a rank (odd: ${filing.odd.join(', ') || 'none'})`);
+  `every sub-group label is a letter range, a rank or a named ladder (odd: ${filing.odd.join(', ') || 'none'})`);
+check(filing.labels.some(l => filing.ladders.indexOf(l) >= 0),
+  `and the ladders are among them (${filing.ladders.length} named)`);
 
 const manual = await page.evaluate(() => {
   // find the alphabetical group the quoted manuals landed in. The buckets are

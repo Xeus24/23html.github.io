@@ -54,8 +54,57 @@ const groups = rows.filter(r => r.caret);
 console.log(`     ${setup.held} titles held, ${rows.length} rows, ${groups.length} of them groups`);
 groups.forEach(g => console.log(`       ${g.text}`));
 check(rows.length < setup.held, `${setup.held} titles collapse to ${rows.length} rows`);
-check(groups.length === 5, `one group per levelled skill (${groups.length})`);
+// One per levelled skill, plus any ladder that has filled up on the way —
+// levelling five skills to 90 hands out enough titles to earn the "titles
+// collected" ones, and those group too. Derived rather than a fixed count, so
+// the check does not have to be retuned every time the setup earns one more.
+const skillGroups = await p.evaluate(() => {
+  const held = {};
+  for (const k in ttl) { if (!ttl[k].have) continue;
+    const sk = MOD_TITLE_SKILL[k]; if (sk && skl[sk]) held[sk] = (held[sk] || 0) + 1; }
+  return Object.keys(held).filter(k => held[k] > 1).length;
+});
+const ladderGroups = groups.filter(g => /\)$/.test(g.text) && !/ of /.test(g.text));
+check(groups.length >= skillGroups,
+  `a group for each of the ${skillGroups} skills holding more than one title (${groups.length} total)`);
 check(groups.every(g => /\(\d+\)/.test(g.text)), 'each group shows how many it holds');
+
+console.log('\n--- titles that belong to no skill still group, by their own ladder');
+const fam = await p.evaluate(() => {
+  const out = {};
+  for (const k in ttl) { const t = ttl[k];
+    if (!t || !t.name || t.name === 'null') continue;
+    if (MOD_TITLE_SKILL[k] !== undefined) continue;
+    const stem = MOD_titleStem(k); if (!stem) continue;
+    (out[stem] = out[stem] || []).push(t.name); }
+  const fams = Object.entries(out).filter(([, v]) => v.length > 1);
+  return { fams: fams.length,
+           titles: fams.reduce((a, [, v]) => a + v.length, 0),
+           labels: fams.map(([st, v]) => MOD_titleFamilyLabel(st, v.map(n => ({ name: n })))),
+           singles: Object.entries(out).filter(([, v]) => v.length === 1).length,
+           // every ladder the mod names must still exist in ttl
+           orphanLabels: Object.keys(MOD_TITLE_FAMILY).filter(st => !out[st]) };
+});
+console.log(`     ${fam.fams} ladders covering ${fam.titles} titles: ${fam.labels.join(', ')}`);
+check(fam.fams >= 8, `${fam.fams} non-skill ladders are grouped`);
+check(fam.titles >= 35, `${fam.titles} titles that used to be a flat list are now in them`);
+check(fam.labels.every(l => l && !/^[a-z_]+$/.test(l)),
+  'every ladder has a readable label, not a key stem');
+check(fam.orphanLabels.length === 0,
+  `no label names a ladder that does not exist${fam.orphanLabels.length ? ': ' + fam.orphanLabels.join(', ') : ''}`);
+check(ladderGroups.length >= 1,
+  `and one of them shows up in this picker (${ladderGroups.map(g => g.text).join(', ') || 'none'})`);
+// the guard that keeps ttl.thr ("Thrasher", for smashing dojo equipment) out of
+// skl.thr (Throwing): only the author's numbered tiers are read by stem
+const stemGuard = await p.evaluate(() => ({
+  thrasher: MOD_TITLE_SKILL.thr === undefined || MOD_TITLE_SKILL.thr !== 'thr',
+  toughness: MOD_TITLE_SKILL.tghs1 === 'tghs',
+  sword: MOD_TITLE_SKILL.srd3 === 'srdc',
+  death: MOD_TITLE_SKILL.dth4 === 'dth'
+}));
+check(stemGuard.thrasher, '"Thrasher" is not filed under Throwing on a bare stem match');
+check(stemGuard.toughness && stemGuard.sword && stemGuard.death,
+  'but tghs1/srd3/dth4 are read as the numbered tiers they are');
 
 console.log('\n--- the group header is the best title held, not the first earned');
 const best = await p.evaluate(() => {
@@ -90,7 +139,8 @@ check(expanded.rows.length > rows.length, `${rows.length} rows -> ${expanded.row
 console.log('\n--- other groups stay shut');
 const others = await p.evaluate(() =>
   [...dom.ttlbd.children].filter(r => /[▸]/.test(r.firstChild?.textContent || '')).length);
-check(others === 4, `the other ${others} groups are still collapsed`);
+check(others === groups.length - 1,
+  `the other ${others} of ${groups.length} groups are still collapsed`);
 
 console.log('\n--- and the caret closes it again');
 const recollapsed = await p.evaluate(() => {
