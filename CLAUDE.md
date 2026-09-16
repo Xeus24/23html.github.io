@@ -348,6 +348,17 @@ took the Companions parent's level cap.
 - Changing an id loses that skill's saved level, so move the *newest* claimant.
 - `MOD_dedupeSkills` (section 33) prunes `you.skls` on load. It repairs damage
   already written into saves; it is not a licence to leave a duplicate id.
+- **`global.titles` has the same shape of bug, from the other direction.**
+  `giveTitle` pushes each title onto *both* `global.titles` and
+  `global.titlese`, and `load()` rebuilds `global.titles` from the save by index
+  and then appends the whole of `titlese` on top — so everything earned that
+  session lands in the array twice (241 titles measured as 481 after one load,
+  241 distinct). It does not compound, but `save()` writes the inflated array
+  back out, and both the game's title screen and the mod's picker iterate it.
+  `MOD_dedupeTitles` repairs it on load, by identity. **Do not "fix" it at the
+  source** — `titlese` is the author's mechanism. Anything the mod adds that
+  reads `global.titles` should still prefer counting from `ttl`, as
+  `MOD_titleCount` does.
 
 ## Choice lines have a fixed height
 

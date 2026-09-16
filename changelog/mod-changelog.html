@@ -18,6 +18,35 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.3:</span><br>
+<span style="color:blue">[2026/09/15]</span><br>
+<b>Fixed: every title was listed twice after loading a save.</b><br>
+&nbsp;&nbsp;<span style="color:grey">Found by auditing, not reported. <code>giveTitle</code> pushes each earned title onto TWO arrays &mdash;<br>
+&nbsp;&nbsp;<code>global.titles</code> and <code>global.titlese</code> &mdash; and <code>load()</code> rebuilds <code>global.titles</code> from the save<br>
+&nbsp;&nbsp;BY INDEX and then appends the whole of <code>titlese</code> on top. So everything earned that<br>
+&nbsp;&nbsp;session ends up in the array twice. Measured on a character holding 241 titles: 241<br>
+&nbsp;&nbsp;before a load, 481 after, 241 distinct.</span><br>
+&nbsp;&nbsp;It does not compound &mdash; the next load finds <code>titlese</code> empty &mdash; but one load is enough,<br>
+&nbsp;&nbsp;and <code>save()</code> writes the inflated array straight back out<br>
+&nbsp;&nbsp;<b>Both title screens are affected:</b> the game's own, and the mod's grouped picker. Both<br>
+&nbsp;&nbsp;iterate <code>global.titles</code>, so each title got two rows<br>
+&nbsp;&nbsp;<span style="color:grey">A base-game bug, but the mod is what makes it loud: vanilla hands out around a hundred<br>
+&nbsp;&nbsp;titles and section 24 grants five per skill, so the doubling is hundreds of rows.</span><br>
+&nbsp;&nbsp;<b>Existing saves are repaired</b> on load, by identity, the same way the skill sheet is &mdash;<br>
+&nbsp;&nbsp;<code>global.titles</code> holds references to the objects in <code>ttl</code>, so the same object twice is<br>
+&nbsp;&nbsp;always wrong whatever put it there. Not fixed at the source: <code>titlese</code> is the author's<br>
+&nbsp;&nbsp;mechanism and the mod has no business changing what it means<br>
+<b>Hardened:</b> the rank-duel scaler now refuses the player and <code>creature.default</code> explicitly,<br>
+&nbsp;&nbsp;matching MOD_scaleEnemy, instead of relying on their not carrying a spawn target<br>
+<b>Tests.</b> tests/ids.mjs gains 8 checks for the title list: distinct before a load, distinct<br>
+&nbsp;&nbsp;after one, distinct after two, no holes, the worn title still present, and an<br>
+&nbsp;&nbsp;already-doubled list repaired. Verified they fail without the fix (85 entries for 43<br>
+&nbsp;&nbsp;distinct) and pass with it<br>
+<b>Audit, no change needed.</b> All 75 locations draw without throwing, no choice row wraps its<br>
+&nbsp;&nbsp;22px line, all 12 wiki pages build, no id clashes in any namespace, the wiki has no<br>
+&nbsp;&nbsp;horizontal overflow at 375/768/1200px, no interval leaks over 15s at 20x speed, and<br>
+&nbsp;&nbsp;<code>acts</code>/<code>you.skls</code>/<code>furn</code>/<code>qsts</code> all stay distinct across repeated save/load cycles<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.2:</span><br>
 <span style="color:blue">[2026/09/11]</span><br>
 <b>Rank 1 is reachable. It just never felt like it.</b><br>

@@ -2481,6 +2481,63 @@ taken off you, and a rank you have taken is never lost. Winning pays 15% of a
 character level at the level the rung asked for, which is worth taking and
 cannot skip you up the ladder it gates.
 
+## The title list was doubling too
+
+Found by auditing after the rank ladder went in, not reported by anyone.
+
+`giveTitle` puts every earned title on two arrays:
+
+```js
+global.titles.push(title); if (title.id !== 0) global.titlese.push(title);
+```
+
+and `load()` rebuilds `global.titles` from the save **by index**, then appends
+all of `titlese`:
+
+```js
+for (ttlid ...) global.titles[ttlid] = ttl[obj];
+for (obj in global.titlese) global.titles.push(global.titlese[obj]);
+global.titlese = [];
+```
+
+Everything earned in the session is therefore in the rebuilt array already and
+appended again. Measured on a character holding 241 titles: **241 before a
+load, 481 after, 241 distinct.** It does not compound — the next load finds
+`titlese` empty — but one load is enough, and `save()` writes the inflated
+array straight back out.
+
+Reproduced in the UI: with seven titles held, "Safehouse" rendered twice in the
+picker after one save/load.
+
+It is a base-game bug, and it was there before the mod. The mod is what makes
+it loud — vanilla hands out around a hundred titles and section 24 grants five
+per skill. Section 17 already dodged it once: `MOD_titleCount` counts from
+`ttl` rather than `global.titles.length` "because load() rebuilds that array
+and appends `titlese` to it, which can double-count". That note was right about
+the cause and stopped at working around it for renown.
+
+`MOD_dedupeTitles` (section 33) repairs it properly, the same way and for the
+same reason as `MOD_dedupeSkills`: `global.titles` holds references to the
+objects in `ttl`, so the same object twice is always wrong whatever put it
+there. Deliberately not fixed at the source — `titlese` is the author's
+mechanism and the mod has no business changing what it means.
+
+`tests/ids.mjs` covers it: distinct before a load, after one, after two, no
+holes, the worn title still in the list the picker reads, and an already-doubled
+list repaired. Confirmed the checks fail without the fix (85 entries for 43
+distinct).
+
+### What else the audit looked at, and found clean
+
+All 75 locations draw without throwing (`chss.trd` is the author's reading
+screen and needs a book argument — not a location). No choice row wraps its
+22px line anywhere. All twelve wiki pages build, with no horizontal overflow at
+375, 768 or 1200px. No id clashes in any namespace. No interval leaks over
+fifteen seconds at 20x. `acts`, `you.skls`, `furn` and `qsts` all stay distinct
+across repeated save/load cycles, and `you.res` / `skl.p` perturb once on the
+load after milestones re-fire and are reconciled back by the next tick, with no
+drift after that.
+
 ## Known and unfixed: hpTrack's max HP is transient
 
 Turned up while testing the rank duels end to end through `attack()` rather

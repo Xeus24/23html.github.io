@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.2',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.3',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -64,6 +64,10 @@ var MOD = {
                      // v3.2: the rank ladder. you.rank() is derived, so rank 1
                      // was reachable only by taking every skill to 110; ten
                      // ranked challengers give it somewhere to be won instead.
+                     // v3.3: global.titles was doubling on every load — the
+                     // same shape of bug as the skill sheet, from the other
+                     // direction (giveTitle pushes to titlese, load appends it
+                     // to an array it has already rebuilt).
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -7877,6 +7881,35 @@ console.log('[mod] marketplace: Paper Boy returns if the Pamphlet is gone, ' +
    damage rather than the cause, and it is worth having as a standing guard —
    the panel's per-row updater reads fixed child indices against `you.skls`, so
    a duplicated row is not merely cosmetic.
+
+   --- and the same shape again, in `global.titles` --------------------------
+
+   `giveTitle` pushes every earned title onto TWO arrays:
+
+       global.titles.push(title); if (title.id !== 0) global.titlese.push(title);
+
+   and `load()` rebuilds `global.titles` from the save BY INDEX and then appends
+   the whole of `global.titlese` on top of it:
+
+       for (ttlid ...) global.titles[ttlid] = ttl[obj];
+       for (obj in global.titlese) global.titles.push(global.titlese[obj]);
+
+   Every title earned this session is therefore already in the rebuilt array
+   AND appended again. Measured on a character holding 241 titles: 241 before a
+   load, 481 after, 241 distinct. It does not compound — the second load finds
+   `titlese` empty — but one load is enough, and `save()` writes the inflated
+   array straight back out.
+
+   A base-game bug, but the mod is what makes it loud: vanilla hands out around
+   a hundred titles and section 24 grants five per skill, so the doubling is
+   hundreds of rows. Both the game's own title screen and the mod's grouped
+   picker iterate `global.titles`, so every title is listed twice after any
+   load.
+
+   Fixed the same way as the skill sheet, and for the same reason: `global.titles`
+   holds references to the objects in `ttl`, so the same object appearing twice
+   is always wrong whatever put it there. Not fixed at the source — `titlese` is
+   the author's mechanism and the mod has no business changing what it means.
    =========================================================================== */
 
 function MOD_dedupeSkills(why) {
@@ -7903,11 +7936,38 @@ function MOD_dedupeSkills(why) {
   }
 }
 
+/* Same repair, on global.titles. No redraw needed: the game builds a fresh
+   dom.ttlbd on every open of the title screen, so the next open is correct. */
+function MOD_dedupeTitles(why) {
+  try {
+    if (typeof global === 'undefined' || !global.titles || !global.titles.length) return 0;
+    var seen = [], out = [], dropped = 0, i;
+    for (i = 0; i < global.titles.length; i++) {
+      var t = global.titles[i];
+      if (!t) { dropped++; continue; }
+      if (seen.indexOf(t) !== -1) { dropped++; continue; }
+      seen.push(t); out.push(t);
+    }
+    if (!dropped) return 0;
+    /* In place: save() reads this array, and you.title points into it. */
+    global.titles.length = 0;
+    for (i = 0; i < out.length; i++) global.titles.push(out[i]);
+    console.log('[mod] title list repaired' + (why ? ' (' + why + ')' : '') +
+      ': dropped ' + dropped + ' duplicate' + (dropped === 1 ? '' : 's') +
+      ', ' + out.length + ' left');
+    return dropped;
+  } catch (e) {
+    console.warn('[mod] title dedupe failed: ' + e.message);
+    return 0;
+  }
+}
+
 /* On load, because that is where they are re-created, and the panel is drawn
    from you.skls immediately afterwards. */
 var MOD_load_beforeDedupe = load;
 load = function () {
   var r = MOD_load_beforeDedupe.apply(this, arguments);
+  try { MOD_dedupeTitles('after load'); } catch (e) {}
   try {
     var n = MOD_dedupeSkills('after load');
     if (n) {
@@ -7932,7 +7992,10 @@ load = function () {
 
 /* And once at boot, for the save the game read through its own window load
    listener before this file could wrap anything. */
-setTimeout(function () { MOD_dedupeSkills('at startup'); }, 3000);
+setTimeout(function () {
+  MOD_dedupeSkills('at startup');
+  MOD_dedupeTitles('at startup');
+}, 3000);
 
 
 /* ===========================================================================
@@ -8172,8 +8235,10 @@ function MOD_rankStep(rank) {
 }
 
 function MOD_scaleRankDuel(p) {
+  if (!p || typeof you === 'undefined') return;
+  if (p.id === you.id || p.id === 0) return;   // the player levelling mid-duel, and creature.default
   var z = (typeof global !== 'undefined') ? global.current_z : null;
-  if (!z || !z._modRung || !p || !p._modKillT) return;
+  if (!z || !z._modRung || !p._modKillT) return;
 
   var E = MOD_ENEMY;
   var step = MOD_rankStep(z._modRung);

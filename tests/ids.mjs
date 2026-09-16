@@ -156,6 +156,56 @@ check(auto.distinct, 'the whole sheet is distinct');
 check(auto.rows === auto.sheet,
   `and the panel was redrawn to match (${auto.rows} rows for ${auto.sheet} skills)`);
 
+console.log('\n--- global.titles has the same shape of bug, from the other direction');
+// giveTitle pushes onto BOTH global.titles and global.titlese, and load()
+// rebuilds global.titles from the save BY INDEX and then appends the whole of
+// titlese on top. So every title earned this session is in the array twice
+// after one load. It does not compound -- the next load finds titlese empty --
+// but save() writes the inflated array straight back out, and both the game's
+// own title screen and the mod's grouped picker iterate it.
+const titles = await p.evaluate(() => {
+  // earn a batch the way the game does, so titlese fills up
+  const keys = Object.keys(ttl).filter(k => ttl[k] && ttl[k].id !== 0).slice(0, 40);
+  keys.forEach(k => { try { giveTitle(ttl[k], true); } catch (e) {} });
+  const before = { len: global.titles.length, distinct: new Set(global.titles).size,
+                   staged: global.titlese.length };
+  const blob = save(true);
+  load(blob);
+  const after = { len: global.titles.length, distinct: new Set(global.titles).size,
+                  staged: global.titlese.length };
+  // and again, to show it is not merely converging on a bigger number
+  const blob2 = save(true); load(blob2);
+  const twice = { len: global.titles.length, distinct: new Set(global.titles).size };
+  return { before, after, twice, holes: global.titles.filter(t => !t).length,
+           worn: global.titles.indexOf(you.title) >= 0 };
+});
+check(titles.before.len === titles.before.distinct,
+  `before the load, ${titles.before.len} titles and ${titles.before.distinct} distinct`);
+check(titles.after.len === titles.after.distinct,
+  `after it, still ${titles.after.len} for ${titles.after.distinct} distinct ` +
+  `(${titles.before.staged} were staged in titlese and re-appended)`);
+check(titles.twice.len === titles.twice.distinct,
+  `and after a second load (${titles.twice.len} / ${titles.twice.distinct})`);
+check(titles.holes === 0, 'no empty entries left behind');
+check(titles.worn, 'and the worn title is still in the list the picker reads');
+
+console.log('\n--- a title list that is already doubled gets repaired');
+const ttlRepair = await p.evaluate(() => {
+  const before = global.titles.length;
+  const copy = global.titles.slice();
+  copy.forEach(t => global.titles.push(t));     // exactly what load() did
+  global.titles.push(null);
+  const damaged = global.titles.length;
+  const dropped = MOD_dedupeTitles('test');
+  return { before, damaged, dropped, after: global.titles.length,
+           distinct: global.titles.length === new Set(global.titles).size,
+           holes: global.titles.filter(t => !t).length };
+});
+check(ttlRepair.dropped === ttlRepair.damaged - ttlRepair.after,
+  `${ttlRepair.dropped} removed (${ttlRepair.damaged} -> ${ttlRepair.after})`);
+check(ttlRepair.after === ttlRepair.before, `back to ${ttlRepair.before}`);
+check(ttlRepair.distinct && ttlRepair.holes === 0, 'every entry distinct, no holes');
+
 console.log('\nerrors:', errs.length ? errs : 'none');
 if (errs.length) fail.push('page errors: ' + JSON.stringify(errs));
 await b.close();
