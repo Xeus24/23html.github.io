@@ -28,7 +28,7 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Thirty-four sections, roughly in the order they were built. The design record
+Thirty-five sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
 [MOD-NOTES.md](MOD-NOTES.md).
 
@@ -52,6 +52,10 @@ for every one of them, including the reasoning and what was measured, is in
   note below on why the obvious approach does not work here.
 - Three areas past the base game's last: the Sunken Hollow, the Ashen Spire and
   the Long Vigil, opening in order once the golem arena is cleared.
+- **Crafting to five stars.** The base game's crafting stops at two in practice:
+  its only 3★ recipe is one nothing can teach, and 5★ has none at all. Four new
+  rungs add a full set each — weapon, armour, shield, accessory, tonic — from
+  twelve gathered materials at four resource nodes that open with the story.
 - **The rank ladder.** The Power rank under your portrait is computed from your
   stats, and rank 1 was only reachable by taking every single skill to 110 — at
   108 across the board you are still rank 3. The Hall of the First Gate adds ten
@@ -113,7 +117,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 25 scripts
+npm test                                          # all 26 scripts
 ./tests/run.sh audit combat                       # a subset
 ```
 
@@ -130,10 +134,10 @@ copy of the folder.
 
 | | |
 |---|---|
-| `mod.js` | the entire mod, ~8,450 lines |
+| `mod.js` | the entire mod, ~9,350 lines |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 25 Playwright scripts |
+| `tests/` | 26 Playwright scripts |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 

@@ -357,6 +357,45 @@ First Gate, off the Old Path trailhead.
   rung means adding a row to `MOD_RANK_LADDER`; the hall, the wiki page and
   `modRankLadder()` are all drawn from it.
 
+## Crafting
+
+The base game's crafting stops at two stars in practice. Measured across all 62
+recipes, by output rarity and by whether any `giveRcp` call can hand the recipe
+over: 35/43 reachable at 1★, 7/17 at 2★, **0/1 at 3★** (the only one is
+`rcp.trr`, Trinity), 1/1 at 4★ (the Clover Pin), nothing at 5★. **Nineteen
+recipes have no `giveRcp` anywhere** — defined, priced, complete, unteachable.
+Reported in the wiki, not wired up: which the author gated and which he forgot
+is his call.
+
+Section 35 adds four rungs, 2★ to 5★, each a full set (weapon, body armour,
+shield, accessory, tonic) from twelve gathered materials along three lines, at
+four nodes behind one door on the Village Center. Each rung consumes the rung
+below it.
+
+- **Ids are blocked by namespace and `load()` depends on it.** A saved item id
+  resolves through `itemgroup[(id+1)/10000<<0]`, `itemgroup` being
+  `[item, wpn, eqp, sld, acc]`. An id in the wrong block restores as the wrong
+  object or not at all. Items 9200+, weapons 10101+, armour 20101+, shields
+  30101+, accessories 40101+.
+- **`rar` must not exceed 6.** `equip()` does
+  `w.wc = global.text.wecs[w.rar][0]` and `wecs` has seven entries, so a 7★
+  anything throws the moment it is worn.
+- **Armour `str` is nearly decorative.** `stat_r` adds only `eqp[0].str` (the
+  weapon) into `str_d`; `int`/`agl`/`spd` are summed over every slot. Armour
+  `str` shows in the DEF tooltips and nowhere in `dmg_calc`.
+- **Re-index the value model after adding recipes.** Section 15 builds
+  `MOD_VAL.madeBy` in an IIFE at load. Without the re-index at the end of
+  section 35, new gear falls past rule 2 (price from inputs) to rule 3 (price
+  from stats) — a 5★ sword came out at 1,161 while each of the eight ingots it
+  eats came out at 13,000. Clear `MOD_VAL.cache` too.
+- **Materials are anchored, not derived.** Rule 4 would price them
+  `stypeBase[5] * rarMult[5]` = 3,250 each, because `rarMult` is calibrated
+  against equipment rarity. `MOD_CRAFT.matValue` sets 6/18/54/162, sized so
+  gathering at the cap pays about six coin a second after the 25% sell rate
+  against roughly one a second from endgame combat.
+- Nodes set **no tier flag** — they are gathering locations, not fight areas.
+  See the catacombs note above for why that matters.
+
 ## Ids are the save's primary key
 
 **No two things in a namespace may share an id, and nothing enforced this until

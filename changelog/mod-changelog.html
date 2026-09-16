@@ -18,6 +18,42 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.5:</span><br>
+<span style="color:blue">[2026/09/15]</span><br>
+<b>Crafting goes to five stars.</b><br>
+&nbsp;&nbsp;<span style="color:grey">It stopped at two. Measured across all 62 recipes, by what they produce AND by whether<br>
+&nbsp;&nbsp;any giveRcp call can actually teach them: 35/43 reachable at 1★, 7/17 at 2★, 0 of 1 at<br>
+&nbsp;&nbsp;3★, 1 of 1 at 4★, and nothing whatsoever at 5★. The only 3-star recipe in the game is<br>
+&nbsp;&nbsp;Trinity, and nothing can teach it; the one 4-star result is a Clover Pin you get for<br>
+&nbsp;&nbsp;holding seven clovers.</span><br>
+&nbsp;&nbsp;<b>Four new rungs, 2★ to 5★</b>, each a full set &mdash; weapon, body armour, shield,<br>
+&nbsp;&nbsp;accessory and tonic. Twenty craftable things<br>
+&nbsp;&nbsp;<b>Twelve materials</b> along three lines (ore, weave, essence), one set per rung<br>
+&nbsp;&nbsp;<b>Four resource nodes</b> &mdash; the Stone Hollow, the Iron Seam, Ashfall Quarry and the<br>
+&nbsp;&nbsp;Deep Vein &mdash; behind one door on the Village Center, opening one at a time with the<br>
+&nbsp;&nbsp;story. They set no tier flag: a gathering spot that hands out a level cap on arrival<br>
+&nbsp;&nbsp;is the catacombs bug over again<br>
+&nbsp;&nbsp;<b>A Gather action</b> that turns up at the first node you walk into. It trains Mining,<br>
+&nbsp;&nbsp;Geology and Foraging &mdash; three skills the base game defines and then barely uses &mdash;<br>
+&nbsp;&nbsp;and the first thing out of a seam teaches that rung's five blueprints<br>
+&nbsp;&nbsp;<b>Each rung eats the rung below it</b>, so it is a ladder and not four shopping lists.<br>
+&nbsp;&nbsp;The 4★ blade lands beside the game's own best (Fate Cutters, str 108) and the 5★ one<br>
+&nbsp;&nbsp;goes past it, since that tier has nothing else in it<br>
+<b>Found: 19 of the 62 base-game recipes cannot be learned at all.</b> They are defined,<br>
+&nbsp;&nbsp;priced and complete, and no giveRcp anywhere hands them over &mdash; trr, lnch1/2/3, orgs,<br>
+&nbsp;&nbsp;ffsh1/2, fnori, cbun1, sshl, hpck, steak, cnmnb, brth, eggsp, crmchd, msoop, jln4.<br>
+&nbsp;&nbsp;Listed in the wiki rather than wired up; which were gated on purpose is not our call<br>
+<b>Economy.</b> The first pass came out backwards &mdash; a 5★ sword priced at 1,161 while each of<br>
+&nbsp;&nbsp;the eight ingots it eats priced at 13,000, so selling the ore paid ninety times better<br>
+&nbsp;&nbsp;than using it. The value model is re-indexed after the new recipes exist, and the<br>
+&nbsp;&nbsp;materials are anchored at 6/18/54/162 instead of being priced on an equipment scale.<br>
+&nbsp;&nbsp;Gathering now pays about 6 coin a second sold, against roughly 1 from endgame combat<br>
+<b>Wiki.</b> A new Crafting page, after Items: what can be made at each rarity, which<br>
+&nbsp;&nbsp;base-game recipes are unreachable, every rung with its costs, and the gather rates<br>
+<b>Tests.</b> tests/crafting.mjs &mdash; 27 checks, including the two traps this had to avoid:<br>
+&nbsp;&nbsp;every id must sit in the block <code>load()</code> restores its namespace from, and no rarity may<br>
+&nbsp;&nbsp;pass 6 or <code>equip()</code> runs off the end of <code>global.text.wecs</code> the moment you wear it<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.4:</span><br>
 <span style="color:blue">[2026/09/15]</span><br>
 <b>The title picker groups the titles it used to leave in a heap.</b><br>

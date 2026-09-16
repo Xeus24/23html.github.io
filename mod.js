@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.4',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.5',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -70,6 +70,8 @@ var MOD = {
                      // to an array it has already rebuilt).
                      // v3.4: the 83 titles the picker could not group now do —
                      // 19 folded into their skill, 40 into ladders of their own.
+                     // v3.5: crafting to five stars. It stopped at two, and the
+                     // only 3-star recipe was one nothing could teach.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -8680,6 +8682,683 @@ MOD_wikiPage('rank', 'The rank ladder', function () {
   var at = -1;
   for (var i = 0; i < MOD_WIKI_PAGES.length; i++) {
     if (MOD_WIKI_PAGES[i].id === 'progress') { at = i; break; }
+  }
+  MOD_WIKI_PAGES.splice(at >= 0 ? at + 1 : MOD_WIKI_PAGES.length, 0, page);
+})();
+
+
+/* ===========================================================================
+   35. THE CRAFTING LADDER, 2★ TO 5★
+   ---------------------------------------------------------------------------
+   The question was whether anything above one star can be crafted. Measured
+   across all 62 recipes, by output rarity, and separately by whether any
+   `giveRcp` call anywhere in the game can actually hand the recipe over:
+
+       stars   recipes   obtainable
+         1★      44         35
+         2★      17          7
+         3★       1          0        <- rcp.trr, Trinity
+         4★       1          1        <- rcp.clrpin, Clover Pin
+         5★       0          0
+
+   So the literal answer is yes, narrowly: seven reachable recipes make 2★
+   things and one makes a 4★ accessory. But the tier above that is a single
+   recipe nothing can unlock, and 5★ has nothing at all. Crafting effectively
+   stops at two stars, and the one 4★ result is a Clover Pin you get for
+   holding seven clovers.
+
+   The same audit turned up a bigger base-game finding: **nineteen of the 62
+   recipes have no `giveRcp` anywhere** — test, trr, lnch1/2/3, orgs, ffsh1/2,
+   fnori, cbun1, sshl, hpck, steak, cnmnb, brth, eggsp, crmchd, msoop, jln4.
+   They are defined, priced and complete, and nothing in the game can teach
+   them. Left alone, like area.clg and the unfinished titles: reported rather
+   than quietly wired up, because which of them the author meant to gate and
+   which he forgot is not the mod's call to make.
+
+   --- what this adds --------------------------------------------------------
+
+   A four-rung ladder, one rung per star from 2 to 5, each rung a full set:
+
+       weapon   body armour   shield   accessory   tonic
+
+   twenty craftable things, built from twelve gathered materials along three
+   lines — ore for the metal, weave for the cloth, essence for everything that
+   is not either — and gathered at four resource nodes that open with the
+   story. Each rung consumes the rung below it, so the ladder is a ladder and
+   not four unrelated shopping lists.
+
+   --- the constraints this had to fit --------------------------------------
+
+   * **Ids are blocked by namespace.** `load()` resolves a saved item id back
+     to its namespace with `itemgroup[(id+1)/10000<<0]`, itemgroup being
+     `[item, wpn, eqp, sld, acc]`. An id in the wrong block restores as the
+     wrong object or not at all, so: items 9200+, weapons 10101+, armour
+     20101+, shields 30101+, accessories 40101+. All clear of the base game's
+     maxima (9129 / 10058 / 20031 / 30017 / 40089) and checked by ids.mjs.
+   * **`rar` cannot exceed 6.** `equip()` does
+     `w.wc = global.text.wecs[w.rar][0]`, and `wecs` has seven entries. Five is
+     the top of this ladder and index 5 is the red/orange band, which is what
+     the star colours in `dscr` type 8 use for 5★ as well.
+   * **Armour `str` is very nearly decorative.** `stat_r` adds only
+     `eqp[0].str` (the weapon) to `str_d`, while `int`, `agl` and `spd` are
+     summed over every slot. Armour `str` shows up in the DEF tooltips and
+     nowhere in `dmg_calc`. The pieces here carry it anyway, because the
+     author's own armour does and the tooltip should read sensibly — but the
+     real value is in agl/int/spd, aff and cls.
+   * **Better gear does not break the enemy model.** `MOD_scaleEnemy` anchors
+     to the player's measured power at spawn, so a stronger sword raises the
+     anchor rather than trivialising the fight. `allareas` re-runs against it.
+   * Recipe `type` picks the tab in the assemble panel: 1 FOD, 2 MED, 3 WEP,
+     4 EQP, 5 MAT. Tonics are 2, weapons 3, everything worn 4.
+   =========================================================================== */
+
+var MOD_CRAFT = {
+  gatherBase: 0.02,     // chance per tick at skill 0
+  gatherPer:  0.0012,   // added per level of the node's governing skills
+  gatherCap:  0.14,     // ~one find every seven seconds, fully skilled
+  /* What a material is worth, per rung. These are ANCHORS (rule 1 of the value
+     model), not derived, and that is deliberate: rule 4 would price them as
+     stypeBase[5] * rarMult[5] = 25 * 130 = 3,250 apiece, because rarMult is
+     calibrated against EQUIPMENT rarity and a 5★ sword is a different kind of
+     object from a lump of ore you can dig up all afternoon.
+
+     Sized against the income the endgame already pays. `modEconomy()` puts the
+     Ashen Spire at ~23 coin a kill and a kill at roughly twenty swings, so
+     combat is on the order of one coin a second. Gathering at the cap, selling
+     at the 25% the shops give, comes to about six — better, as a dedicated
+     activity with no loot, no character exp and no drops attached, without
+     being a printing press. */
+  matValue: { 2: 6, 3: 18, 4: 54, 5: 162 }
+};
+
+/* tier -> the star it makes, the name its gear carries, and what opens it.
+   `gate` is read live so a save that already cleared the content opens the
+   node on load rather than on the next kill. */
+var MOD_CRAFT_TIERS = [
+  { t: 2, star: 2, prefix: 'Ironwrought', colour: 'cyan',
+    node: 'The Stone Hollow',
+    blurb: 'A slumped seam of rock where the hillside gave way. Somebody has been here before.',
+    gate: function () { return global.flags.mod_t_deep === true; },
+    need: 'the deep forest' },
+  { t: 3, star: 3, prefix: 'Bluesteel', colour: 'lime',
+    node: 'The Iron Seam',
+    blurb: 'The vein runs blue-black where the lamplight touches it, and keeps running.',
+    gate: function () { return global.flags.mod_t_cata === true; },
+    need: 'the catacombs' },
+  { t: 4, star: 4, prefix: 'Skyiron', colour: 'yellow',
+    node: 'Ashfall Quarry',
+    blurb: 'Everything here fell from somewhere. The grit still holds a little heat.',
+    gate: function () { return global.flags.trne4e1 === true; },
+    need: 'golem arena IV' },
+  { t: 5, star: 5, prefix: 'Starfall', colour: 'orange',
+    node: 'The Deep Vein',
+    blurb: 'Far enough down that the rock has stopped behaving like rock.',
+    gate: function () { try { return MOD_prog('vigil') >= MOD_REQ_VIGIL; } catch (e) { return false; } },
+    need: 'The Long Vigil' }
+];
+
+function MOD_craftTier(t) {
+  for (var i = 0; i < MOD_CRAFT_TIERS.length; i++) {
+    if (MOD_CRAFT_TIERS[i].t === t) return MOD_CRAFT_TIERS[i];
+  }
+  return null;
+}
+
+/* --- A. the twelve materials ----------------------------------------------
+   Three lines so a rung needs more than one place to have been, and so the
+   three gathering skills the base game defines and barely uses — Mining,
+   Geology, Foraging — each have something to govern.
+   -------------------------------------------------------------------------- */
+
+var MOD_MATERIALS = [
+  // key        id    tier  name                 line
+  ['mod_ore2', 9200, 2, 'Iron Nodule',     'ore',  'Lumpy, rust-streaked, and heavier than it looks.'],
+  ['mod_ore3', 9201, 3, 'Blued Steel',     'ore',  'Folded and quenched until the surface went the colour of a bruise.'],
+  ['mod_ore4', 9202, 4, 'Skyiron Ingot',   'ore',  'It fell already refined. Nobody has a good explanation for that.'],
+  ['mod_ore5', 9203, 5, 'Starfall Ingot',  'ore',  'Cold in the hand however long you hold it.'],
+  ['mod_wv2',  9204, 2, 'Cured Hide',      'weave','Scraped, salted and dried flat. Serviceable.'],
+  ['mod_wv3',  9205, 3, 'Ironthread',      'weave','Spun with wire through it, so it hangs like cloth and turns like mail.'],
+  ['mod_wv4',  9206, 4, 'Ghostweave',      'weave','Weighs nothing, and the weave does not show against a light.'],
+  ['mod_wv5',  9207, 5, 'Cloudsilk',       'weave','You can see the room through it, and it still stops a blade.'],
+  ['mod_es2',  9208, 2, 'Dim Essence',     'ess',  'A knot of something the rock was holding. It fits in a palm.'],
+  ['mod_es3',  9209, 3, 'Clear Essence',   'ess',  'Holds its shape now, instead of running out between the fingers.'],
+  ['mod_es4',  9210, 4, 'Bright Essence',  'ess',  'Throws enough light to read by, which is how most people find them.'],
+  ['mod_es5',  9211, 5, 'Radiant Essence', 'ess',  'The air bends a little around it. So does everything else.']
+];
+
+var MOD_MAT = {};        // 'ore2' -> the item, for the recipe tables below
+
+MOD_MATERIALS.forEach(function (m) {
+  var it = new Item();
+  it.id = m[1];
+  it.name = m[2 + 1];
+  it.rar = m[2];
+  it.desc = m[5];
+  /* stype 5, which is what the author's own crafting stock uses (straw,
+     firewood, small bone). It is not cosmetic: MOD_itemValue's rule 4 prices an
+     item it cannot otherwise place as stypeBase[stype] * rarMult[rar], and
+     stype 1's base is 100 against stype 5's 25 — a four-fold difference on
+     something you can gather all day. */
+  it.stype = 5;
+  item[m[0]] = it;
+  MOD_MAT[m[4] + m[2]] = it;
+});
+
+/* --- B. the twenty things it makes ----------------------------------------
+   One set per rung. The numbers step roughly x1.7 a rung, which lands the 4★
+   sword next to the base game's own best (wpn.scspt3, "Fate Cutters", str 108)
+   and puts the 5★ one clearly past it — that tier has nothing else in it to
+   sit beside.
+   -------------------------------------------------------------------------- */
+
+var MOD_GEAR_STATS = {
+  //      weapon        armour        shield       accessory      tonic
+  2: { wstr: 34,  wdp: 45,  astr: 14, adp: 45,  sstr: 10, sdp: 50,  acc: 3,  heal: 200 },
+  3: { wstr: 72,  wdp: 65,  astr: 30, adp: 70,  sstr: 22, sdp: 75,  acc: 7,  heal: 800 },
+  4: { wstr: 124, wdp: 95,  astr: 52, adp: 100, sstr: 40, sdp: 105, acc: 14, heal: 3000 },
+  5: { wstr: 205, wdp: 140, astr: 86, adp: 145, sstr: 68, sdp: 150, acc: 26, heal: 12000 }
+};
+
+var MOD_GEAR = {};       // 'wpn2' -> the object, for the recipes
+
+MOD_CRAFT_TIERS.forEach(function (T, i) {
+  var s = MOD_GEAR_STATS[T.t];
+  var lift = i + 1;                       // 1..4, the gentle affinity/class ramp
+
+  /* weapon — all four are swords on purpose: the ladder is an upgrade path for
+     one build, not four mutually exclusive ones. wtype 1 trains Swordsmanship. */
+  var w = new Eqp();
+  w.id = 10100 + T.t - 1;
+  w.name = T.prefix + ' Blade';
+  w.desc = 'A straight, plain blade, made properly.' + dom.dseparator;
+  w.slot = 1; w.stype = 2; w.wtype = 1; w.atype = 1;
+  w.str = s.wstr;
+  w.dp = w.dpmax = s.wdp;
+  w.cls = [4 + lift * 3, 3 + lift * 2, 1 + lift];
+  w.aff = [2 + lift * 2, 0, 0, 0, 0, 0, 0];
+  w.rar = T.star;
+  wpn['mod_w' + T.t] = w;
+  MOD_GEAR['wpn' + T.t] = w;
+
+  /* body armour, slot 4 */
+  var a = new Eqp();
+  a.id = 20100 + T.t - 1;
+  a.name = T.prefix + ' Cuirass';
+  a.desc = 'Fitted at the shoulder, which is the part most people skip.' + dom.dseparator;
+  a.slot = 4; a.stype = 3;
+  a.str = s.astr;
+  a.agl = lift;
+  a.dp = a.dpmax = s.adp;
+  a.cls = [2 + lift * 2, 2 + lift * 2, 2 + lift];
+  a.aff = [1 + lift, lift, lift, lift, lift, lift, 0];
+  a.rar = T.star;
+  eqp['mod_a' + T.t] = a;
+  MOD_GEAR['eqp' + T.t] = a;
+
+  /* shield, slot 2 */
+  var sh = new Eqp();
+  sh.id = 30100 + T.t - 1;
+  sh.name = T.prefix + ' Guard';
+  sh.desc = 'Faced, rimmed, and braced behind the boss.' + dom.dseparator;
+  sh.slot = 2; sh.stype = 3;
+  sh.str = s.sstr;
+  sh.dp = sh.dpmax = s.sdp;
+  sh.cls = [2 + lift * 2, 2 + lift * 2, 2 + lift * 2];
+  sh.aff = [2 + lift, lift, lift, lift, lift, lift, lift];
+  sh.rar = T.star;
+  sld['mod_s' + T.t] = sh;
+  MOD_GEAR['sld' + T.t] = sh;
+
+  /* accessory, slot 8. Plain stat fields rather than an oneq/onuneq pair that
+     adds to `you`: stat_r already sums int/agl/spd over every slot, so this
+     needs nothing to unwind and cannot drift on a load. */
+  var ac = new Eqp();
+  ac.id = 40100 + T.t - 1;
+  ac.name = T.prefix + ' Seal';
+  ac.desc = 'Cast in one piece, with the maker\'s mark still on the back.' +
+    dom.dseparator +
+    '<span style="color:' + T.colour + '">AGL +' + s.acc + ' &nbsp; INT +' + s.acc +
+    ' &nbsp; SPD +' + Math.max(1, Math.round(s.acc / 3.5)) + '</span>';
+  ac.slot = 8; ac.stype = 3;
+  ac.agl = s.acc;
+  ac.int = s.acc;
+  ac.spd = Math.max(1, Math.round(s.acc / 3.5));
+  ac.rar = T.star;
+  acc['mod_c' + T.t] = ac;
+  MOD_GEAR['acc' + T.t] = ac;
+
+  /* tonic. Written the way item.hptn1 is, including the amount-- and the two
+     stat counters, so it behaves like every other healing item. */
+  var tn = new Item();
+  tn.id = 9219 + T.t;
+  tn.name = T.prefix + ' Tonic';
+  tn.val = s.heal;
+  tn.rar = T.star;
+  tn.stype = 4;
+  tn.desc = 'Bitter, and it works.' + dom.dseparator +
+    'Restores<span style="color:lime"> ' + s.heal.toLocaleString() + ' </span>health';
+  tn.use = function () {
+    you.hp + this.val > you.hpmax ? you.hp = you.hpmax : you.hp += this.val;
+    global.stat.potnst++; global.stat.medst++;
+    this.amount--;
+    try { dom.d5_1_1.update(); } catch (e) {}
+    msg('Restored ' + this.val.toLocaleString() + ' hp', 'lime');
+  };
+  item['mod_t' + T.t] = tn;
+  MOD_GEAR['ton' + T.t] = tn;
+});
+
+/* --- C. the recipes -------------------------------------------------------
+   Each rung eats the rung below it, so the ladder is a ladder. Built from the
+   tables above rather than written out, which is also what keeps the
+   ingredient list honest if the stats are ever retuned.
+   -------------------------------------------------------------------------- */
+
+var MOD_CRAFT_RECIPES = [];
+
+MOD_CRAFT_TIERS.forEach(function (T, i) {
+  var t = T.t;
+  var prev = i > 0 ? MOD_CRAFT_TIERS[i - 1].t : null;
+  var ore = MOD_MAT['ore' + t], wv = MOD_MAT['weave' + t], es = MOD_MAT['ess' + t];
+  var n = 4 + i;                          // 4, 5, 6, 7 of the main material
+
+  var defs = [
+    { key: 'w', kind: 'wpn', type: 3, skill: skl.crft, xp: 1.2,
+      rec: [[ore, n + 2], [wv, 2]] },
+    { key: 'a', kind: 'eqp', type: 4, skill: skl.tlrng || skl.crft, xp: 1.0,
+      rec: [[wv, n + 2], [ore, 2]] },
+    { key: 's', kind: 'sld', type: 4, skill: skl.crft, xp: 1.0,
+      rec: [[ore, n], [wv, n - 2]] },
+    { key: 'c', kind: 'acc', type: 4, skill: skl.crft, xp: 0.8,
+      rec: [[es, n], [ore, 2]] },
+    { key: 't', kind: 'ton', type: 2, skill: skl.alch, xp: 0.8,
+      rec: [[es, 2], [wv, 1]] }
+  ];
+
+  defs.forEach(function (d, j) {
+    var out = MOD_GEAR[d.kind + t];
+    var r = new Recipe();
+    r.id = 200 + (i * 5) + j + 1;         // 201-220
+    r.name = out.name;
+    r.type = d.type;
+    r.rec = d.rec.map(function (e) { return { item: e[0], amount: e[1] }; });
+    /* the previous rung's own piece, folded in — except for the tonics, which
+       are consumed rather than upgraded and would make the chain unbuyable */
+    if (prev && d.kind !== 'ton') {
+      r.rec.unshift({ item: MOD_GEAR[d.kind + prev], amount: 1 });
+    }
+    r.res = [{ item: out, amount: d.kind === 'ton' ? 2 : 1 }];
+    r.onmake = function () { try { giveCrExp(d.skill, d.xp, 1); } catch (e) {} };
+    rcp['mod_' + d.key + t] = r;
+    MOD_CRAFT_RECIPES.push({ tier: t, key: 'mod_' + d.key + t, recipe: r });
+  });
+});
+
+/* Handed over the first time you pick up that rung's material — the same way
+   the base game teaches rcp.wfar once you are holding three wolf fangs, rather
+   than by a vendor or a flag nothing sets. */
+function MOD_learnTier(t) {
+  var learned = 0;
+  MOD_CRAFT_RECIPES.forEach(function (e) {
+    if (e.tier !== t) return;
+    try { learned += giveRcp(e.recipe) || 0; } catch (err) {}
+  });
+  return learned;
+}
+
+/* --- D. where the materials come from -------------------------------------
+   Four nodes, one per rung, behind one door on the Village Center — the same
+   shape as the catacombs entrance and the Pill Tower, and gated on the same
+   `mod_t_deep` the catacombs use.
+
+   These are NOT fight areas and set no tier flag. An added area that sets one
+   hands out a level cap on arrival; see the catacombs note in CLAUDE.md.
+   -------------------------------------------------------------------------- */
+
+MOD.digs_gate = 'mod_t_deep';
+
+chss.mod_digs = new Chs(); chss.mod_digs.id = 981;
+
+chss.mod_digs.sl = function () {
+  global.flags.inside = false;
+  d_loc('The Diggings');
+  global.lst_loc = 981;
+  chs('Cart ruts, spoil heaps, and four ways down. Most of them are older than the village.', true);
+
+  var anyOpen = false;
+  MOD_CRAFT_TIERS.forEach(function (T) {
+    var open = false;
+    try { open = !!T.gate(); } catch (e) {}
+    if (open) {
+      anyOpen = true;
+      var node = chs('"=> ' + T.node + '"', false, T.colour);
+      try {
+        addDesc(node, null, 2, T.node + ' — ' + T.star + '★',
+          T.blurb + ' Gathering here yields ' + T.star + '-star materials.');
+      } catch (e) {}
+      node.addEventListener('click', function () { smove(chss['mod_node' + T.t]); });
+    } else {
+      var shut = chs('<span style="color:grey">' + T.node + ' — sealed</span>', false, 'grey');
+      try {
+        addDesc(shut, null, 2, T.node,
+          'Shut until you have been through ' + T.need + '.');
+      } catch (e) {}
+    }
+  });
+  if (!anyOpen) chs('<span style="color:grey">Every way down is boarded over</span>', false, 'grey');
+
+  chs('"<= Back to the village"', false).addEventListener('click', function () {
+    smove(chss.lsmain1);
+  });
+};
+
+/* The four nodes. One `sl` shape, built from the tier table. */
+MOD_CRAFT_TIERS.forEach(function (T) {
+  var c = new Chs();
+  c.id = 981 + T.t - 1;                   // 982, 983, 984, 985
+  c.sl = function () {
+    global.flags.inside = false;
+    d_loc(T.node);
+    global.lst_loc = c.id;
+    chs(T.blurb, true, T.colour);
+    var line = chs('<span style="color:grey">Use the Gather action here</span>', false, 'grey');
+    try {
+      addDesc(line, null, 2, 'Gathering',
+        'Start the Gather action from the actions panel. It finds ' + T.star +
+        '-star materials here, and the chance goes up with Mining, Geology and ' +
+        'Foraging. The first thing you pull out teaches the ' + T.prefix +
+        ' blueprints.');
+    } catch (e) {}
+    chs('"<= Back up"', false).addEventListener('click', function () { smove(chss.mod_digs); });
+  };
+  c.onEnter = function () { area_init(area.nwh); };
+  chss['mod_node' + T.t] = c;
+});
+
+/* Linked from the Village Center, which the mod already wraps for the
+   catacombs and the Pill Tower. */
+(function () {
+  var orig = chss.lsmain1.sl;
+  chss.lsmain1.sl = function () {
+    orig.apply(this, arguments);
+    try {
+      if (global.flags[MOD.digs_gate] === true) {
+        chs('"=> Walk out to the Diggings"', false, 'burlywood')
+          .addEventListener('click', function () { smove(chss.mod_digs); });
+      }
+    } catch (e) {
+      console.warn('[mod] diggings entrance failed: ' + e.message);
+    }
+  };
+})();
+
+/* --- E. the Gather action -------------------------------------------------
+   Same shape as Forage (section 4), including the sdrate cost and the
+   MOD_startAction/MOD_stopAction pair the unrestricted-actions toggle swaps
+   around. The yield comes from the location, not from the action, so one
+   action serves all four nodes.
+   -------------------------------------------------------------------------- */
+
+function MOD_nodeHere() {
+  for (var i = 0; i < MOD_CRAFT_TIERS.length; i++) {
+    var T = MOD_CRAFT_TIERS[i];
+    if (chss['mod_node' + T.t] && global.lst_loc === chss['mod_node' + T.t].id) return T;
+  }
+  return null;
+}
+
+function MOD_gatherChance() {
+  var lv = 0;
+  try { lv = (skl.mng.lvl || 0) + (skl.glg.lvl || 0) + (skl.hvt.lvl || 0); } catch (e) {}
+  return Math.min(MOD_CRAFT.gatherBase + lv * MOD_CRAFT.gatherPer, MOD_CRAFT.gatherCap);
+}
+
+act.mod_gather = new Action(); act.mod_gather.id = 910; act.mod_gather.type = 1;
+act.mod_gather.name = 'Gather';
+act.mod_gather.desc = function () {
+  var T = MOD_nodeHere();
+  return 'Work the seam for whatever it is holding' + MOD_SEP +
+    '<span style="color:pink">Exp +0.5/s</span><br>' +
+    '<span style="color:skyblue">Trains Mining, Geology and Foraging</span><br>' +
+    '<span style="color:gold">' + Math.round(MOD_gatherChance() * 100) + '% a tick to find something' +
+      (T ? ' (' + T.star + '★ here)' : '') + '</span><br>' +
+    '<span style="color:crimson">Energy Consumption +0.06/s</span>';
+};
+act.mod_gather.cond = function (l) {
+  if (!MOD_nodeHere()) {
+    if (l !== false) msg('There is nothing to work here', 'red');
+    return false;
+  }
+  return MOD_baseCond(l, 'Not here');
+};
+act.mod_gather.use = function () {
+  var T = MOD_nodeHere();
+  if (!T) return;
+  giveExp(0.5, true, true);
+  try {
+    giveSkExp(skl.mng, 0.8);
+    giveSkExp(skl.glg, 0.6);
+    giveSkExp(skl.hvt, 0.4);
+  } catch (e) {}
+
+  if (random() >= MOD_gatherChance()) return;
+
+  var pool = [MOD_MAT['ore' + T.t], MOD_MAT['weave' + T.t], MOD_MAT['ess' + T.t]]
+    .filter(Boolean);
+  if (!pool.length) return;
+  var found = pool[(random() * pool.length) << 0];
+  msg('You work something loose', T.colour);
+  try { giveItem(found, 1); } catch (e) {}
+
+  /* First of a rung teaches that rung. Checked on the item rather than on a
+     flag of its own: `giveRcp` already refuses to hand the same blueprint over
+     twice, so this is idempotent and needs nothing in the save. */
+  var n = MOD_learnTier(T.t);
+  if (n) msg('You can see how the ' + T.prefix + ' pieces go together', T.colour);
+};
+act.mod_gather.activate = function () {
+  msg('You set to work', 'burlywood');
+  you.mods.sdrate += 0.06;
+  MOD_startAction(this);
+};
+act.mod_gather.deactivate = function () {
+  you.mods.sdrate -= 0.06;
+  MOD_stopAction(this, 'You put the tools down');
+};
+
+/* Granted on arrival at a node rather than by a skill milestone: the condition
+   is a place, not a level, which is the same reason Circulate Qi is checked on
+   the tick instead of hung off Temperance. */
+var MOD_ontick_before_gather = ontick;
+ontick = function () {
+  MOD_ontick_before_gather();
+  try {
+    if (!act.mod_gather.have && MOD_nodeHere()) {
+      giveAction(act.mod_gather);
+    }
+  } catch (e) {}
+};
+
+/* --- F. console summary ---------------------------------------------------- */
+
+function modCrafting() {
+  var rows = ['The crafting ladder — 20 recipes, 12 materials, 4 nodes', ''];
+  MOD_CRAFT_TIERS.forEach(function (T) {
+    var open = false; try { open = !!T.gate(); } catch (e) {}
+    var known = 0;
+    MOD_CRAFT_RECIPES.forEach(function (e) { if (e.tier === T.t && e.recipe.have) known++; });
+    rows.push('  ' + T.star + '★ ' + (T.prefix + '           ').slice(0, 12) +
+      (T.node + '                ').slice(0, 17) +
+      (open ? 'open ' : 'shut ') + '  blueprints ' + known + '/5' +
+      (open ? '' : '  (needs ' + T.need + ')'));
+  });
+  rows.push('', 'Materials: ' + MOD_MATERIALS.map(function (m) { return m[3]; }).join(', '));
+  rows.push('Gather chance now: ' + Math.round(MOD_gatherChance() * 100) + '%');
+  rows.push('The Diggings is on the Village Center, once the deep forest is behind you.');
+  var out = rows.join('\n');
+  console.log(out);
+  return out;
+}
+
+/* --- G. re-index the value model ------------------------------------------
+   Section 15 builds MOD_VAL.madeBy in an IIFE at load, and that ran long before
+   any of this existed. Without re-indexing, every piece here falls through
+   rule 2 (price from what it is made of) to rule 3 (price from its stats) — and
+   a 5★ sword came out at 1,161 while the eight ingots it eats came out at
+   13,000 apiece. Selling the raw material paid ninety times better than using
+   it, which is the opposite of what a crafting ladder is for.
+   -------------------------------------------------------------------------- */
+(function () {
+  try {
+    for (var r in rcp) {
+      var recipe = rcp[r];
+      if (!recipe || !recipe.res || !recipe.rec) continue;
+      for (var j = 0; j < recipe.res.length; j++) {
+        var out = recipe.res[j];
+        if (out && out.item && MOD_VAL.madeBy[out.item.id] === undefined) {
+          MOD_VAL.madeBy[out.item.id] = recipe;
+        }
+      }
+    }
+    /* Anchor the materials before anything asks what they cost — see the note
+       on MOD_CRAFT.matValue for why these are not left to rule 4. */
+    MOD_MATERIALS.forEach(function (m) {
+      var v = MOD_CRAFT.matValue[m[2]];
+      if (v !== undefined) MOD_VAL.anchors[m[1]] = v;
+    });
+    MOD_VAL.cache = {};        // prices computed before the index grew are stale
+    console.log('[mod] value model re-indexed: ' +
+      Object.keys(MOD_VAL.madeBy).length + ' craftable items priced from their inputs');
+  } catch (e) {
+    console.warn('[mod] value re-index failed: ' + e.message);
+  }
+})();
+
+console.log('[mod] crafting ladder: ' + MOD_CRAFT_RECIPES.length + ' recipes to 5 stars, ' +
+  MOD_MATERIALS.length + ' materials, 4 nodes. modCrafting() for details.');
+
+/* --- H. the wiki page ------------------------------------------------------
+   Read off MOD_CRAFT_TIERS, MOD_CRAFT_RECIPES and `rcp` itself, so the ladder
+   cannot be documented as something other than what it is. Spliced after
+   "Items", which is where a reader chasing an ingredient will already be.
+   -------------------------------------------------------------------------- */
+
+MOD_wikiPage('crafting', 'Crafting', function () {
+  /* The audit that prompted the ladder, recomputed live rather than quoted —
+     if the author ever wires one of these up, this page stops claiming he did
+     not. */
+  var src = '';
+  try { for (var i = 0; i < document.scripts.length; i++) {
+    if (!document.scripts[i].src) src += document.scripts[i].textContent; } } catch (e) {}
+  var byStar = {}, orphans = [];
+  for (var k in rcp) {
+    var r = rcp[k];
+    if (!r || typeof r !== 'object' || !r.res || !r.res.length) continue;
+    var star = 1;
+    r.res.forEach(function (e) { if (e.item && (e.item.rar || 1) > star) star = e.item.rar; });
+    var mine = k.indexOf('mod_') === 0;
+    var reachable = mine || new RegExp('giveRcp\\(\\s*rcp\\.' + k + '\\b').test(src);
+    byStar[star] = byStar[star] || { n: 0, ok: 0 };
+    byStar[star].n++; if (reachable) byStar[star].ok++;
+    if (!reachable) orphans.push(r.name || k);
+  }
+
+  var h = '<h1>Crafting</h1>' +
+    '<p class="lede">Blueprints are taught, not bought: something you pick up, ' +
+    'hold enough of, or dig out of a seam shows you how a thing goes together. ' +
+    'The assemble panel groups them FOD / MED / WEP / EQP / MAT.</p>' +
+
+    '<h2>What can be made, by rarity</h2>' +
+    '<table class="wk-perks"><thead><tr><th>Stars</th><th class="num">Recipes</th>' +
+    '<th class="num">Reachable</th></tr></thead><tbody>';
+  Object.keys(byStar).sort(function (a, b) { return a - b; }).forEach(function (s) {
+    var st = MOD_rankStyle(Number(s));
+    h += '<tr><td><span style="color:' + st.c + ';text-shadow:' + st.s + '">' +
+      new Array(Number(s) + 1).join('&#9733;') + '</span></td>' +
+      '<td class="num">' + byStar[s].n + '</td>' +
+      '<td class="num">' + byStar[s].ok + '</td></tr>';
+  });
+  h += '</tbody></table>';
+
+  if (orphans.length) {
+    h += '<div class="note"><b>' + orphans.length + ' of the base game\'s recipes ' +
+      'cannot be learned.</b> They are defined and complete, and no <code>giveRcp</code> ' +
+      'call anywhere in the game hands them over: ' +
+      MOD_WIKI.safe(orphans.sort().join(', ')) + '. Reported rather than wired ' +
+      'up — which of them were meant to be gated and which were forgotten is ' +
+      'the author\'s call, not the mod\'s.</div>';
+  }
+
+  h += '<h2>The ladder</h2>' +
+    '<p>Before this, crafting stopped at two stars in practice: the only 3&#9733; ' +
+    'recipe is one nothing can teach, and 5&#9733; had nothing at all. Four rungs ' +
+    'now run 2&#9733; to 5&#9733;, each a full set, and each one eats the rung ' +
+    'below it.</p>' +
+    '<table class="wk-perks"><thead><tr><th>Rung</th><th>Node</th>' +
+    '<th>Opens after</th><th>Materials</th></tr></thead><tbody>';
+  MOD_CRAFT_TIERS.forEach(function (T) {
+    var open = false; try { open = !!T.gate(); } catch (e) {}
+    h += '<tr class="wk-e wk-craft' + (open ? ' done' : '') + '">' +
+      '<td><span style="color:' + T.colour + '">' + T.prefix + '</span> ' +
+      '<span class="dim">' + T.star + '&#9733;</span>' +
+      (open ? ' <span class="tag done">open</span>' : '') + '</td>' +
+      '<td>' + MOD_WIKI.safe(T.node) + '</td>' +
+      '<td class="dim">' + MOD_WIKI.safe(T.need) + '</td>' +
+      '<td class="dim">' + ['ore', 'weave', 'ess'].map(function (line) {
+        var m = MOD_MAT[line + T.t];
+        return m ? MOD_WIKI.safe(m.name) : '';
+      }).filter(Boolean).join(', ') + '</td></tr>';
+  });
+  h += '</tbody></table>';
+
+  h += '<h2>Every rung, and what it costs</h2>';
+  MOD_CRAFT_TIERS.forEach(function (T) {
+    var inner = '<table class="wk-perks"><tbody>';
+    MOD_CRAFT_RECIPES.filter(function (e) { return e.tier === T.t; }).forEach(function (e) {
+      var r = e.recipe;
+      var out = r.res[0];
+      var made = out && out.item ? out.item : null;
+      inner += '<tr class="wk-e wk-craft"><td>' + MOD_WIKI.safe(r.name) +
+        (out && out.amount > 1 ? ' <span class="dim">&times;' + out.amount + '</span>' : '') +
+        '<div class="dim">' + (made ? MOD_wikiDesc(made.desc) : '') + '</div></td>' +
+        '<td class="num dim">' + r.rec.map(function (c) {
+          return MOD_WIKI.safe(c.item ? c.item.name : '?') + ' &times;' + c.amount;
+        }).join('<br>') + '</td>' +
+        '<td class="num">' + (made ? Math.round(MOD_itemValue(made)).toLocaleString() : '') +
+        '<div class="dim">coin</div></td></tr>';
+    });
+    inner += '</tbody></table>';
+    h += MOD_wikiGroup('<span style="color:' + T.colour + '">' + T.prefix + '</span> ' +
+      '<span class="dim">' + T.star + '&#9733;</span>', 5, inner, 3);
+  });
+
+  h += '<h2>Gathering</h2>' +
+    '<p>The <b>Gather</b> action turns up at the first node you walk into. It ' +
+    'works only at a node, finds one of that rung\'s three materials at a time, ' +
+    'and trains Mining, Geology and Foraging — three skills the base game ' +
+    'defines and then barely uses.</p>' +
+    '<table class="wk-perks"><tbody>' +
+    '<tr><td>Chance per tick, untrained</td><td class="num">' +
+      Math.round(MOD_CRAFT.gatherBase * 100) + '%</td></tr>' +
+    '<tr><td>Per level of the three skills</td><td class="num">+' +
+      (MOD_CRAFT.gatherPer * 100).toFixed(2) + '%</td></tr>' +
+    '<tr><td>Ceiling</td><td class="num">' +
+      Math.round(MOD_CRAFT.gatherCap * 100) + '%</td></tr>' +
+    '<tr><td>Yours right now</td><td class="num">' +
+      Math.round(MOD_gatherChance() * 100) + '%</td></tr>' +
+    '</tbody></table>' +
+    '<p class="dim">The Diggings is reached from the Village Center once the ' +
+    'deep forest is behind you; the four nodes inside open one at a time with ' +
+    'the story.</p>';
+  return h;
+});
+
+/* After "Items" — a reader chasing an ingredient is already there. */
+(function () {
+  var page = MOD_WIKI_PAGES.pop();
+  var at = -1;
+  for (var i = 0; i < MOD_WIKI_PAGES.length; i++) {
+    if (MOD_WIKI_PAGES[i].id === 'items') { at = i; break; }
   }
   MOD_WIKI_PAGES.splice(at >= 0 ? at + 1 : MOD_WIKI_PAGES.length, 0, page);
 })();

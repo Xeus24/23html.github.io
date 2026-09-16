@@ -2481,6 +2481,89 @@ taken off you, and a rank you have taken is never lost. Winning pays 15% of a
 character level at the level the rung asked for, which is worth taking and
 cannot skip you up the ladder it gates.
 
+## Crafting stopped at two stars
+
+The question was whether anything above one star can be crafted. Measured
+across all 62 recipes, twice: by the rarity of what they produce, and by
+whether any `giveRcp` call anywhere in the game can actually hand the recipe
+over.
+
+| stars | recipes | reachable |
+|---|---|---|
+| 1★ | 43 | 35 |
+| 2★ | 17 | 7 |
+| 3★ | 1 | **0** |
+| 4★ | 1 | 1 |
+| 5★ | 0 | 0 |
+
+So the literal answer is yes, narrowly — seven reachable recipes make 2★ things
+and one makes a 4★ accessory. But the 3★ tier is a single recipe (`rcp.trr`,
+Trinity) that nothing can teach, 5★ is empty, and the one 4★ result is a Clover
+Pin you get for holding seven clovers. Crafting effectively stops at two stars.
+
+The same pass turned up a larger base-game finding: **nineteen of the 62
+recipes have no `giveRcp` anywhere** — `test`, `trr`, `lnch1/2/3`, `orgs`,
+`ffsh1/2`, `fnori`, `cbun1`, `sshl`, `hpck`, `steak`, `cnmnb`, `brth`, `eggsp`,
+`crmchd`, `msoop`, `jln4`. Defined, priced, complete, unteachable. Left alone
+and reported in the wiki, like `area.clg` and the unfinished titles: which of
+them were meant to be gated and which were forgotten is not the mod's call.
+
+### The ladder
+
+Four rungs, 2★ through 5★, each a full set — weapon, body armour, shield,
+accessory, tonic — twenty craftable things from twelve materials along three
+lines (ore, weave, essence), gathered at four nodes that open with the story.
+Each rung eats the rung below it, so it is a ladder rather than four unrelated
+shopping lists, and the numbers step about ×1.7 a rung: the 4★ blade lands next
+to the base game's own best (`wpn.scspt3`, "Fate Cutters", str 108) and the 5★
+one goes clearly past it, since that tier has nothing else to sit beside.
+
+Nodes hang off one door on the Village Center — the same shape as the catacombs
+entrance and the Pill Tower — gated on `mod_t_deep`, then one node per story
+rung. They set **no tier flag**: a gathering location that hands out a level cap
+on arrival is the catacombs bug again.
+
+Gathering is an action, not a location choice, so it reuses the tested
+machinery — `MOD_startAction`/`MOD_stopAction`, the `sdrate` cost, and the
+unrestricted-actions swap. The yield comes from the location rather than the
+action, so one action serves all four nodes, and it trains Mining, Geology and
+Foraging: three skills the base game defines and then barely uses. The first
+material out of a seam teaches that rung's five blueprints, the way the base
+game teaches `rcp.wfar` once you are holding three wolf fangs.
+
+### Three things that had to be got right
+
+**Ids are blocked by namespace, and the save depends on it.** `load()` resolves
+a saved item id with `itemgroup[(id+1)/10000<<0]`, `itemgroup` being
+`[item, wpn, eqp, sld, acc]`. An id in the wrong block comes back as the wrong
+object, or not at all. Items 9200+, weapons 10101+, armour 20101+, shields
+30101+, accessories 40101+, all clear of the base game's maxima.
+
+**Rarity cannot exceed 6.** `equip()` does `w.wc = global.text.wecs[w.rar][0]`
+and `wecs` has seven entries, so a 7★ anything throws at the moment you put it
+on. Five is the top here, and index 5 is the same red/orange band `dscr` uses
+for 5★ stars.
+
+**The value model had to be re-indexed.** Section 15 builds `MOD_VAL.madeBy` in
+an IIFE at load, long before any of this existed. Without re-indexing, every new
+piece fell past rule 2 (price from what it is made of) to rule 3 (price from its
+stats), and the first measurement came out backwards: a 5★ sword at 1,161 while
+each of the eight ingots it eats priced at 13,000. Selling the raw material paid
+ninety times better than using it.
+
+The ingots were wrong too. Rule 4 prices an unplaceable item as
+`stypeBase[stype] * rarMult[rar]`, and `rarMult[5]` is 130 — calibrated against
+*equipment* rarity, which a lump of ore is not. They are anchored instead
+(`MOD_CRAFT.matValue`, 6/18/54/162), sized against what the endgame already
+pays: `modEconomy()` puts the Ashen Spire at ~23 coin a kill and a kill at
+roughly twenty swings, so combat is about one coin a second. Gathering at the
+cap, sold at the 25% the shops give, comes to about six — better, as a dedicated
+activity with no loot and no exp attached, without being a printing press. The
+gather rate came down with it, from 55% a tick to 14%.
+
+Measured after: a finished blade is worth more than its inputs at every rung
+(60 vs 48, 278 vs 222, 1,023 vs 818, 3,506 vs 2,805), which is the point.
+
 ## Grouping the titles that had no group
 
 The picker groups by skill, and after the last audit it was worth asking what
