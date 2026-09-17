@@ -18,6 +18,34 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.7:</span><br>
+<span style="color:blue">[2026/09/16]</span><br>
+<b>Fixed: every item the mod added was labelled "Book".</b><br>
+&nbsp;&nbsp;<span style="color:grey">An item's id is two schemes at once. One decides which list it belongs to; the OTHER<br>
+&nbsp;&nbsp;decides its class, read straight off the number with no field for it &mdash; under 3000 Food,<br>
+&nbsp;&nbsp;3000-4999 Medicine/Tool, 5000-8999 Material/Misc, 9000+ Book. stype is not a proxy:<br>
+&nbsp;&nbsp;the author's stype 4 spans Food, Medicine and Book.</span><br>
+&nbsp;&nbsp;Everything the mod added sat at 9100+ to stay clear of the author's maxima, so<br>
+&nbsp;&nbsp;<b>26 of its 32 items read as Books</b>, each with a "Read: Never" line under it &mdash; ore,<br>
+&nbsp;&nbsp;hides, essences, tonics, and all fourteen pills. Only the six skillbook manuals,<br>
+&nbsp;&nbsp;which really are books, were right<br>
+&nbsp;&nbsp;Tonics are 4201-4204, breakthrough pills 4210-4219, spirit pills 4220-4223, crafting<br>
+&nbsp;&nbsp;materials 5200-5211. The manuals stay where they were<br>
+&nbsp;&nbsp;<code>MOD_ITEM_IDS</code> now holds the ranges with the class table written beside them, so the<br>
+&nbsp;&nbsp;next addition picks from it instead of from "whatever is free above his highest"<br>
+<b>Your items survive the move.</b> The inventory is saved BY id and restored by matching it,<br>
+&nbsp;&nbsp;so an entry whose id no longer exists is dropped without a word &mdash; and a Tribulation<br>
+&nbsp;&nbsp;Pill is seven million coin. The save is read BEFORE the game loads it, the moved ids<br>
+&nbsp;&nbsp;are noted, and those stacks are given back afterwards under their new ids<br>
+&nbsp;&nbsp;<span style="color:grey">The save itself is never rewritten. Anything unexpected in it and the migration does<br>
+&nbsp;&nbsp;nothing at all &mdash; a migration that fails is better than a load that fails.</span><br>
+<b>Tests.</b> tests/ids.mjs gains 7 checks: the class of every added item, taken from the mod's<br>
+&nbsp;&nbsp;own tables rather than from the ids; that nothing which is not a book gets a "Read:"<br>
+&nbsp;&nbsp;footer; and a round trip through a save deliberately rewritten back to 3.6's ids, which<br>
+&nbsp;&nbsp;must come back with the same amounts and must not double-grant on the next save.<br>
+&nbsp;&nbsp;Verified they fail before the fix<br>
+&nbsp;&nbsp;<code>modItems()</code> prints every added item with the class its id gives it<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.6:</span><br>
 <span style="color:blue">[2026/09/16]</span><br>
 <b>Fixed: two skills were both called "Foraging".</b><br>

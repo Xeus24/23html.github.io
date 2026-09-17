@@ -206,6 +206,76 @@ check(ttlRepair.dropped === ttlRepair.damaged - ttlRepair.after,
 check(ttlRepair.after === ttlRepair.before, `back to ${ttlRepair.before}`);
 check(ttlRepair.distinct && ttlRepair.holes === 0, 'every entry distinct, no holes');
 
+console.log('\n--- an item id is a CLASS as well as a namespace');
+// dscr type 1 reads the category straight off the number -- Food under 3000,
+// Medicine/Tool to 5000, Material/Misc to 9000, Book above -- and there is no
+// field for it. Everything the mod added started at 9100+, so twenty-six items
+// were labelled "Book" with a "Read: Never" line under them, ore included.
+// Expectation comes from the mod's own tables, not from the ids.
+const classes = await p.evaluate(() => {
+  const want = {};
+  MOD_MATERIALS.forEach(m => { want[m[0]] = 'Material/Misc'; });
+  MOD_CRAFT_TIERS.forEach(T => { want['mod_t' + T.t] = 'Medicine/Tool'; });
+  for (let i = 1; i <= 10; i++) want['mod_bp' + i] = 'Medicine/Tool';
+  ['sp4', 'sp5', 'sp6', 'sp7'].forEach(k => { want[k] = 'Medicine/Tool'; });
+  for (const k in item) if (/^mod_[a-z]+_manual$/.test(k)) want[k] = 'Book';
+  const wrong = [], bookLine = [], foodLine = [];
+  Object.keys(want).forEach(k => {
+    const o = item[k];
+    if (!o) { wrong.push(k + ' missing'); return; }
+    const got = MOD_itemClass(o.id);
+    if (got !== want[k]) wrong.push(`${o.name} (${o.id}) reads ${got}, should be ${want[k]}`);
+    // the two footer lines the game hangs off the same ranges
+    if (o.id >= 9000 && o.id < 10000 && want[k] !== 'Book') bookLine.push(o.name);
+    if (o.id < 3000) foodLine.push(o.name);
+  });
+  return { n: Object.keys(want).length, wrong, bookLine, foodLine,
+           // and the ranges themselves have to stay inside the namespace block
+           inBlock: Object.keys(want).every(k => item[k] && item[k].id < 10000) };
+});
+check(classes.wrong.length === 0, classes.wrong.length
+  ? `wrong class: ${classes.wrong.join('; ')}`
+  : `all ${classes.n} added items read as what they are`);
+check(classes.bookLine.length === 0, classes.bookLine.length
+  ? `these still get a "Read:" line: ${classes.bookLine.join(', ')}`
+  : 'nothing that is not a book gets the "Read:" footer');
+check(classes.foodLine.length === 0, 'and nothing that is not food gets the "Tried:" footer');
+check(classes.inBlock, 'every one is still under 10000, so load() resolves it to `item`');
+
+console.log('\n--- and a save written before they moved keeps its items');
+// The inventory is saved BY id and restored by matching it, so an entry whose
+// id no longer exists is dropped without a word. Section 37 reads the blob
+// before the game's load runs and gives those stacks back afterwards.
+const migrated = await p.evaluate(() => {
+  const held = o => { let n = 0; for (const k in inv) if (inv[k] && inv[k].id === o.id) n += inv[k].amount; return n; };
+  const probes = [[item.mod_bp10, 3, 9129], [item.sp7, 2, 9104],
+                  [item.mod_ore5, 7, 9203], [item.mod_t5, 4, 9224]];
+  probes.forEach(([o, n]) => giveItem(o, n));
+  const before = probes.map(([o]) => held(o));
+  // rewrite the blob back to the ids 3.6 would have written
+  const back = {}; probes.forEach(([o, , oldId]) => { back[o.id] = oldId; });
+  const str = b64_to_utf8(save(true)).split('|');
+  const a3 = JSON.parse(str[6]);
+  let rewrote = 0;
+  a3[0].forEach(e => { if (back[e.id] !== undefined) { e.id = back[e.id]; rewrote++; } });
+  str[6] = JSON.stringify(a3);
+  const oldSave = utf8_to_b64(str.join('|'));
+  const seen = MOD_strandedItems(oldSave).length;
+  load(oldSave);
+  const after = probes.map(([o]) => held(o));
+  // a current save must not double-grant on the way back
+  load(save(true));
+  const again = probes.map(([o]) => held(o));
+  return { rewrote, seen, before, after, again,
+           names: probes.map(([o]) => o.name) };
+});
+check(migrated.rewrote === 4 && migrated.seen === 4,
+  `${migrated.seen} stacks found stranded under their old ids`);
+check(migrated.after.join() === migrated.before.join(),
+  `all of them came back at the right amount (${migrated.names.map((n, i) => n + ' x' + migrated.after[i]).join(', ')})`);
+check(migrated.again.join() === migrated.before.join(),
+  'and a current save round-trips without granting them twice');
+
 console.log('\nerrors:', errs.length ? errs : 'none');
 if (errs.length) fail.push('page errors: ' + JSON.stringify(errs));
 await b.close();

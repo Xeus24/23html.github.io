@@ -28,7 +28,7 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Thirty-six sections, roughly in the order they were built. The design record
+Thirty-seven sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
 [MOD-NOTES.md](MOD-NOTES.md).
 

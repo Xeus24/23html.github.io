@@ -2481,6 +2481,67 @@ taken off you, and a rank you have taken is never lost. Winning pays 15% of a
 character level at the level the rung asked for, which is worth taking and
 cannot skip you up the ladder it gates.
 
+## "Why is Cured Hide class Book?"
+
+Because an `item` id is two schemes at once, and the mod only knew about one.
+
+The namespace block is the one it knew: `load()` resolves a saved id with
+`itemgroup[(id+1)/10000<<0]`, so an `item` has to sit under 10000. The second
+is the **class**, which `dscr` type 1 reads straight off the number:
+
+```
+id < 3000          Food           + a "Tried: yes/never" footer
+3000 <= id < 5000  Medicine/Tool
+5000 <= id < 9000  Material/Misc
+id >= 9000         Book           + a "Read: yes/never" footer
+```
+
+There is no field for it, and `stype` is not a proxy — the author's stype 4
+spans Food, Medicine and Book. So every item the mod ever added, having been
+parked at 9100+ to stay clear of his maxima, came out as a **Book**:
+
+| items | was | should be |
+|---|---|---|
+| 12 crafting materials | 9200-9211 | Material/Misc |
+| 4 tonics | 9221-9224 | Medicine/Tool |
+| 10 breakthrough pills | 9120-9129 | Medicine/Tool |
+| 4 spirit pills (sp4-sp7) | 9101-9104 | Medicine/Tool |
+| 6 skillbook manuals | 9110-9115 | Book — correct |
+
+Twenty-six wrong out of thirty-two, each with a spurious "Read: Never" under
+it. Only the manuals, which really are books, were right by accident.
+
+They are moved: tonics 4201-4204, breakthrough pills 4210-4219, spirit pills
+4220-4223, materials 5200-5211, manuals where they were. `MOD_ITEM_IDS` holds
+the ranges with the table above written out beside them, so the next addition
+picks from it rather than from "what is free above the author's max".
+
+### Moving them was not free
+
+The inventory is saved **by id**:
+
+```js
+a3[0].push({ id: inv[obj].id, am: inv[obj].amount, data: inv[obj].data })
+```
+
+and restored by matching it, so an entry whose id no longer exists is dropped
+silently. A save from 3.6 would have lost whatever it held of all twenty-six —
+and a Tribulation Pill is seven million coin at the Pill Tower. Losing one to a
+cosmetic fix is a bad trade.
+
+Section 37 migrates instead. It reads the blob **before** the game's load runs
+(that is what clears and rebuilds `inv`), parses a copy of `str.split('|')[6]`,
+notes which moved ids were carrying what, lets the original load run untouched,
+and gives those stacks back afterwards under the new ids. The save is never
+rewritten, and any surprise in the blob makes it do nothing at all — a
+migration that fails is better than a load that fails.
+
+`tests/ids.mjs` covers both halves: the class of every added item, checked
+against the mod's own tables rather than against the ids, and a round trip
+through a blob deliberately rewritten back to 3.6's ids, which must come back
+holding exactly what it went in with and must not double-grant on the next
+save.
+
 ## Two names for one skill, and a quest the mod quietly broke
 
 ### "Foraging" was already taken

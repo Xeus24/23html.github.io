@@ -413,6 +413,20 @@ Fire Mastery `2010 + 0`; section 11 had already given the Companions parent
 hundred of each. `MOD_KEY_BY_ID` is id-keyed too, so the clash also silently
 took the Companions parent's level cap.
 
+- **An `item` id is a CLASS as well as a namespace.** `dscr` type 1 reads the
+  category straight off the number, and there is no field for it —
+  `< 3000` Food (plus a "Tried:" footer), `3000-4999` Medicine/Tool,
+  `5000-8999` Material/Misc, `>= 9000` Book (plus a "Read:" footer). `stype` is
+  **not** it: the author's stype 4 spans Food, Medicine and Book. Everything the
+  mod added started at 9100+, so twenty-six items — ore, hides, essences, every
+  pill — were labelled "Book" with a "Read: Never" line under them. Pick from
+  `MOD_ITEM_IDS`; `tests/ids.mjs` checks the class against the mod's own tables.
+- **Moving an item id costs the player what they were holding.** The inventory
+  saves `{id, am, data}` and restores by matching id, so an entry whose id no
+  longer exists is dropped without a word. Section 37 reads the blob *before*
+  the game's load runs, notes what the moved ids were carrying, and gives it
+  back afterwards. It never rewrites the save — a migration that fails is
+  better than a load that does.
 - Ranges in use: parents `2000+section` (2001-2010), masteries 2011-2016,
   Renown 2100. Mod locations 975-980. **Check `tests/ids.mjs` before picking.**
 - Prefer an explicit table to arithmetic when two schemes could ever meet:

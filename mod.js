@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.6',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.7',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -76,6 +76,9 @@ var MOD = {
                      // game already had one), and raw meat's drop raised — the
                      // mod's kill times had made the hunter's quest impossible
                      // in summer, because the meat rots faster than it drops.
+                     // v3.7: item ids carry a CLASS as well as a namespace, so
+                     // 26 of the mod's 32 items were labelled "Book". Moved,
+                     // with a migration so saves keep what they were holding.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -387,6 +390,33 @@ var MOD_SKILL_TIERS = function (statA, statM, potIdx, label, labelM) {
     { lv: 50, f: function () { you[statM] += 0.18; you.exp_t += 0.15; you.stat_r(); }, g: false,
       p: labelM + " +18%, EXP Gain +15%" }
   ];
+};
+
+/* --- item ids carry a CLASS, not just a namespace ---------------------------
+   Two separate id schemes overlap on `item`, and missing the second one is how
+   twenty-six of the mod's items came to be labelled "Book".
+
+   1. The namespace block. `load()` resolves a saved id with
+      `itemgroup[(id+1)/10000<<0]`, itemgroup being [item, wpn, eqp, sld, acc],
+      so an `item` has to be under 10000.
+
+   2. The CLASS, which `dscr` type 1 reads straight off the number:
+
+          id < 3000          Food           (+ a "Tried: yes/never" line)
+          3000 <= id < 5000  Medicine/Tool
+          5000 <= id < 9000  Material/Misc
+          id >= 9000         Book           (+ a "Read: yes/never" line)
+
+   There is no field for it, and `stype` is not it either — the author's stype 4
+   spans Food, Medicine and Book. An ore at 9200 is a Book with a Read line, and
+   nothing errors. Everything the mod adds picks its id from here.
+   -------------------------------------------------------------------------- */
+var MOD_ITEM_IDS = {
+  tonic:      4199,  // + tier (2..5) -> 4201-4204, Medicine/Tool
+  breakPill:  4210,  // + index       -> 4210-4219, Medicine/Tool
+  spiritPill: 4220,  //               -> 4220-4223, Medicine/Tool
+  material:   5200,  //               -> 5200-5211, Material/Misc
+  manual:     9110   //               -> 9110-9115, Book — these really are books
 };
 
 var MOD_SEP = (typeof dom !== 'undefined' && dom.dseparator) ? dom.dseparator : '<br>';
@@ -5879,13 +5909,13 @@ console.log('[mod] title colours extended to ten ranks (the game\'s rank 7 branc
 /* --- A. spirit pills ------------------------------------------------------ */
 
 var MOD_PILLS = [
-  ['sp4', 9101, 'Superior Spirit Pill',      100000,
+  ['sp4', 4220, 'Superior Spirit Pill',      100000,
    'A pill refined from properly cultivated ki, the kind a sect issues rather than sells.'],
-  ['sp5', 9102, 'Refined Spirit Pill',       600000,
+  ['sp5', 4221, 'Refined Spirit Pill',       600000,
    'Dense enough that the ki has to be guided rather than simply swallowed.'],
-  ['sp6', 9103, 'Sublime Spirit Pill',      3500000,
+  ['sp6', 4222, 'Sublime Spirit Pill',      3500000,
    'The work of an alchemist who has stopped making mistakes. Rare enough to be spoken of.'],
-  ['sp7', 9104, 'Transcendent Spirit Pill', 20000000,
+  ['sp7', 4223, 'Transcendent Spirit Pill', 20000000,
    'Closer to a condensed lifetime of training than to medicine.']
 ];
 
@@ -6216,7 +6246,7 @@ var MOD_PILL_NAMES = [
 ];
 
 var MOD_BREAK_PILLS = MOD_PILL_NAMES.map(function (p, i) {
-  return [i + 1, 9120 + i, p[0], p[1]];
+  return [i + 1, MOD_ITEM_IDS.breakPill + i, p[0], p[1]];
 });
 
 MOD_BREAK_PILLS.forEach(function (b) {
@@ -8826,18 +8856,18 @@ function MOD_craftTier(t) {
 
 var MOD_MATERIALS = [
   // key        id    tier  name                 line
-  ['mod_ore2', 9200, 2, 'Iron Nodule',     'ore',  'Lumpy, rust-streaked, and heavier than it looks.'],
-  ['mod_ore3', 9201, 3, 'Blued Steel',     'ore',  'Folded and quenched until the surface went the colour of a bruise.'],
-  ['mod_ore4', 9202, 4, 'Skyiron Ingot',   'ore',  'It fell already refined. Nobody has a good explanation for that.'],
-  ['mod_ore5', 9203, 5, 'Starfall Ingot',  'ore',  'Cold in the hand however long you hold it.'],
-  ['mod_wv2',  9204, 2, 'Cured Hide',      'weave','Scraped, salted and dried flat. Serviceable.'],
-  ['mod_wv3',  9205, 3, 'Ironthread',      'weave','Spun with wire through it, so it hangs like cloth and turns like mail.'],
-  ['mod_wv4',  9206, 4, 'Ghostweave',      'weave','Weighs nothing, and the weave does not show against a light.'],
-  ['mod_wv5',  9207, 5, 'Cloudsilk',       'weave','You can see the room through it, and it still stops a blade.'],
-  ['mod_es2',  9208, 2, 'Dim Essence',     'ess',  'A knot of something the rock was holding. It fits in a palm.'],
-  ['mod_es3',  9209, 3, 'Clear Essence',   'ess',  'Holds its shape now, instead of running out between the fingers.'],
-  ['mod_es4',  9210, 4, 'Bright Essence',  'ess',  'Throws enough light to read by, which is how most people find them.'],
-  ['mod_es5',  9211, 5, 'Radiant Essence', 'ess',  'The air bends a little around it. So does everything else.']
+  ['mod_ore2', 5200, 2, 'Iron Nodule',     'ore',  'Lumpy, rust-streaked, and heavier than it looks.'],
+  ['mod_ore3', 5201, 3, 'Blued Steel',     'ore',  'Folded and quenched until the surface went the colour of a bruise.'],
+  ['mod_ore4', 5202, 4, 'Skyiron Ingot',   'ore',  'It fell already refined. Nobody has a good explanation for that.'],
+  ['mod_ore5', 5203, 5, 'Starfall Ingot',  'ore',  'Cold in the hand however long you hold it.'],
+  ['mod_wv2',  5204, 2, 'Cured Hide',      'weave','Scraped, salted and dried flat. Serviceable.'],
+  ['mod_wv3',  5205, 3, 'Ironthread',      'weave','Spun with wire through it, so it hangs like cloth and turns like mail.'],
+  ['mod_wv4',  5206, 4, 'Ghostweave',      'weave','Weighs nothing, and the weave does not show against a light.'],
+  ['mod_wv5',  5207, 5, 'Cloudsilk',       'weave','You can see the room through it, and it still stops a blade.'],
+  ['mod_es2',  5208, 2, 'Dim Essence',     'ess',  'A knot of something the rock was holding. It fits in a palm.'],
+  ['mod_es3',  5209, 3, 'Clear Essence',   'ess',  'Holds its shape now, instead of running out between the fingers.'],
+  ['mod_es4',  5210, 4, 'Bright Essence',  'ess',  'Throws enough light to read by, which is how most people find them.'],
+  ['mod_es5',  5211, 5, 'Radiant Essence', 'ess',  'The air bends a little around it. So does everything else.']
 ];
 
 var MOD_MAT = {};        // 'ore2' -> the item, for the recipe tables below
@@ -8944,7 +8974,7 @@ MOD_CRAFT_TIERS.forEach(function (T, i) {
   /* tonic. Written the way item.hptn1 is, including the amount-- and the two
      stat counters, so it behaves like every other healing item. */
   var tn = new Item();
-  tn.id = 9219 + T.t;
+  tn.id = MOD_ITEM_IDS.tonic + T.t;
   tn.name = T.prefix + ' Tonic';
   tn.val = s.heal;
   tn.rar = T.star;
@@ -9514,6 +9544,137 @@ function modMeat() {
   rows.push('', 'A "!" is a steady state below the ten the quest wants.');
   rows.push('Drop chance ' + Math.round(MOD_MEAT.chance * 100) +
             '%, assuming ' + MOD_MEAT.killSec + 's an end-to-end kill.');
+  var out = rows.join('\n');
+  console.log(out);
+  return out;
+}
+
+
+/* ===========================================================================
+   37. THE IDS THAT MOVED, AND WHAT A SAVE HOLDING THEM DOES
+   ---------------------------------------------------------------------------
+   Section 36's table fixes the class of everything the mod adds, but twenty-six
+   items had to change id to get there — and the inventory is saved BY id:
+
+       a3[0].push({ id: inv[obj].id, am: inv[obj].amount, data: inv[obj].data })
+
+   and restored by matching it. An entry whose id no longer exists is silently
+   dropped, so without this a played-in save loses whatever it was holding of
+
+       sp4-sp7        9101-9104  ->  4220-4223
+       mod_bp1-bp10   9120-9129  ->  4210-4219
+       the materials  9200-9211  ->  5200-5211
+       the tonics     9221-9224  ->  4201-4204
+
+   A Tribulation Pill is seven million coin at the Pill Tower. Losing one to a
+   cosmetic fix would be a bad trade.
+
+   The blob is read, never rewritten. `load(dt)` takes the base64 save (or
+   reads localStorage itself), and the inventory is `str.split('|')[6]`. This
+   parses a COPY, notes what the old ids were carrying, lets the game's own
+   load run untouched, and gives those items back afterwards under their new
+   ids. Anything unexpected in the blob and it does nothing at all — a save
+   that fails to migrate is better than one that fails to load.
+   =========================================================================== */
+
+/* old id -> the item that used to carry it. Built from the same tables that
+   assign the new ones, so a future move updates both ends at once. */
+var MOD_ID_MOVES = (function () {
+  var map = {};
+  try {
+    ['sp4', 'sp5', 'sp6', 'sp7'].forEach(function (k, i) {
+      if (item[k]) map[9101 + i] = item[k];
+    });
+    for (var b = 1; b <= 10; b++) {
+      if (item['mod_bp' + b]) map[9120 + (b - 1)] = item['mod_bp' + b];
+    }
+    MOD_MATERIALS.forEach(function (m, i) {
+      if (item[m[0]]) map[9200 + i] = item[m[0]];
+    });
+    MOD_CRAFT_TIERS.forEach(function (T) {
+      if (item['mod_t' + T.t]) map[9219 + T.t] = item['mod_t' + T.t];
+    });
+  } catch (e) { /* a stripped build may not have all of them */ }
+  return map;
+})();
+
+/* What a save is holding under an id that has moved. Returns [] for anything
+   it cannot read with confidence. */
+function MOD_strandedItems(dt) {
+  var out = [];
+  try {
+    var raw = dt || window.localStorage.getItem('v0.3');
+    if (!raw) return out;
+    var str = b64_to_utf8(raw);
+    if (!str) return out;
+    var parts = str.split('|');
+    if (parts.length < 7) return out;
+    var a3 = JSON.parse(parts[6]);
+    if (!a3 || !a3[0] || !a3[0].length) return out;
+    for (var i = 0; i < a3[0].length; i++) {
+      var e = a3[0][i];
+      if (!e || typeof e.id !== 'number') continue;
+      var moved = MOD_ID_MOVES[e.id];
+      if (!moved) continue;
+      var am = Number(e.am);
+      if (!isFinite(am) || am <= 0) continue;
+      out.push({ item: moved, am: am, from: e.id });
+    }
+  } catch (e) { return []; }
+  return out;
+}
+
+var MOD_load_beforeIdMove = load;
+
+load = function (dt) {
+  /* Read BEFORE the game's load runs: it is what clears and rebuilds `inv`. */
+  var stranded = [];
+  try { stranded = MOD_strandedItems(dt); } catch (e) {}
+
+  var r = MOD_load_beforeIdMove.apply(this, arguments);
+
+  try {
+    if (stranded.length) {
+      var n = 0;
+      stranded.forEach(function (s) {
+        try { giveItem(s.item, s.am); n += s.am; } catch (e) {}
+      });
+      if (n) {
+        console.log('[mod] ' + n + ' item(s) carried across ids that moved in 3.7');
+        msg('Recovered ' + n + ' item' + (n === 1 ? '' : 's') +
+            ' whose id changed', 'lime');
+      }
+    }
+  } catch (e) { /* never break a load over a migration */ }
+  return r;
+};
+
+/* What class the game will show for an id, so modItems() and the test agree
+   with `dscr` rather than with each other. */
+function MOD_itemClass(id) {
+  if (typeof id !== 'number') return '?';
+  if (id < 3000) return 'Food';
+  if (id < 5000) return 'Medicine/Tool';
+  if (id < 9000) return 'Material/Misc';
+  return 'Book';
+}
+
+function modItems() {
+  var rows = ['Everything the mod adds to `item`, and the class its id gives it', ''];
+  var list = [];
+  for (var k in item) {
+    var o = item[k];
+    if (!o || typeof o !== 'object' || typeof o.id !== 'number') continue;
+    if (k.indexOf('mod_') !== 0 && ['sp4', 'sp5', 'sp6', 'sp7'].indexOf(k) < 0) continue;
+    list.push({ k: k, id: o.id, name: o.name, cls: MOD_itemClass(o.id) });
+  }
+  list.sort(function (a, b) { return a.id - b.id; });
+  list.forEach(function (e) {
+    rows.push('  ' + String(e.id).padStart(5) + '  ' +
+      (e.cls + '               ').slice(0, 15) + e.name);
+  });
+  rows.push('', 'Ranges: Food <3000, Medicine/Tool 3000-4999, ' +
+    'Material/Misc 5000-8999, Book 9000+');
   var out = rows.join('\n');
   console.log(out);
   return out;
