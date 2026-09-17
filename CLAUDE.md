@@ -433,6 +433,53 @@ took the Companions parent's level cap.
   reads `global.titles` should still prefer counting from `ttl`, as
   `MOD_titleCount` does.
 
+## Names are the other primary key
+
+Ids are the save's key; **names are the player's**, and nothing checked them
+until `tests/names.mjs`. Section 4 shipped `skl.frg` named "Foraging" when the
+base game already had `skl.hvt` under that name. Two identical rows in the skill
+panel, and **ten identically named titles**, because section 24 derives a
+title's name from its skill's. Nothing errored. It is `skl.frg` = **Wildcraft**
+now; the key and id are untouched, because names are not saved and ids are.
+
+- Check a new name against every namespace, and against the **whole inventory
+  bag** — `item`, `wpn`, `eqp`, `sld` and `acc` share one list, so a repeat
+  across them reads as badly as one inside a single namespace.
+- Stay in the author's register. His are plain single words — Foraging,
+  Harvesting, Topography, Elusion, Temperance, Gluttony, Famine. Not
+  invented-fantasy, not compound.
+- The author's own repeats (Chashu Ramen, Bandage, Blue Slime, Nameless, and
+  the nine areas called Training Grounds) are **listed and left alone** in the
+  test, the same call `area.clg` gets. Renaming his content is not the mod's
+  business; shipping a clash of our own is.
+
+## The hunter's quest, and anything else on a rot timer
+
+`quest.hnt1` wants **ten Raw Meat held at once**, and `item.rwmt1.rot` is
+`[.25,.45,.1,.2]`: `planner.chkrot` runs once an in-game day, adds
+`randf(rot[0],rot[1])` divided by a season modifier (**0.5 in summer — twice as
+fast**, 2.5 in winter), and at `rottil >= 1` destroys
+`amount * randf(rot[2],rot[3]) + 1`. So a perishable stock **converges** rather
+than accumulating:
+
+```
+A = (gain_per_day * days_between_rot - 1) / lossFraction
+```
+
+The mod never touched the drop table. It made a rabbit take ten swings instead
+of one (`MOD_ENEMY.kill` targets eight landed swings; a quest-stage rabbit went
+from 93 HP to 3,574), and ten times less meat an hour against an unchanged rot
+clock dropped the summer steady state to **4 against the 10 required**. Feasible
+in three seasons and impossible in the fourth is a bug, not a difficulty choice.
+
+Section 36 raises the drop 6% → 18%, solved backwards from a steady state of 25
+in the worst season and the first hunting area, and applies it to **every**
+creature carrying `rwmt1` found by scanning the drop tables rather than by
+naming the rabbit and the wolf. `MOD_meatSteadyState()` is the shared formula;
+`modMeat()` prints the table. **Any change to kill times has to re-check this** —
+it is the one quest whose difficulty is set by the clock rather than by the
+fight.
+
 ## Choice lines have a fixed height
 
 `.chs` is `height:22px` with no overflow rule, so a choice that wraps does not

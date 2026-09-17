@@ -18,6 +18,38 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.6:</span><br>
+<span style="color:blue">[2026/09/16]</span><br>
+<b>Fixed: two skills were both called "Foraging".</b><br>
+&nbsp;&nbsp;<span style="color:grey">The base game has skl.hvt, "Foraging". MOD 1.x added skl.frg and called it the same<br>
+&nbsp;&nbsp;thing &mdash; two identical rows in the skill panel, and TEN identically named titles,<br>
+&nbsp;&nbsp;because a title's name is derived from its skill's. Nothing errored.</span><br>
+&nbsp;&nbsp;The mod's is <b>Wildcraft</b> now. Its key and id are unchanged, so nobody loses a level &mdash;<br>
+&nbsp;&nbsp;names are not saved, ids are<br>
+&nbsp;&nbsp;<b>Swept the rest:</b> all 140 things the mod names are unique, including across the whole<br>
+&nbsp;&nbsp;inventory bag (item / wpn / eqp / sld / acc share one list)<br>
+&nbsp;&nbsp;<span style="color:grey">The author's own repeats are reported and left alone: "Chashu Ramen" twice, "Bandage"<br>
+&nbsp;&nbsp;on both an item and an armour, two "Blue Slime", two "Nameless", nine "Training Grounds".</span><br>
+<b>Fixed: the hunter's quest had become impossible in summer.</b><br>
+&nbsp;&nbsp;<span style="color:grey">Yamato wants ten Raw Meat HELD AT ONCE, and raw meat rots on a daily timer that runs<br>
+&nbsp;&nbsp;twice as fast in summer. A perishable stock converges instead of accumulating, so there<br>
+&nbsp;&nbsp;is a ceiling and the quest needs that ceiling to be above ten.</span><br>
+&nbsp;&nbsp;<b>The mod never touched the drop table &mdash; it changed how long a rabbit takes to kill.</b><br>
+&nbsp;&nbsp;At the point the quest is offered a Wild Rabbit now has 3,574 HP against the base<br>
+&nbsp;&nbsp;game's 93, so one that died in a single hit takes ten. Ten times less meat an hour<br>
+&nbsp;&nbsp;against an unchanged rot clock<br>
+&nbsp;&nbsp;Measured at the old 6%: steady state 15.6 in a normal season, 51 in winter, and<br>
+&nbsp;&nbsp;<b>4.3 in summer</b> &mdash; against the ten required<br>
+&nbsp;&nbsp;<b>Raw meat now drops at 18%</b>, solved backwards from the requirement rather than picked:<br>
+&nbsp;&nbsp;a steady state of 25 in the worst season and the first hunting area. Applied to every<br>
+&nbsp;&nbsp;creature carrying it, found by scanning the drop tables rather than by naming the<br>
+&nbsp;&nbsp;rabbit and the wolf. Worst case is now 26 against 10<br>
+&nbsp;&nbsp;<span style="color:grey">Not an income: a kill in the first hunting area yields 0.28 coin of meat.</span><br>
+&nbsp;&nbsp;<code>modMeat()</code> prints the table per area and season<br>
+<b>Tests.</b> tests/names.mjs &mdash; 12 checks. Verified both halves fail without their fix: the<br>
+&nbsp;&nbsp;name half reports the skill clash and all five title collisions, and the meat half<br>
+&nbsp;&nbsp;reports a summer steady state of 4 against 10 at the old drop rate<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.5:</span><br>
 <span style="color:blue">[2026/09/15]</span><br>
 <b>Crafting goes to five stars.</b><br>

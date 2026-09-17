@@ -8,7 +8,7 @@
      1. Speed control      — setSpeed(n) / getSpeed(), persisted
      2. Skill XP multiplier — 2x by default, setSkillXp(n) to change
      3. Extended milestones — perks past the original lv ~15 ceiling
-     4. New skills + actions — Qi Circulation, Foraging, Calligraphy,
+     4. New skills + actions — Qi Circulation, Wildcraft, Calligraphy,
                                Conditioning, each with a sustained action
 
    SAVE COMPATIBILITY — why things are done the way they are:
@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.5',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.6',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -72,6 +72,10 @@ var MOD = {
                      // 19 folded into their skill, 40 into ladders of their own.
                      // v3.5: crafting to five stars. It stopped at two, and the
                      // only 3-star recipe was one nothing could teach.
+                     // v3.6: the mod's Foraging renamed Wildcraft (the base
+                     // game already had one), and raw meat's drop raised — the
+                     // mod's kill times had made the hunter's quest impossible
+                     // in summer, because the meat rots faster than it drops.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -352,7 +356,7 @@ MOD_addMilestones(skl.ptnc, [
    ---------------------------------------------------------------------------
    Four skills filling gaps in the original taxonomy:
      Qi Circulation (type 4)  the game is cultivation-inspired but had no qi skill
-     Foraging       (type 8)  gathering had mining/harvesting but no wild foraging
+     Wildcraft      (type 8)  gathering had mining/harvesting but no wild lore
      Calligraphy    (type 5)  crafting had no writing, despite books and Reading
      Conditioning   (type 2)  sits with Toughness as a pure physical-training skill
 
@@ -394,9 +398,19 @@ skl.qic.desc = 'Guiding internal energy along its meridians' + MOD_SEP +
   '<small style="color:darkorange">Sharpens mental acuity and energy efficiency</small>';
 skl.qic.mlstn = MOD_SKILL_TIERS('inta', 'intm', 3, 'INT', 'INT Multiplier');
 
-// --- Foraging ---------------------------------------------------------------
+/* --- Wildcraft --------------------------------------------------------------
+   NOT "Foraging". The base game already has `skl.hvt`, named Foraging, and this
+   shipped with the same name on a different skill — two identical rows in the
+   skill panel, and ten identically named titles, because section 24 derives a
+   title's name from its skill's. The key stays `frg`: names are not saved, so
+   the rename costs nothing, but an id change would lose the level.
+
+   "Wildcraft" rather than something invented — the author's register is plain
+   single words (Topography, Elusion, Temperance, Gluttony, Famine), and this
+   skill is about reading the wild rather than harvesting it, which is what
+   separates it from his Foraging and Harvesting. */
 skl.frg = new Skill(); skl.frg.id = 902; skl.frg.type = 8;
-skl.frg.name = 'Foraging';
+skl.frg.name = 'Wildcraft';
 skl.frg.desc = 'An eye for what grows wild and what of it is edible' + MOD_SEP +
   '<small style="color:darkorange">Better yields when searching the wilds</small>';
 skl.frg.mlstn = MOD_SKILL_TIERS('inta', 'intm', 3, 'INT', 'INT Multiplier');
@@ -477,7 +491,7 @@ act.mod_forage.name = 'Forage';
 act.mod_forage.desc = function () {
   return 'Search the area for anything edible or useful' + MOD_SEP +
     '<span style="color:pink">Exp +0.4/s</span><br>' +
-    '<span style="color:skyblue">Trains Foraging</span><br>' +
+    '<span style="color:skyblue">Trains ' + skl.frg.name + '</span><br>' +
     '<span style="color:crimson">Energy Consumption +0.05/s</span>';
 };
 act.mod_forage.cond = function (l) {
@@ -757,7 +771,7 @@ function modHelp() {
     '  modUnlockAll()  grant them all now, skipping the requirements',
     '  modHelp()       this list',
     '',
-    '  New skills: Qi Circulation, Foraging, Calligraphy, Conditioning',
+    '  New skills: Qi Circulation, Wildcraft, Calligraphy, Conditioning',
     '  New actions: Circulate Qi, Forage, Practice Calligraphy, Endurance Drill',
     '               each earned from a skill perk — see modActions()',
     '  Speed persists across reloads. Skill xp resets to ' + MOD.skill_xp_mult + 'x.'
@@ -931,7 +945,7 @@ skl.qic.use = function () { you.int += you.int / 100 * (this.lvl * 3); };
 skl.clg.use = function () { you.int += you.int / 100 * (this.lvl * 2); };
 skl.cnd.use = function () { you.str += you.str / 100 * (this.lvl * 3); };
 
-// Foraging already had a real per-level effect — the find chance inside
+// Wildcraft already had a real per-level effect — the find chance inside
 // act.mod_forage.use(). Shared here so the tooltip and the action can't drift.
 function MOD_forageChance(lvl) { return 0.010 + (lvl * 0.0015); }
 
@@ -9362,3 +9376,145 @@ MOD_wikiPage('crafting', 'Crafting', function () {
   }
   MOD_WIKI_PAGES.splice(at >= 0 ? at + 1 : MOD_WIKI_PAGES.length, 0, page);
 })();
+
+
+/* ===========================================================================
+   36. RAW MEAT, AND THE HUNTER'S QUEST
+   ---------------------------------------------------------------------------
+   `quest.hnt1` — Head Hunter Yamato's — wants **ten Raw Meat held at once**,
+   and Raw Meat rots. Both halves of that matter, because the mod changed one
+   of them by accident.
+
+   --- what the mod did to it -----------------------------------------------
+
+   Nothing touches `creature.rbt1.drop`. What changed is how long a rabbit
+   takes to kill. `MOD_ENEMY.kill` targets eight LANDED swings for an average
+   spawn, and measured at the point the quest is offered — character level 8,
+   cap 15, in the first Western forest hunting area — a Wild Rabbit now has
+   3,574 HP against the base game's 93. Your swing does ~357, so a rabbit that
+   died in one hit vanilla now takes ten (tests/fightsmoke.mjs medians the same
+   area at seven).
+
+   Ten times the kill time is ten times less meat an hour, and the meat is on a
+   clock:
+
+       item.rwmt1.rot = [.25, .45, .1, .2]
+
+   `planner.chkrot` runs once per in-game day and adds `randf(rot[0], rot[1])`
+   to `rottil`, divided by a season modifier — 0.5 in summer, which makes it
+   go off TWICE as fast, and 2.5 in winter. When `rottil` passes 1 you lose
+   `amount * randf(rot[2], rot[3]) + 1` pieces.
+
+   So the stock converges rather than accumulating. With a gain of `g` meat a
+   day and a rot event every `c` days, the steady state is
+
+       A = (g*c - 1) / 0.15
+
+   and the quest needs A >= 10 with something to spare, because the player has
+   to be HOLDING ten at one moment.
+
+   --- the numbers ----------------------------------------------------------
+
+   At 6%, in the first hunting area (rabbits are 20% of spawns there), taking a
+   conservative fifteen seconds an end-to-end kill rather than the seven the
+   smoke test measures in combat alone:
+
+       96 kills/day * 0.20 * 0.06  =  1.15 meat/day
+       normal  rot every 2.9 days  ->  A = 15.6     scrapes it
+       summer  rot every 1.4 days  ->  A =  4.3     CANNOT REACH TEN
+       winter  rot every 7.1 days  ->  A = 51       fine
+
+   A quest that is completable in three seasons and not in the fourth is not a
+   difficulty choice, it is a bug — and it is the mod's bug, since vanilla kill
+   times put summer comfortably clear.
+
+   --- the fix ---------------------------------------------------------------
+
+   Raise the drop, solved backwards from the requirement rather than picked:
+   aim for a steady state of 25 in the WORST season and the FIRST area, so the
+   player is holding twice what the quest asks and is not racing the rot.
+
+       need A = 25 in summer  ->  loss per cycle 0.15*25 + 1   = 4.75
+       over a 1.43-day cycle                                   = 3.32 meat/day
+       over 96 kills/day                                       = 3.46% per kill
+       through a 20% rabbit share                              = 17.3% per drop
+
+   Rounded to 18%. Applied to every creature that drops Raw Meat, so the wolves
+   move with the rabbits and the Sunken Hollow does not become the only sane
+   place to hunt. Nothing else in a drop table is touched.
+   =========================================================================== */
+
+var MOD_MEAT = {
+  need: 10,           // what quest.hnt1 asks for, held at once
+  target: 25,         // steady state to aim for, in the worst season
+  killSec: 15,        // conservative end-to-end seconds per kill
+  chance: 0.18        // see the arithmetic above
+};
+
+/* Solved, not asserted: the same formula the header works through, exposed so
+   modMeat() and tests/meat.mjs can both report against it rather than against
+   a number typed twice. `season` is the rot divisor — 1 normal, 0.5 summer
+   (twice as fast), 2.5 winter. */
+function MOD_meatSteadyState(share, chance, season) {
+  var it = item.rwmt1;
+  if (!it || !it.rot) return 0;
+  var perDay = (1440 / MOD_MEAT.killSec) * share * chance;
+  var rotPerDay = ((it.rot[0] / (season || 1)) + (it.rot[1] / (season || 1))) / 2;
+  var cycle = 1 / rotPerDay;
+  var lossFrac = (it.rot[2] + it.rot[3]) / 2;
+  return Math.max(0, (perDay * cycle - 1) / lossFrac);
+}
+
+/* Every creature carrying Raw Meat, found by scanning the drop tables rather
+   than by naming the rabbit and the wolf — a third one added later should move
+   with them. Idempotent: drop tables are rebuilt on page load, and this only
+   ever raises a chance that is still below the target. */
+(function () {
+  var touched = [];
+  for (var k in creature) {
+    var c = creature[k];
+    if (!c || !c.drop) continue;
+    for (var i = 0; i < c.drop.length; i++) {
+      var d = c.drop[i];
+      if (!d || d.item !== item.rwmt1) continue;
+      if (d.chance >= MOD_MEAT.chance) continue;
+      touched.push(c.name + ' ' + Math.round(d.chance * 100) + '% -> ' +
+                   Math.round(MOD_MEAT.chance * 100) + '%');
+      d.chance = MOD_MEAT.chance;
+    }
+  }
+  console.log('[mod] raw meat drop raised so the hunter\'s quest survives the mod\'s ' +
+    'kill times: ' + touched.join(', '));
+})();
+
+function modMeat() {
+  var rows = ['Raw Meat and quest.hnt1 (' + MOD_MEAT.need + ' held at once)', ''];
+  var seasons = [['normal', 1], ['summer', 0.5], ['winter', 2.5]];
+  /* Every area that can actually yield meat, with the share the game really
+     rolls against — area.popc, not pop[i].c. */
+  for (var k in area) {
+    var z = area[k];
+    if (!z || !z.pop || !z.popc) continue;
+    var share = 0;
+    z.pop.forEach(function (e, i) {
+      var has = (e.crt && e.crt.drop || []).some(function (d) { return d.item === item.rwmt1; });
+      if (!has) return;
+      var band = z.popc[i];
+      if (band) share += band[1] - band[0];
+    });
+    if (share <= 0) continue;
+    var line = '  ' + (z.name + '                            ').slice(0, 30) +
+      (Math.round(share * 100) + '% meat spawns   ').slice(0, 18);
+    seasons.forEach(function (s) {
+      var a = MOD_meatSteadyState(share, MOD_MEAT.chance, s[1]);
+      line += s[0] + ' ' + (a >= MOD_MEAT.need ? Math.round(a) : Math.round(a) + '!') + '  ';
+    });
+    rows.push(line);
+  }
+  rows.push('', 'A "!" is a steady state below the ten the quest wants.');
+  rows.push('Drop chance ' + Math.round(MOD_MEAT.chance * 100) +
+            '%, assuming ' + MOD_MEAT.killSec + 's an end-to-end kill.');
+  var out = rows.join('\n');
+  console.log(out);
+  return out;
+}

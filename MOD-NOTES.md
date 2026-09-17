@@ -2481,6 +2481,92 @@ taken off you, and a rank you have taken is never lost. Winning pays 15% of a
 character level at the level the rung asked for, which is worth taking and
 cannot skip you up the ladder it gates.
 
+## Two names for one skill, and a quest the mod quietly broke
+
+### "Foraging" was already taken
+
+Ids are the save's key and `tests/ids.mjs` guards them. Names are the
+*player's* key and nothing guarded those. Section 4 added `skl.frg` named
+**Foraging** — and the base game already had `skl.hvt` under exactly that name.
+
+The result was two identical rows in the skill panel, and **ten identically
+named titles**: section 24 builds a title's name from its skill's, so
+`mod_t_hvt_25` and `mod_t_frg_25` both came out "Gleaner of Foraging", five
+rungs each. Nothing errored, and the grouped picker happily drew both.
+
+Renamed to **Wildcraft**. The key and the id are untouched — names are not
+saved, ids are, so the rename costs nobody a level. "Wildcraft" rather than
+something invented: the author's register is plain single words (Foraging,
+Harvesting, Topography, Elusion, Temperance, Gluttony, Famine), and the skill is
+about reading the wild rather than harvesting it, which is what separates it
+from his two.
+
+Swept the rest at the same time. Everything else the mod names — 140 things
+across eleven namespaces — is unique, including across the **whole inventory
+bag**, since `item`, `wpn`, `eqp`, `sld` and `acc` share one list and a repeat
+across them reads as badly as one inside a single namespace.
+
+The author's own repeats are listed and left alone, the same call `area.clg`
+got: "Chashu Ramen" (`rmn1`/`ramen3`), "Bandage" (`item.bdgh`/`eqp.brc`), "Blue
+Slime" (`slm1`/`slm5`), "Nameless" (`ttsttl2`/`hstr4`), and the nine areas all
+called "Training Grounds".
+
+### The hunter's quest stopped being completable in summer
+
+`quest.hnt1` wants **ten Raw Meat held at once**. Raw Meat rots:
+
+```js
+item.rwmt1.rot = [.25, .45, .1, .2]
+```
+
+`planner.chkrot` runs once an in-game day, adds `randf(rot[0], rot[1])` to
+`rottil` **divided by a season modifier** — 0.5 in summer, which makes it go off
+twice as fast, 2.5 in winter — and at `rottil >= 1` destroys
+`amount * randf(rot[2], rot[3]) + 1` pieces. So a perishable stock does not
+accumulate, it **converges**:
+
+```
+A = (gain_per_day * days_between_rot - 1) / lossFraction
+```
+
+The mod never touched the drop table. What it changed is how long a rabbit
+takes to kill. `MOD_ENEMY.kill` targets eight landed swings for an average
+spawn, and measured at the point the quest is offered — character level 8, cap
+15, first Western forest hunting area — a Wild Rabbit has **3,574 HP against the
+base game's 93**. A swing does ~357, so one that died in a single hit now takes
+ten (`fightsmoke` medians the same area at seven).
+
+Ten times the kill time is ten times less meat an hour against an unchanged rot
+clock. At the original 6%, taking a conservative fifteen seconds an end-to-end
+kill:
+
+| season | rot every | steady state |
+|---|---|---|
+| normal | 2.9 days | 15.6 — scrapes it |
+| summer | 1.4 days | **4.3 — cannot reach ten** |
+| winter | 7.1 days | 51 — fine |
+
+Completable in three seasons and impossible in the fourth is a bug, not a
+difficulty choice, and it is the mod's: vanilla kill times put summer
+comfortably clear.
+
+Section 36 solves the drop rate backwards from the requirement rather than
+picking one — aim for a steady state of 25 in the worst season and the first
+area, so the player holds twice what the quest asks and is not racing the clock:
+
+```
+A = 25 in summer -> loss per cycle 0.15*25 + 1 = 4.75
+over a 1.43-day cycle                          = 3.32 meat/day
+over 96 kills/day                              = 3.46% per kill
+through a 20% rabbit share                     = 17.3% per drop
+```
+
+Rounded to **18%**, applied to every creature carrying `rwmt1` — found by
+scanning the drop tables, not by naming the rabbit and the wolf, so a third one
+added later moves with them. Worst case is now 26 against 10 needed, and a kill
+in the first hunting area yields 0.28 coin of meat, so it is not an income
+either. `tests/names.mjs` fails at the old 6% and passes at 18%.
+
 ## Crafting stopped at two stars
 
 The question was whether anything above one star can be crafted. Measured

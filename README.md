@@ -28,7 +28,7 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Thirty-five sections, roughly in the order they were built. The design record
+Thirty-six sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
 [MOD-NOTES.md](MOD-NOTES.md).
 
@@ -117,7 +117,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 26 scripts
+npm test                                          # all 27 scripts
 ./tests/run.sh audit combat                       # a subset
 ```
 
@@ -137,7 +137,7 @@ copy of the folder.
 | `mod.js` | the entire mod, ~9,350 lines |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 26 Playwright scripts |
+| `tests/` | 27 Playwright scripts |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 
