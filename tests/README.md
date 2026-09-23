@@ -61,8 +61,31 @@ a specific binary instead of Playwright's own.
 | `ranks.mjs` | The rank ladder. `you.rank()` is derived from live stats, so the earned rank lives in `global.flags` and `you.rank` is wrapped to floor at it — checked that the wrapper floors and never caps, and that the held rank survives a save/load (`load()` restores fields into the You instance rather than replacing it, which is what makes the wrapper safe). Then the hall: exactly one rung offered at a time, the level gate, beaten rungs shown rather than re-offered, no line wrapping a 22px row, and the entrance sitting above the trailhead's `"<=` line. Finally all 100 matchups — 10 rungs x 10 story tiers — must hold `kill < die` with zero whiffs through the real `dmg_calc`, and the per-rung step must still leave the margin re-asserted. |
 | `crafting.mjs` | The 2★-5★ ladder, and the audit that prompted it re-run live — the base game must still be unable to teach its only 3★ recipe, and must still have no 5★ one. Two of its checks guard real traps rather than being thorough: every new id must land in the block `load()` restores its namespace from (`itemgroup[(id+1)/10000<<0]`), and no rarity may exceed 6, because `equip()` does `global.text.wecs[w.rar][0]` and that table has seven entries. Then the gating (nothing before the deep forest, one node per story rung), the 22px choice rows, the Gather action refusing to run away from a node and teaching exactly its own rung, all twenty recipes making their output, the chain being a chain (the 3★ blade cannot be made before the 2★ one exists), every piece equipping, the economy pointing at crafting rather than at selling ore, and a save/load keeping materials, gear and blueprints. |
 | `names.mjs` | Two things that break quietly. **Names**: ids are checked by `ids.mjs`, but the player never sees an id — section 4 shipped `skl.frg` named "Foraging" when the base game already had `skl.hvt` under that name, which is two identical skill rows *and* ten identically named titles, since section 24 derives a title's name from its skill's. Nothing errored. The author's own repeats (Chashu Ramen, Bandage, Blue Slime, Nameless, and the nine Training Grounds) are listed and allowed; anything the mod adds fails. **The hunter's quest**: `quest.hnt1` wants ten Raw Meat *held at once* and Raw Meat rots on a daily timer, so the stock converges rather than accumulating. The mod never touched the drop table but made a rabbit take ten swings instead of one, which put summer out of reach. Asserts the steady state clears the requirement in every meat area in every season, and that the raise did not turn meat into an income. |
+| `targets.mjs` | **Does the enemy model deliver its own dials?** Every other balance script checks a *relation* — `kill < die`, whiff 0, nothing unwinnable — and none of them checks whether `MOD_ENEMY.kill` is actually being hit, because a single matchup can't tell you: crit rate reaches 33% and a crit is ~8x a normal swing. This samples 45 independent spawns per area and puts a **confidence interval** on the result, comparing against the target *that spawn was solved for* (`_modKillT` / `_modDieT`), not the flat dial — `killT = kill * band^hpSpread * creatureShape(...)`, so a basement rat is legitimately a five-swing kill. The statistic is the ratio measured/target, and the check is practical equivalence (the whole interval inside ±5%) rather than "contains 1.0", because at n=45 the model tracks to ±0.1% and a 1% quantisation bias would fail a significance test while meaning nothing in play. Also unit-tests `lib/stats.mjs` before trusting it. Catches the model drifting off its dials without breaking the ordering, which is invisible to every other script here. |
 | `capreach.mjs` | Whether a skill can actually **reach** the story cap: the game's exp curve per tier against the xp a skill really receives through the mod's grant path, in hours at 1x and at max game speed. Run it after touching the cap ladder or any xp rate. |
 | `savecompat.mjs` | A save captured from the pre-v2 build (100 discovered skills, `tests/fixtures/v1-save.txt`) loads under the current build without throwing or tripping the "SOMETHING BROKE" screen; base-game progress, and every *surviving* discovered skill's level and milestone flags, come back intact; merged-away skills are simply absent. |
+
+## `tests/lib/stats.mjs`
+
+The one piece of shared code in this directory. Every balance number here is a
+sample mean of something heavy-tailed, and until this the scripts reported
+point estimates — `fightsmoke` medians nine duels, `allareas` prints one number
+per matchup — with nothing to say how much of a gap was real.
+
+- `summarize(samples)` → n, mean, sd, se, 95% CI, and `wide` when the margin
+  exceeds 25% of the mean.
+- `withinBand(samples, target, tolPct)` → practical equivalence. Fails two
+  ways, by real deviation **or** by an interval too wide to conclude anything,
+  and says which. Usually what you want over `hitsTarget`.
+- `hitsTarget(samples, target)` → whether the interval covers the target.
+  Sharper, but with a tight enough sample it always fails.
+
+**Student's t, not the normal approximation.** `fightsmoke` fights nine times
+per area; at n=9 the z-interval is ~15% too narrow, which is the one direction
+that turns noise into a confident wrong answer. Critical values are a small
+embedded table — between rows it takes the **lower-df** (wider) value, never
+the narrower. There is no Python and no stats package in this repo, and adding
+one to compute `mean ± t·sd/√n` would be a dependency, not an improvement.
 
 ## Reading the balance output
 

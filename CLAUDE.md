@@ -148,6 +148,31 @@ What matters:
   it) but `modCaps()` and the tests still read it. Tests select a tier by
   **index** (`setTier(9)`), not by cap number.
 
+### Uncertainty: `tests/lib/stats.mjs`
+
+Every balance number here is a sample mean of something heavy-tailed, so a
+point estimate cannot say whether a gap is real. `summarize()` gives a 95% CI,
+`withinBand(samples, target, tolPct)` asks the question that usually matters —
+is it *practically* on target — and `fightsmoke` and `targets.mjs` both use it.
+
+- **Student's t, not z.** `fightsmoke` fights nine times per area; z at n=9 is
+  ~15% too narrow. Between table rows `tCrit95` takes the lower-df (wider)
+  value, never the narrower.
+- **Compare against the per-spawn target, never the dial.** `MOD_ENEMY.kill` is
+  the centre of a distribution: `killT = kill * band^hpSpread * creatureShape()`,
+  clamped. A basement rat is legitimately a five-swing kill. Use `_modKillT` /
+  `_modDieT`, which `MOD_scaleEnemy` leaves on the spawn.
+- **Fold in the hit rate.** The targets count swings *including misses*, while
+  `abl.default.f` returns damage per landed hit and never rolls to-hit. Miss
+  this and every ratio comes back multiplied by `MOD_ENEMY.hit` — a die ratio of
+  exactly 0.45 is the tell.
+- **Equivalence, not significance.** At n=45 the model tracks its targets to
+  ±0.1%, so "does the CI contain the target" fails on a 1% quantisation bias
+  that means nothing in play. `targets.mjs` uses a ±5% band.
+- And the crit stratification the section above demands applies here too: a
+  plain sample mean put two of forty-five rank-duel spawns the wrong side of
+  `kill < die` on noise alone.
+
 ### Known and unfixed: the player's real max HP is not the one the tests measure
 
 Found while building the rank ladder, **not fixed** — it is a separate piece of

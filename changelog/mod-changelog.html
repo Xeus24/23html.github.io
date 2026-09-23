@@ -18,6 +18,36 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.8:</span><br>
+<span style="color:blue">[2026/09/23]</span><br>
+<b>Tooling, not gameplay: the balance numbers now come with error bars.</b><br>
+&nbsp;&nbsp;<span style="color:grey">Every balance figure in the suite is a sample mean of something heavy-tailed &mdash; crit rate<br>
+&nbsp;&nbsp;reaches 33% and a crit is ~8x a normal swing. Until now the scripts reported point<br>
+&nbsp;&nbsp;estimates: fightsmoke medians nine duels, allareas prints one number per matchup, and<br>
+&nbsp;&nbsp;nothing said how much of a gap between measurement and target was real.</span><br>
+&nbsp;&nbsp;<b>tests/lib/stats.mjs</b> &mdash; the first shared code in tests/. Confidence intervals on<br>
+&nbsp;&nbsp;Student's t (z at n=9 is 15% too narrow, and fightsmoke fights nine times), plus a<br>
+&nbsp;&nbsp;practical-equivalence check that fails two ways &mdash; real drift, or an interval too wide<br>
+&nbsp;&nbsp;to conclude anything &mdash; and says which<br>
+&nbsp;&nbsp;<b>fightsmoke now prints a CI beside the median.</b> Immediately useful: The Long Vigil's<br>
+&nbsp;&nbsp;median of 2 swings carries an interval of [0.46, 4.87], &plusmn;83%. That number was being<br>
+&nbsp;&nbsp;read as a measurement and it is noise. Flagged in place rather than failed<br>
+<b>New: tests/targets.mjs.</b> Every other balance script checks a RELATION &mdash; kill &lt; die,<br>
+&nbsp;&nbsp;whiff 0. None checked whether the model hits its own dials, which a single matchup<br>
+&nbsp;&nbsp;cannot tell you. 45 spawns an area, compared against the target THAT SPAWN was solved<br>
+&nbsp;&nbsp;for, with an interval. Catches the model drifting without breaking the ordering<br>
+&nbsp;&nbsp;<span style="color:grey">Verified it fails: a 15% drift injected into _modDmg is caught at 0.869 of target.</span><br>
+&nbsp;&nbsp;<b>Result: the model is on its dials</b> &mdash; every area tracks its per-spawn kill and die<br>
+&nbsp;&nbsp;targets to within 1%, and kill &lt; die holds on 45/45 spawns in all four areas sampled<br>
+<b>Four corrections along the way, all to the new test, none to the mod:</b><br>
+&nbsp;&nbsp;comparing against the flat dial instead of the per-spawn target (a basement rat is<br>
+&nbsp;&nbsp;legitimately a five-swing kill); omitting the hit rate, which pinned every die ratio at<br>
+&nbsp;&nbsp;exactly 0.45 &mdash; MOD_ENEMY.hit, the tell; a plain sample mean instead of the crit<br>
+&nbsp;&nbsp;stratification CLAUDE.md already demands; and testing significance rather than<br>
+&nbsp;&nbsp;equivalence, which at &plusmn;0.1% precision fails on a 1% quantisation bias that means<br>
+&nbsp;&nbsp;nothing in play<br>
+<b>Not gameplay.</b> No change to mod.js, index.html, or any save.<br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.7:</span><br>
 <span style="color:blue">[2026/09/16]</span><br>
 <b>Fixed: every item the mod added was labelled "Book".</b><br>

@@ -117,7 +117,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 27 scripts
+npm test                                          # all 28 scripts
 ./tests/run.sh audit combat                       # a subset
 ```
 
@@ -137,7 +137,7 @@ copy of the folder.
 | `mod.js` | the entire mod, ~9,350 lines |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 27 Playwright scripts |
+| `tests/` | 28 Playwright scripts, plus `lib/stats.mjs` |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 

@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { summarize, ciLine } from './lib/stats.mjs';
 
 // End-to-end smoke: run real battles through the game's own attack() rather than
 // calling dmg_calc directly, so the wrapper is exercised the way the game uses
@@ -105,18 +106,29 @@ const R = await p.evaluate(() => {
         return { ak, cap: rs[0].cap, runs: RUNS,
                  wins: rs.filter(r => r.won).length,
                  swMin: sw[0], swMed: sw[(RUNS / 2) | 0], swMax: sw[RUNS - 1],
+                 swings: rs.map(r => r.swings),
                  stalled: rs.filter(r => r.swings >= 200).length,
                  diag: rs[0].diag };
       } catch (err) { return { ak, threw: String(err).slice(0, 120) }; }
     });
 });
 
-console.log('  area          cap   won   swings min/median/max');
+// The median says where the middle fight landed; the interval says how much of
+// the spread is the area and how much is nine samples of a heavy-tailed roll.
+// Student's t, not the normal approximation -- at n=9 z is ~15% too narrow,
+// which is the direction that turns noise into a confident wrong answer.
+console.log('  area          cap   won   swings min/median/max   mean (95% CI)');
 const fails = [];
 R.forEach(r => {
   if (r.threw) { console.log(`  ${r.ak}: THREW ${r.threw}`); fails.push(`${r.ak} threw`); return; }
+  const st = summarize(r.swings);
   console.log(`  ${r.ak.padEnd(12)} ${String(r.cap).padStart(4)}   ${r.wins}/${r.runs}` +
-    `   ${String(r.swMin).padStart(3)} / ${String(r.swMed).padStart(3)} / ${String(r.swMax).padStart(3)}`);
+    `   ${String(r.swMin).padStart(3)} / ${String(r.swMed).padStart(3)} / ${String(r.swMax).padStart(3)}` +
+    `   ${ciLine(st, ' sw')}`);
+  // Not a failure -- nine fights in a heavy-tailed distribution are allowed to
+  // be imprecise. It is a note that this area's number should not be read as
+  // exact, and that a change of that size in it would not be evidence.
+  if (st.wide) console.log(`  ${''.padEnd(12)}        ^ wide: read this area's median as a hint, not a measurement`);
   if (r.wins < r.runs) fails.push(`${r.ak}: lost ${r.runs - r.wins} of ${r.runs} fights`);
   if (r.stalled) fails.push(`${r.ak}: ${r.stalled} fights never resolved`);
   if (r.swMed > 60) fails.push(`${r.ak}: median fight is ${r.swMed} swings — a slog`);
