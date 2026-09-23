@@ -2854,7 +2854,7 @@ across repeated save/load cycles, and `you.res` / `skl.p` perturb once on the
 load after milestones re-fire and are reconciled back by the next tick, with no
 drift after that.
 
-## Known and unfixed: hpTrack's max HP is transient
+## hpTrack's max HP was transient — fixed
 
 Turned up while testing the rank duels end to end through `attack()` rather
 than through a damage sample. Recorded here because it invalidates a number
@@ -2896,6 +2896,42 @@ A first attempt at a narrower fix — restoring `you.hp` after the wrapper so th
 game's clamp ran against the final `hpmax` rather than the unbuffed one — was
 written and reverted. It is correct as far as it goes, but `hpmax` reverts on
 the next `stat_r` regardless, so it fixes a symptom and leaves the cause.
+
+### The fix
+
+`hpm` is an input to `stat_r`, so writing that instead of `hpmax` survives.
+Measured on a cap-60 character: before, one `stat_r()` took hpmax from
+1,492,947 to 72,377; after, both read 780,407, and so do two hundred more
+`stat_r` calls.
+
+Three corrections were needed on the way, each caught by measurement rather
+than by reading:
+
+1. **`hpm` is saved.** `hpm:you.hpm` is in the save object, so multiplying it
+   in again each load would compound exactly the way `you.res` once did. The
+   mod's factor is stored in `global.flags.mod_hpm` and divided back out first
+   — the `MOD_applyMoneyDrops` pairing.
+2. **The recovered base needs a floor.** `freshYou()` in the test harness
+   resets `you.hpm = 1` without clearing the flag, so the division recovered
+   `1/18.86 = 0.053` and max HP collapsed to **12**. `allareas` caught it
+   immediately: six rank-duel matchups flipped to `kill > die`. Flooring the
+   base at 1 is an invariant, not a patch — only milestones touch `hpm`, and
+   they only add.
+3. **`Math.ceil`, not `Math.round`.** `stat_r` ceils. One unit apart is enough
+   for the durability check to fail, which is how it was found.
+
+`stat_r()` is not called from inside the wrapper. The mod's own skill `use()`
+calls add straight into `you.str`, and `stat_r` would recompute those from
+`(r + a) * m * e` and wipe them — so the wrapper sets `hpmax` by hand alongside
+`hpm`, and the next `stat_r` reaches the same number on its own.
+
+What this changes in play: the character now actually has the health every
+balance script has always assumed. Enemy damage is unchanged — `MOD_scaleEnemy`
+was already sizing against the buffed number — so fights stop being roughly
+eighteen times deadlier than the model intended, worst at the cap. All 2,790
+`allareas` matchups still pass, because they were measuring the right number
+all along; it was play that had the wrong one.
+
 
 ## A changelog you can actually reach
 

@@ -210,6 +210,66 @@ R.rows.forEach(r => {
   check(st.ok, `${r.name}: incoming damage tracks its die target (${st.why})`);
 });
 
+console.log('\n--- and the player actually HAS the max HP the model assumes');
+// The die target is `you.hpmax / (dieT * hit)`, so the whole model rests on
+// hpmax being real. It was not: hpTrack used to ASSIGN you.hpmax, and stat_r
+// recomputes it from (hp_r + hpa) * hpm * hpe on the very next call -- which
+// the tick, fght, update_d and allbuff itself all make constantly. Every script
+// here read it in the instant after allbuff while the assignment still stood,
+// so 2,790 matchups validated against a number the player never held.
+const hp = await p.evaluate(() => {
+  const build = () => {
+    Object.assign(global.flags, { tr3_win: true, mod_t_forest: true, mod_t_deep: true,
+      mod_t_cata: true, trne1e1: true, trne3e1: true });
+    MOD_CAP.current = -1; const cap = MOD_levelCap();
+    for (let i = 1; i < 70; i++) { try { lvlup(you, 1); } catch (e) {} }
+    for (const k in skl) { const s = skl[k];
+      if (!s || typeof s !== 'object' || k === 'rnwn') continue;
+      s.lvl = Math.min(cap, 60);
+      if (s.mlstn) s.mlstn.forEach(m => { m.g = false;
+        if (m.lv <= s.lvl) { try { m.f(); m.g = true; } catch (e) {} } }); }
+    you.stat_r(); allbuff(you);
+  };
+  build();
+  const afterAllbuff = Math.round(you.hpmax);
+  you.stat_r();                                 // the call that used to wipe it
+  const afterStatR = Math.round(you.hpmax);
+  // many bare stat_r calls, the way a running game makes them
+  for (let i = 0; i < 200; i++) you.stat_r();
+  const after200 = Math.round(you.hpmax);
+
+  // the base is recovered by dividing the stored factor back out, and anything
+  // that resets hpm without clearing the flag would make that division wrong --
+  // it is floored at 1, which is an invariant: only milestones touch hpm, and
+  // they add
+  let minHpm = Infinity, minMax = Infinity;
+  for (let i = 0; i < 30; i++) { you.hpm = 1; allbuff(you);
+    minHpm = Math.min(minHpm, you.hpm); minMax = Math.min(minMax, you.hpmax); }
+
+  // and it must not compound: the factor is stored, not multiplied in again
+  build();
+  const one = you.hpm;
+  for (let i = 0; i < 5000; i++) allbuff(you);
+  const many = you.hpm;
+  return { afterAllbuff, afterStatR, after200, minHpm, minMax,
+           drift: Math.abs(many - one) / one,
+           storedFactor: global.flags.mod_hpm };
+});
+console.log(`     after allbuff ${hp.afterAllbuff.toLocaleString()}, after stat_r ` +
+  `${hp.afterStatR.toLocaleString()}, after 200 more ${hp.after200.toLocaleString()}`);
+check(hp.afterStatR === hp.afterAllbuff,
+  'max HP survives the stat_r that used to wipe it');
+check(hp.after200 === hp.afterAllbuff,
+  'and two hundred more of them');
+check(typeof hp.storedFactor === 'number' && hp.storedFactor > 1,
+  `the multiplier is stored in global.flags.mod_hpm (${
+    typeof hp.storedFactor === 'number' ? hp.storedFactor.toFixed(2) + 'x' : 'ABSENT — hpmax is being written as a total again'
+  })`);
+check(hp.minHpm >= 1,
+  `hpm never drops below the game's own value, whatever resets it (min ${hp.minHpm.toFixed(2)})`);
+check(hp.drift < 1e-9,
+  `5,000 allbuff calls do not compound it (drift ${hp.drift.toExponential(1)})`);
+
 console.log('\n--- kill < die, on every spawn, not just on the aggregate');
 // Aggregating first would conflate spawn-to-spawn spread with measurement
 // noise: two different spawns can measure kill 8.6 and die 8.3 while each one

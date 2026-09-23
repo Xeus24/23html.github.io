@@ -23,7 +23,12 @@ else
 fi
 
 echo "serving $ROOT on port $PORT"
-npx --yes http-server -p "$PORT" -s "$ROOT" >/dev/null 2>&1 &
+# -c-1 disables caching. Without it http-server sends max-age=3600, and a
+# browser can be handed a mod.js from before the edit you are testing — which
+# shows up as a phantom failure that will not reproduce when you re-run the
+# script on its own. Cost of the flag: nothing. Cost of not having it: an hour
+# of chasing a bug that is already fixed.
+npx --yes http-server -p "$PORT" -c-1 -s "$ROOT" >/dev/null 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null' EXIT
 

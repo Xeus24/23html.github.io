@@ -18,6 +18,42 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 3.9:</span><br>
+<span style="color:blue">[2026/09/23]</span><br>
+<b>Fixed: you never actually had the max HP the game was giving you.</b><br>
+&nbsp;&nbsp;<span style="color:grey">The mod raises max HP with your offence (hpTrack). It did that by ASSIGNING you.hpmax &mdash;<br>
+&nbsp;&nbsp;and stat_r recomputes hpmax from (hp_r + hpa) * hpm * hpe on the very next call, which<br>
+&nbsp;&nbsp;the tick, combat, and allbuff itself all make constantly. Measured on a cap-60<br>
+&nbsp;&nbsp;character: one stat_r() took max HP from 1,492,947 to 72,377. Sampled every 137ms<br>
+&nbsp;&nbsp;across six seconds of play, the low number appeared in all 43 samples.</span><br>
+&nbsp;&nbsp;<b>Enemy damage was sized against the number you never held.</b> MOD_scaleEnemy reads<br>
+&nbsp;&nbsp;you.hpmax in the instant after allbuff, while the assignment still stands, so every<br>
+&nbsp;&nbsp;fight was built for a character with ~18x the health you actually had. Harmless early,<br>
+&nbsp;&nbsp;worst at the cap<br>
+&nbsp;&nbsp;<b>It writes the multiplier now</b>, not the total &mdash; hpm is an input to stat_r, so it<br>
+&nbsp;&nbsp;survives. Max HP holds through 200 consecutive stat_r calls<br>
+&nbsp;&nbsp;<span style="color:grey">hpm is SAVED, so the mod's factor is tracked in global.flags and divided back out<br>
+&nbsp;&nbsp;rather than multiplied in again &mdash; the same pairing the coin-drop rate uses, and the<br>
+&nbsp;&nbsp;same trap you.res once fell into. Verified across six save/load cycles and 20,000<br>
+&nbsp;&nbsp;allbuff calls: zero drift.</span><br>
+&nbsp;&nbsp;<b>Your fights are now as deadly as they were always meant to be</b>, which is to say<br>
+&nbsp;&nbsp;roughly eighteen times less so than they have been<br>
+<b>Two corrections found by the tests, not by reading:</b><br>
+&nbsp;&nbsp;the recovered base needed flooring at 1 &mdash; anything resetting hpm without clearing the<br>
+&nbsp;&nbsp;flag recovered 1/18.86 instead, and allareas immediately reported the player at 12 max<br>
+&nbsp;&nbsp;HP with six rank duels flipped to kill &gt; die; and Math.ceil rather than Math.round, to<br>
+&nbsp;&nbsp;agree with stat_r to the unit<br>
+<b>Also: tests/run.sh now serves with -c-1.</b> Without it http-server sends max-age=3600 and<br>
+&nbsp;&nbsp;a browser can be handed a mod.js from before the edit being tested &mdash; which showed up<br>
+&nbsp;&nbsp;once during this work as an allareas failure that would not reproduce standalone.<br>
+&nbsp;&nbsp;<span style="color:grey">A flaky safety net is worse than a failing one.</span><br>
+<b>Tests.</b> tests/targets.mjs gains 5 checks &mdash; max HP survives one stat_r and two hundred,<br>
+&nbsp;&nbsp;the factor lives in global.flags rather than being written as a total, hpm never drops<br>
+&nbsp;&nbsp;below the game's own value whatever resets it, and 5,000 allbuff calls do not compound<br>
+&nbsp;&nbsp;it. Verified they fail against the old behaviour<br>
+&nbsp;&nbsp;<span style="color:grey">All 2,790 allareas matchups still pass &mdash; they were measuring the right number all<br>
+&nbsp;&nbsp;along. It was play that had the wrong one.</span><br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.8:</span><br>
 <span style="color:blue">[2026/09/23]</span><br>
 <b>Tooling, not gameplay: the balance numbers now come with error bars.</b><br>

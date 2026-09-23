@@ -173,30 +173,44 @@ is it *practically* on target — and `fightsmoke` and `targets.mjs` both use it
   plain sample mean put two of forty-five rank-duel spawns the wrong side of
   `kill < die` on noise alone.
 
-### Known and unfixed: the player's real max HP is not the one the tests measure
+### Max HP: write the multiplier, not the total — FIXED
 
-Found while building the rank ladder, **not fixed** — it is a separate piece of
-work and it touches the whole balance model.
+`hpTrack` (sections 9/10) used to **assign** `you.hpmax` at the end of the
+`allbuff` wrapper. The assignment did not survive: `stat_r` recomputes hpmax as
+`(hp_r + hpa) * hpm * hpe`, and the tick, `fght`, `update_d` and `allbuff`
+itself all call it constantly. Measured on a cap-60 character, one `stat_r()`
+took hpmax from **1,492,947 to 72,377** — a 20x collapse — and sampling every
+137ms across six seconds of real play found the low number in all 43 samples.
+The HP bar agreed: `hp: 2,438/10,050`.
 
-Section 9/10's `hpTrack` raises `you.hpmax` at the end of the `allbuff`
-wrapper. But `allbuff` opens with `who.stat_r()`, and `stat_r` recomputes
-`hpmax` from `(hp_r+hpa)*hpm*hpe` — so the raised value survives only until the
-next `stat_r`, which the tick, `fght`, `update_d` and `allbuff` itself all call
-constantly. Sampled 43 times across six seconds of real ticking on a cap-60
-character, `you.hpmax` was **10,050 every single time**; the hpTrack value,
-184,754, never appeared. The HP bar agrees: `hp: 2,438/10,050`.
+Every balance script reads `you.hpmax` in the instant after `allbuff` while the
+assignment still stands, and so does `MOD_scaleEnemy` when it sizes `_modDmg`.
+So the enemy's damage was built for a character with ~18x the health the
+character actually had, and all 2,790 `allareas` matchups were validating
+against a number the player never held.
 
-Every balance script measures `you.hpmax` immediately after `allbuff`, so they
-all see 184,754. `MOD_scaleEnemy` does too, and sizes `_modDmg` against it. So
-the enemy's damage is built for a character with ~18x the health the character
-actually has, and the divergence grows with skill level — it is ~1x early and
-worst in the endgame. All 2,790 `allareas` matchups are validating against a
-number the player never holds.
+It now writes `you.hpm`, which IS an input to `stat_r` and therefore survives.
+Three things that took a correction each:
 
-The fix is the one `MOD_scaleEnemy` already documents for enemies: **write the
-multiplier, not the total** — set `you.hpm` (which `stat_r` reapplies from the
-base every time) rather than assigning `you.hpmax`. Check first whether `hpm`
-is in the save, or the bonus will compound on load like `you.res` did.
+- **`hpm` is saved** (`hpm:you.hpm` in the save object), so the mod's factor is
+  tracked in `global.flags.mod_hpm` and divided back out before re-applying —
+  the same delta pairing `MOD_applyMoneyDrops` uses, and for the same reason
+  `you.res` once compounded on every load.
+- **The recovered base is floored at 1.** Anything that resets `hpm` without
+  clearing the flag — a test harness rebuilding the player, a new game keeping
+  flags — otherwise recovers `1/18.86` and max HP collapses. Flooring is an
+  invariant, not a guess: only milestones touch `hpm`, and they add. Without
+  it `allareas` reported the player at **12 max HP** and six rank duels flipped
+  to `kill > die`.
+- **`Math.ceil`, not `Math.round`** — `stat_r` ceils, and the two have to agree
+  to the unit or this call and the next report max HP one apart.
+
+`stat_r()` is deliberately **not** called from inside the wrapper: the mod's
+skill `use()` calls add straight into `you.str` and friends, and `stat_r` would
+recompute those from `(r + a) * m * e` and wipe them. Setting `hpmax` by hand
+alongside `hpm` keeps the current call right and lets the next `stat_r` reach
+the same number on its own. `tests/targets.mjs` checks all of it, and fails
+against the old behaviour.
 
 ## Content gating
 

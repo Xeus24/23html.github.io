@@ -108,13 +108,12 @@ cycle. `setEnemyScale({kill: 12, die: 24})` takes any subset.
 
 ## Serving during development
 
-`tests/run.sh` starts `http-server` without `-c-1`, which means it sends
-`Cache-Control: max-age=3600`. The scripts are fine — each Playwright run gets a
-fresh browser — but a browser you have open by hand will keep running a stale
-`mod.js` for an hour, and the script tag has no query string to bust. Symptoms
-are confusing: half the mod present, the newest section simply absent. Serve
-with `npx http-server -p 8080 -c-1 .` when poking at it in a real browser, or
-switch ports, which changes the cache key.
+`tests/run.sh` starts `http-server` **with** `-c-1`, so a browser is never
+handed a `mod.js` from before the edit you are testing. It did not always:
+without the flag http-server sends `max-age=3600`, and that surfaced once as
+an `allareas` failure that would not reproduce when the script was re-run on
+its own. A flaky safety net is worse than a failing one. If you serve the
+folder by hand for a manual look, pass `-c-1` yourself.
 
 ## A caution
 

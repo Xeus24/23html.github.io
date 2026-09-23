@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.7',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '3.9',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -79,6 +79,10 @@ var MOD = {
                      // v3.7: item ids carry a CLASS as well as a namespace, so
                      // 26 of the mod's 32 items were labelled "Book". Moved,
                      // with a migration so saves keep what they were holding.
+                     // v3.8: confidence intervals on the balance numbers.
+                     // v3.9: hpTrack wrote you.hpmax, which stat_r recomputes —
+                     // so the player never held the max HP every fight was
+                     // sized against. It writes you.hpm now.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 2,     // change with setSkillXp(n)
@@ -2381,10 +2385,60 @@ allbuff = function (who) {
        scale everything permanent that came before it rather than a subtotal. */
     if (skl.rnwn && skl.rnwn.lvl) skl.rnwn.use();
 
-    // Max HP, from permanent offence only — stable through a fight.
+    /* Max HP, from permanent offence only — stable through a fight.
+
+       WRITE THE MULTIPLIER, NOT THE TOTAL. This used to assign `you.hpmax`
+       directly, and the assignment did not survive: `stat_r` recomputes hpmax
+       as `(hp_r + hpa) * hpm * hpe`, and the tick, `fght`, `update_d` and
+       `allbuff` itself all call it constantly. Sampled every 137ms across six
+       seconds of real play on a cap-60 character, `you.hpmax` was 10,050 in
+       all 43 samples; the value this block computed, 184,754, appeared in none
+       of them. The HP bar agreed: `hp: 2,438/10,050`.
+
+       Every balance script reads `you.hpmax` in the instant after `allbuff`,
+       while the assignment is still standing, and so does MOD_scaleEnemy when
+       it sizes `_modDmg`. So the enemy's damage was built for a character with
+       eighteen times the health the character actually had — harmless early,
+       worst at the cap, and invisible to all 2,790 matchups because they were
+       measuring the same transient number.
+
+       `hpm` IS an input to stat_r, so it survives. It is also SAVED
+       (`hpm:you.hpm` in the save object), which is why this tracks its own
+       contribution in `global.flags.mod_hpm` and divides it back out rather
+       than multiplying in again — the same delta pairing MOD_applyMoneyDrops
+       uses for `enmondren`, and for the same reason: `you.res` once compounded
+       on every load by skipping it.
+
+       `stat_r()` is deliberately NOT called here. The mod's own skill `use()`
+       calls above add straight into `you.str` and friends, and stat_r would
+       recompute those from (r + a) * m * e and wipe them. Setting hpmax by
+       hand alongside hpm keeps this call correct and leaves the next stat_r —
+       whenever it comes — to reach the same number on its own. */
     if (strRef > 0 && you.str > strRef) {
       var ratio = you.str / strRef;
-      you.hpmax = Math.round(hpRef * Math.pow(ratio, MOD_PLAYER.hpTrack));
+      var wantF = Math.pow(ratio, MOD_PLAYER.hpTrack);
+      var prevF = Number(global.flags.mod_hpm);
+      if (!isFinite(prevF) || prevF <= 0) prevF = 1;
+      var baseHpm = you.hpm / prevF;                  // what milestones made it
+      /* The recovered base is only meaningful while `you.hpm` and the stored
+         factor move together, and they can be separated: anything that resets
+         hpm to 1 without clearing the flag (a test harness rebuilding the
+         player, a new game that keeps flags) leaves the division recovering
+         1/18.86 instead of 1.
+
+         Floor it at 1, which is an invariant rather than a guess: hpm starts
+         at 1 and the only things that touch it are milestones, which add. The
+         mod never makes the player's max HP smaller than the base game made
+         it. Without this, allareas reported the player at 12 max HP and six
+         rank-duel matchups flipped to kill > die. */
+      if (!isFinite(baseHpm) || baseHpm < 1) baseHpm = 1;
+      you.hpm = baseHpm * wantF;
+      global.flags.mod_hpm = wantF;
+      /* Math.ceil, not round — stat_r does
+             hpmax = Math.ceil((hp_r + hpa) * hpm * hpe)
+         and the two have to agree to the unit, or this call and the next
+         stat_r report max HP one apart. */
+      you.hpmax = Math.ceil((you.hp_r + you.hpa) * you.hpm * (you.hpe || 1));
       if (you.hp > you.hpmax) you.hp = you.hpmax;
     }
 
