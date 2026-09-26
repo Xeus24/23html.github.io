@@ -18,6 +18,59 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 4.0:</span><br>
+<span style="color:blue">[2026/09/25]</span><br>
+<b>The cultivator's road &mdash; the realm ladder finally has a road between its rungs.</b><br>
+&nbsp;&nbsp;<span style="color:grey">Sourced, not invented. Wuxiaworld's "General Glossary of Terms in Wuxia, Xianxia &amp;<br>
+&nbsp;&nbsp;Xuanhuan Novels" is the genre's own reference work and it names every piece below.<br>
+&nbsp;&nbsp;Its sentence on bottlenecks was the design brief: cultivators "may require new<br>
+&nbsp;&nbsp;Insights, the aid of medicinal pills, or even harsher training" to break through.<br>
+&nbsp;&nbsp;The mod shipped with one of those three. All three are here now.</span><br>
+&nbsp;&nbsp;<b>Spiritual Root (&#x7075;&#x6839;)</b> &mdash; rolled once, when the dojo finishes teaching you to<br>
+&nbsp;&nbsp;fight. Five grades by purity, commonest worst. Never a dead end: the worst costs 15%<br>
+&nbsp;&nbsp;cultivation speed, not access, and a Root Cleansing Pill moves you up a grade<br>
+&nbsp;&nbsp;<b>Nine layers to every realm (&#x5C42;)</b> &mdash; derived from where Qi Circulation sits between<br>
+&nbsp;&nbsp;this realm's threshold and the next, so breaking through lands you at the first layer<br>
+&nbsp;&nbsp;of the new one on its own. You are now "Core Formation, 5th layer (middle stage)", or<br>
+&nbsp;&nbsp;at the Peak of it, or <i>a half step to</i> Nascent Soul &mdash; which is the genre's own name<br>
+&nbsp;&nbsp;for the state this mod has been calling a bottleneck<br>
+&nbsp;&nbsp;<b>Insight (&#x53C2;&#x609F;)</b> &mdash; the half of the price that cannot be bought, from the three<br>
+&nbsp;&nbsp;sources the glossary names and no fourth of our own: meditating, a kill made under<br>
+&nbsp;&nbsp;20% health, and the first time you set foot in an area. Spent whether the attempt<br>
+&nbsp;&nbsp;works or not, because what you spend is understanding<br>
+&nbsp;&nbsp;<b>Closed Door Training (&#x95ED;&#x5173;)</b> &mdash; a fifth action, and the only one that costs you<br>
+&nbsp;&nbsp;something: it holds the action timer, and it refuses to start unless you are actually<br>
+&nbsp;&nbsp;at a wall. Fifteen minutes in it is worth +30% on the attempt<br>
+&nbsp;&nbsp;<span style="color:grey">And it shelters you. The glossary says seclusion is for "breaking through a<br>
+&nbsp;&nbsp;bottleneck or to avoid becoming distracted at a crucial moment and suffering a<br>
+&nbsp;&nbsp;backlash" &mdash; so a breakthrough attempted while you are still sitting in it cannot<br>
+&nbsp;&nbsp;deviate, only fail. Sit and be safe, or push it in the open and risk it.</span><br>
+&nbsp;&nbsp;<b>Qi Deviation (&#x8D70;&#x706B;&#x5165;&#x9B54;)</b> &mdash; failing in the open now leaves your cultivation base<br>
+&nbsp;&nbsp;unstable for half an in-game day: stats at x0.55, body at x0.70, no second attempt<br>
+&nbsp;&nbsp;until it passes. Clears on its own or at once with a Qi Settling Pill. Never kills<br>
+&nbsp;&nbsp;<b>Heavenly Tribulation (&#x5929;&#x52AB;)</b> &mdash; realm 10 was called Tribulation Transcendence and<br>
+&nbsp;&nbsp;there was no tribulation. From realm 8 up, a successful breakthrough is answered by<br>
+&nbsp;&nbsp;lightning: 3, 5 then 7 bolts costing 55/70/85% of your max HP. A gate on walking in<br>
+&nbsp;&nbsp;healthy, anchored to the player like every other number here. Fall and the realm<br>
+&nbsp;&nbsp;does not open<br>
+&nbsp;&nbsp;<b>Impurities (&#x6742;&#x8D28;)</b> &mdash; something black and foul-smelling leaves you on the way up<br>
+&nbsp;&nbsp;<span style="color:grey">New: modRoad() and modRoots() in the console; two pills at the Herbalist; the wiki's<br>
+&nbsp;&nbsp;Cultivation page carries all of it, generated from the live tables as ever.</span><br>
+<br>
+<b>Fixed: a realm's body multiplier did nothing at all.</b><br>
+&nbsp;&nbsp;<span style="color:grey">Found while building the above. Section 28 raised max HP and max energy by ASSIGNING<br>
+&nbsp;&nbsp;you.hpmax and you.satmax &mdash; the exact mistake v3.9 fixed for hpTrack, still sitting<br>
+&nbsp;&nbsp;in the realm code. stat_r recomputes BOTH from their inputs, so both were undone on<br>
+&nbsp;&nbsp;the next call. Measured on a realm-10 character: hpmax 332 after allbuff and 39 after<br>
+&nbsp;&nbsp;one stat_r; satmax 1700, then 200. The x8.5 the top realm advertised lasted one call.</span><br>
+&nbsp;&nbsp;<b>Ten realms of health and energy you were never given, you now have.</b> Both go<br>
+&nbsp;&nbsp;through hpm and satm, which are inputs to stat_r and therefore survive<br>
+&nbsp;&nbsp;<span style="color:grey">Two contributors wanted the same two fields, and two delta-trackers on one field<br>
+&nbsp;&nbsp;cannot work &mdash; each recovers its base by dividing out its own factor and finds the<br>
+&nbsp;&nbsp;other's sitting in it. So nothing writes hpm/satm any more: contributors publish a<br>
+&nbsp;&nbsp;factor to MOD_BODY and one idempotent applier writes the product, one delta flag per<br>
+&nbsp;&nbsp;axis. Verified: survives stat_r, zero drift over 200 calls, Mortal untouched.</span><br>
+<br>
 <span style="color:gold;background-color:black">----MOD 3.9:</span><br>
 <span style="color:blue">[2026/09/23]</span><br>
 <b>Fixed: you never actually had the max HP the game was giving you.</b><br>

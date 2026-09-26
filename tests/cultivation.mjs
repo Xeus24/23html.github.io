@@ -117,6 +117,8 @@ const attempt = await p.evaluate(() => {
   let consumed = 0, wins = 0, losses = 0;
   for (let i = 0; i < 200; i++) {
     global.flags.mod_realm = 0;
+    global.flags.mod_insight = 99;   // section 38: insight is the other half of the price
+    global.flags.mod_qidev = 0;      // ... and a failure in the open deviates you
     const pill = { amount: 1 };
     const r = MOD_breakthrough(1, pill);
     if (pill.amount === 0) consumed++;
@@ -133,7 +135,10 @@ console.log('\n--- consolidating past the requirement improves the odds');
 const odds = await p.evaluate(() => [0, 4, 8].map(over => {
   skl.qic.lvl = MOD_REALMS[1].qic + over;
   let wins = 0;
-  for (let i = 0; i < 300; i++) { global.flags.mod_realm = 0; if (MOD_breakthrough(1, { amount: 1 })) wins++; }
+  for (let i = 0; i < 300; i++) {
+    global.flags.mod_realm = 0; global.flags.mod_insight = 99; global.flags.mod_qidev = 0;
+    if (MOD_breakthrough(1, { amount: 1 })) wins++;
+  }
   return { over, pct: Math.round(wins / 300 * 100) };
 }));
 odds.forEach(o => console.log(`     +${o.over} past the requirement: ${o.pct}%`));
@@ -141,7 +146,7 @@ check(odds[2].pct > odds[0].pct, 'training past the wall makes it likelier');
 
 console.log('\n--- a realm is worth something, and does not compound over reloads');
 const worth = await p.evaluate(() => {
-  global.flags.mod_realm = 0; skl.qic.lvl = 1;
+  global.flags.mod_realm = 0; skl.qic.lvl = 1; global.flags.mod_qidev = 0;
   you.stat_r(); allbuff(you);
   const mortal = { str: you.str, hp: you.hpmax };
   global.flags.mod_realm = 3;

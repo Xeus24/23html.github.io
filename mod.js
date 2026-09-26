@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '3.9',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '4.0',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -420,6 +420,7 @@ var MOD_ITEM_IDS = {
   breakPill:  4210,  // + index       -> 4210-4219, Medicine/Tool
   spiritPill: 4220,  //               -> 4220-4223, Medicine/Tool
   material:   5200,  //               -> 5200-5211, Material/Misc
+  cultPill:   4230,  // + 0..1        -> 4230-4231, Medicine/Tool
   manual:     9110   //               -> 9110-9115, Book — these really are books
 };
 
@@ -770,6 +771,13 @@ function modActions() {
     (qi ? '' : '  —  clear the dojo\'s Easiest, Easy and Normal dummies (' +
       MOD_QI_UNLOCK.filter(function (f) { return global.flags[f] === true; }).length +
       '/3 done)'));
+  /* Section 38's, and gated on a character state rather than a skill level, so it
+     is not in MOD_ACTION_UNLOCKS either. */
+  if (act.mod_seclu) {
+    var sc = act.mod_seclu.have === true;
+    lines.push('  ' + (sc ? '[unlocked] ' : '[  locked ] ') + act.mod_seclu.name +
+      (sc ? '' : '  —  reach a cultivation bottleneck'));
+  }
   lines.push('modUnlockAll() grants them regardless, if you would rather not wait.');
   var out = lines.join('\n');
   console.log(out);
@@ -801,7 +809,7 @@ function modHelp() {
     '  setSpeed(n)     game speed, e.g. setSpeed(3). Current: ' + getSpeed() + 'x',
     '  resetSpeed()    back to 1x',
     '  setSkillXp(n)   skill xp multiplier. Current: ' + getSkillXp() + 'x',
-    '  modActions()    the four added actions and what unlocks each',
+    '  modActions()    the added actions and what unlocks each',
     '  modUnlockAll()  grant them all now, skipping the requirements',
     '  modHelp()       this list',
     '',
@@ -1841,6 +1849,85 @@ var MOD_PLAYER = {
   hpTrack: 0.92   // max HP follows offence as ratio^hpTrack; 1 = exactly, 0 = not at all
 };
 
+/* --- the body multipliers, in one place ------------------------------------
+   `stat_r` recomputes BOTH of the body's maximums from their inputs:
+
+       hpmax  = ceil((hp_r  + hpa ) * hpm  * hpe )
+       satmax = ceil((sat_r + sata) * satm * sate)
+
+   so nothing that ASSIGNS hpmax or satmax survives. That was the v3.9 hpTrack
+   bug, and section 28's realm body multiplier had exactly the same defect,
+   found while extending it: at Tribulation Transcendence, measured, `hpmax`
+   read 332 after allbuff and 39 after a single stat_r, `satmax` 1700 and then
+   200. The x8.5 the realm advertised lasted one call and was then gone, which
+   is why the ladder's top felt no sturdier than its bottom.
+
+   `hpm` and `satm` ARE inputs, so they survive — and both are SAVED
+   (`hpm:you.hpm`, `satm:you.satm`), so anything writing them has to divide its
+   own previous contribution back out or it compounds on every load, the way
+   `you.res` once did.
+
+   TWO contributors now want the same two fields, which is the reason for this
+   registry rather than a second delta-tracker beside the first. Two trackers on
+   one field cannot work: each recovers its base by dividing out its own factor,
+   and each would find the other's factor sitting inside that base and treat it
+   as something a milestone put there. So no one writes hpm/satm any more. Each
+   contributor publishes a FACTOR here, and MOD_applyBody() writes the product
+   once, with one delta flag per axis.
+
+   To add a contributor: give it a key below, set that key on EVERY call for
+   `you` — to 1 when it does not apply, or last call's factor lingers — and
+   never touch hpm, satm, hpmax or satmax yourself.
+
+   MOD_applyBody() is idempotent, which is what lets more than one wrapper call
+   it: the second call recovers the same base, computes the same product, and
+   writes the same numbers. `tests/cultivation.mjs` asserts that.
+   -------------------------------------------------------------------------- */
+
+var MOD_BODY = {
+  hp:  { track: 1, realm: 1 },   // -> you.hpm
+  sat: { realm: 1 }              // -> you.satm
+};
+
+/* One axis: write the product of its factors into the input stat_r reads, then
+   set the total by hand so THIS call reports it too. stat_r is deliberately not
+   called — it would recompute str/int/agl/spd from (r + a) * m * e and wipe the
+   mod's own skill use() contributions, which is the note in section 10. */
+function MOD_applyBodyAxis(axis, mKey, maxKey, flag, rKey, aKey, eKey) {
+  var factors = MOD_BODY[axis], want = 1, v;
+  for (var k in factors) {
+    v = Number(factors[k]);
+    if (isFinite(v) && v > 0) want *= v;
+  }
+  var prev = Number(global.flags[flag]);
+  if (!isFinite(prev) || prev <= 0) prev = 1;
+  var base = you[mKey] / prev;                 // what milestones made it
+
+  /* Floored at 1 as an invariant rather than a guess: the multiplier starts at
+     1 and the only things that touch it are milestones, which add. Anything
+     that resets it without clearing the flag — a test harness rebuilding the
+     player, a new game that keeps flags — would otherwise recover 1/8.5 and
+     SHRINK the character. That exact failure once put allareas at 12 max HP
+     and flipped six rank duels to kill > die. */
+  if (!isFinite(base) || base < 1) base = 1;
+
+  you[mKey] = base * want;
+  global.flags[flag] = want;
+  /* Math.ceil, to agree with stat_r to the unit — round and ceil disagreeing
+     made this call and the next one report max HP one apart. */
+  you[maxKey] = Math.ceil((you[rKey] + you[aKey]) * you[mKey] * (you[eKey] || 1));
+}
+
+function MOD_applyBody() {
+  try {
+    if (typeof you === 'undefined' || !you || !global.flags) return;
+    MOD_applyBodyAxis('hp',  'hpm',  'hpmax',  'mod_hpm',  'hp_r',  'hpa',  'hpe');
+    MOD_applyBodyAxis('sat', 'satm', 'satmax', 'mod_satm', 'sat_r', 'sata', 'sate');
+    if (you.hp  > you.hpmax)  you.hp  = you.hpmax;
+    if (you.sat > you.satmax) you.sat = you.satmax;
+  } catch (e) { /* never break a stat refresh */ }
+}
+
 allbuff = function (who) {
   MOD_allbuff_original(who);                      // the game's own, from section 6
 
@@ -2414,33 +2501,17 @@ allbuff = function (who) {
        recompute those from (r + a) * m * e and wipe them. Setting hpmax by
        hand alongside hpm keeps this call correct and leaves the next stat_r —
        whenever it comes — to reach the same number on its own. */
-    if (strRef > 0 && you.str > strRef) {
-      var ratio = you.str / strRef;
-      var wantF = Math.pow(ratio, MOD_PLAYER.hpTrack);
-      var prevF = Number(global.flags.mod_hpm);
-      if (!isFinite(prevF) || prevF <= 0) prevF = 1;
-      var baseHpm = you.hpm / prevF;                  // what milestones made it
-      /* The recovered base is only meaningful while `you.hpm` and the stored
-         factor move together, and they can be separated: anything that resets
-         hpm to 1 without clearing the flag (a test harness rebuilding the
-         player, a new game that keeps flags) leaves the division recovering
-         1/18.86 instead of 1.
+    /* PUBLISH A FACTOR, DO NOT WRITE THE FIELD. The delta pairing that used to
+       live here — divide `global.flags.mod_hpm` back out of `you.hpm`, floor the
+       base at 1, re-apply — now lives in MOD_applyBody, because the realm body
+       multiplier wants the same field and two delta-trackers on one field each
+       mistake the other's factor for the player's base. See MOD_BODY.
 
-         Floor it at 1, which is an invariant rather than a guess: hpm starts
-         at 1 and the only things that touch it are milestones, which add. The
-         mod never makes the player's max HP smaller than the base game made
-         it. Without this, allareas reported the player at 12 max HP and six
-         rank-duel matchups flipped to kill > die. */
-      if (!isFinite(baseHpm) || baseHpm < 1) baseHpm = 1;
-      you.hpm = baseHpm * wantF;
-      global.flags.mod_hpm = wantF;
-      /* Math.ceil, not round — stat_r does
-             hpmax = Math.ceil((hp_r + hpa) * hpm * hpe)
-         and the two have to agree to the unit, or this call and the next
-         stat_r report max HP one apart. */
-      you.hpmax = Math.ceil((you.hp_r + you.hpa) * you.hpm * (you.hpe || 1));
-      if (you.hp > you.hpmax) you.hp = you.hpmax;
-    }
+       Set on every call, 1 included: a factor left over from the previous call
+       would keep applying after the thing that earned it stopped. */
+    MOD_BODY.hp.track = (strRef > 0 && you.str > strRef)
+      ? Math.pow(you.str / strRef, MOD_PLAYER.hpTrack)
+      : 1;
 
     // Situational effects layer on top and never touch max HP.
     for (i = 0; i < MOD_DISCOVERED.length; i++) {
@@ -6426,21 +6497,39 @@ var MOD_allbuff_before_realm = allbuff;
 
 allbuff = function (who) {
   MOD_allbuff_before_realm(who);
+  try { if (!who || typeof you === 'undefined' || who.id !== you.id) return; }
+  catch (e) { return; }
+
   try {
-    if (!who || typeof you === 'undefined' || who.id !== you.id) return;
     var r = MOD_realm();
-    if (r.n === 0) return;
-    you.str *= r.mult; you.int *= r.mult; you.agl *= r.mult; you.spd *= r.mult;
-    you.hpmax = Math.round(you.hpmax * r.hp);
-    you.satmax = Math.round(you.satmax * r.hp);
-    if (you.hp > you.hpmax) you.hp = you.hpmax;
-  } catch (e) { /* never break a stat refresh */ }
+    /* The stat multiplier can be applied straight to the field: stat_r rebuilds
+       str/int/agl/spd from (r + a) * m * e on every call, so multiplying the
+       rebuilt value neither persists nor compounds.
+
+       The BODY maximums are the opposite case and used to be written the same
+       way, which quietly did nothing — `you.hpmax = round(you.hpmax * r.hp)`
+       was undone by the next stat_r, measured at 332 -> 39 for a realm-10
+       character, and `satmax` at 1700 -> 200. They go through MOD_BODY now. */
+    if (r.n > 0) {
+      you.str *= r.mult; you.int *= r.mult; you.agl *= r.mult; you.spd *= r.mult;
+    }
+    MOD_BODY.hp.realm = MOD_BODY.sat.realm = r.hp;
+  } catch (e) {
+    MOD_BODY.hp.realm = MOD_BODY.sat.realm = 1;
+  }
+
+  /* Last, and outside the block above: every factor is set by now, and the body
+     has to be written even if the realm block threw. Idempotent, so section 38
+     calling it again after its own factors costs nothing. */
+  MOD_applyBody();
 };
 
 function modRealm() {
   var here = MOD_realm(), next = MOD_REALMS[here.n + 1];
-  var lines = ['Realm: ' + here.name + (here.n ? '  (all stats x' + here.mult +
-               ', body x' + here.hp + ')' : ''), ''];
+  var lines = ['Realm: ' + MOD_realmTitle() +
+               (here.n ? '  (all stats x' + here.mult + ', body x' + here.hp + ')' : ''),
+               '  Root ' + MOD_root().name + ', insight ' + MOD_insight() +
+               (MOD_deviated() ? ', QI DEVIATION' : ''), ''];
   MOD_REALMS.forEach(function (r) {
     var mark = r.n === here.n ? ' <- you' :
                (r.n === here.n + 1 && skl.qic.lvl >= r.qic ? ' <- open, needs ' + item['mod_bp' + r.n].name : '');
@@ -6451,8 +6540,11 @@ function modRealm() {
   if (next && skl.qic.lvl >= next.qic) {
     var over = skl.qic.lvl - next.qic;
     lines.push('You are at a bottleneck. Breaking through succeeds ' +
-      Math.round(Math.min(0.55 + over * 0.05, 0.95) * 100) + '% of the time at this level;' +
+      Math.round(Math.min(0.55 + over * 0.05 + MOD_root().odds, 0.95) * 100) +
+      '% of the time at this level;' +
       ' train Qi Circulation past ' + next.qic + ' to improve it.');
+    lines.push('It also wants ' + MOD_insightNeed(next.n) + ' insights (you have ' +
+      MOD_insight() + '). modRoad() for the whole price.');
   }
   var out = lines.join('\n');
   console.log(out);
@@ -7096,11 +7188,15 @@ MOD_wikiPage('cultivation', 'Cultivation', function () {
     'opens a bottleneck, and breaking through it costs a pill and can fail — the ' +
     'pill is spent either way.</p>' +
     '<div class="wk-now"><h3>Where you are</h3><table>' +
-    '<tr><td>Realm</td><td>' + MOD_WIKI.safe(now.name) + '</td></tr>' +
+    '<tr><td>Realm</td><td>' + MOD_WIKI.safe(MOD_realmTitle()) + '</td></tr>' +
+    '<tr><td>Spiritual Root</td><td>' + MOD_WIKI.safe(MOD_root().name) + '</td></tr>' +
     '<tr><td>Qi Circulation</td><td>level ' + qic + '</td></tr>' +
+    '<tr><td>Insight</td><td>' + MOD_insight() + '</td></tr>' +
     '<tr><td>Bottleneck open</td><td>' +
       (elig > now.n ? 'yes — ' + MOD_WIKI.safe(MOD_REALMS[now.n + 1].name) +
         ' is within reach' : 'no') + '</td></tr>' +
+    '<tr><td>Qi Deviation</td><td>' + (MOD_deviated()
+      ? MOD_deviationLeft() + ' in-game minutes left' : 'no') + '</td></tr>' +
     '</table></div>' +
     '<p>Realm thresholds are the same levels that earn a title rank, so realm N ' +
     'is the level at which a rank N title arrives. Every realm multiplies all ' +
@@ -7141,13 +7237,111 @@ MOD_wikiPage('cultivation', 'Cultivation', function () {
     'long before that is reliable.</p>' +
 
     '<h2>Breaking through</h2>' +
-    '<p>The odds improve the further past the threshold you are, and cap short of ' +
-    'certain. A failure costs the pill and nothing else.</p>' +
+    '<p>A bottleneck wants three things, which is what the genre says it wants: ' +
+    '<b>a pill</b>, <b>insight</b>, and enough <b>consolidation</b> to make the ' +
+    'attempt worth making. The pill and the insight are both spent whether the ' +
+    'attempt works or not.</p>' +
+    '<p>The odds improve the further past the threshold you are, plus your root, ' +
+    'plus time sat in Closed Door Training, and cap short of certain.</p>' +
     '<table class="wk-tbl"><thead><tr><th>Levels past the threshold</th>' +
-    '<th>Chance</th></tr></thead><tbody>';
+    '<th>Chance</th><th>After full seclusion</th></tr></thead><tbody>';
   [0, 2, 4, 6, 8].forEach(function (o) {
+    var base = Math.min(0.55 + o * 0.05 + MOD_root().odds, 0.95);
     h += '<tr><td class="num">+' + o + '</td><td class="num">' +
-      Math.round(Math.min(0.55 + o * 0.05, 0.95) * 100) + '%</td></tr>';
+      Math.round(base * 100) + '%</td><td class="num">' +
+      Math.round(Math.min(base + MOD_CULT.secludeOdds, 0.95) * 100) + '%</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>Insight</h2>' +
+    '<p>Insight is the half of the price that cannot be bought. It comes from ' +
+    'three places, and they are the three the genre names: meditating, fights you ' +
+    'nearly lost, and going somewhere you have not been.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Source</th><th>Rate</th></tr></thead><tbody>' +
+    '<tr class="wk-e"><td>Circulate Qi</td><td>' +
+      (MOD_CULT.meditateChance * 100).toFixed(1) + '% a second</td></tr>' +
+    '<tr class="wk-e"><td>Closed Door Training</td><td>' +
+      (MOD_CULT.secludeChance * 100).toFixed(1) + '% a second</td></tr>' +
+    '<tr class="wk-e"><td>A kill made under ' +
+      Math.round(MOD_CULT.brinkFrac * 100) + '% health</td><td>' +
+      Math.round(MOD_CULT.brinkChance * 100) + '% a kill</td></tr>' +
+    '<tr class="wk-e"><td>Entering an area for the first time</td><td>always</td></tr>' +
+    '</tbody></table>' +
+    '<table class="wk-tbl"><thead><tr><th>Realm</th><th>Insight to enter</th>' +
+    '</tr></thead><tbody>';
+  MOD_REALMS.forEach(function (r) {
+    if (!r.n) return;
+    h += '<tr class="wk-e' + (r.n <= now.n ? ' done' : '') + '">' +
+      '<td>' + MOD_WIKI.safe(r.name) + '</td>' +
+      '<td class="num">' + MOD_insightNeed(r.n) + '</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>The nine layers</h2>' +
+    '<p>Each realm is nine layers deep, derived from where Qi Circulation sits ' +
+    'between this realm\'s threshold and the next one\'s — so breaking through ' +
+    'puts you at the first layer of the new realm on its own. Layers are worth ' +
+    '&times;' + MOD_CULT.layerMult + ' stats and &times;' + MOD_CULT.layerBody +
+    ' body each above the first, and the top realm has no rung above it to ' +
+    'measure against, so it stays at its first layer.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Layer</th><th>Called</th>' +
+    '</tr></thead><tbody>';
+  for (var li = 1; li <= MOD_CULT.layers; li++) {
+    h += '<tr' + (li === MOD_layer() ? ' class="here"' : '') + '><td class="num">' +
+      li + '</td><td>' + MOD_LAYER_ORD[li] + ' layer, ' +
+      MOD_WIKI.safe(MOD_layerStage(li)) + '</td></tr>';
+  }
+  h += '</tbody></table>' +
+    '<p class="note">At the threshold of the next realm and before breaking ' +
+    'through, you are <i>a half step to</i> it — the genre\'s own name for the ' +
+    'state this mod calls a bottleneck.</p>' +
+
+    '<h2>Closed Door Training</h2>' +
+    '<p>Seclusion does two things. It <b>consolidates</b> — ' + MOD_CULT.secludeFull +
+    ' seconds of it is worth +' + Math.round(MOD_CULT.secludeOdds * 100) +
+    '% on the attempt — and it <b>shelters</b>: a breakthrough attempted while ' +
+    'you are still sitting in it cannot end in Qi Deviation, only in a lost ' +
+    'pill. It will not start unless you are actually at a wall.</p>' +
+
+    '<h2>Qi Deviation</h2>' +
+    '<p>Failing a breakthrough out in the open leaves your cultivation base ' +
+    'unstable for ' + MOD_CULT.devMinutes + ' in-game minutes: stats at &times;' +
+    MOD_CULT.devStat + ', body at &times;' + MOD_CULT.devBody + ', and no second ' +
+    'attempt until it passes. It clears on its own, or at once with a ' +
+    '<b>Qi Settling Pill</b>. It never kills — the death system stays out of it.</p>' +
+
+    '<h2>Heavenly Tribulation</h2>' +
+    '<p>From realm ' + MOD_CULT.tribFrom + ' up, a successful breakthrough is ' +
+    'answered. The cost is a fraction of your maximum health, so it is a gate on ' +
+    'walking in healthy rather than a damage race; the realm bonus you are ' +
+    'standing on is what pays it. Fall to it and the realm does not open.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Realm</th><th>Bolts</th>' +
+    '<th>Of your max HP</th></tr></thead><tbody>';
+  MOD_REALMS.forEach(function (r) {
+    if (!r.n || r.n < MOD_CULT.tribFrom) return;
+    h += '<tr class="wk-e"><td>' + MOD_WIKI.safe(r.name) + '</td>' +
+      '<td class="num">' + MOD_tribulationBolts(r.n) + '</td>' +
+      '<td class="num">' + Math.round(MOD_tribulationCost(r.n) * 100) + '%</td></tr>';
+  });
+  h += '</tbody></table>' +
+
+    '<h2>Spiritual Root</h2>' +
+    '<p>Rolled once, when the dojo finishes teaching you to fight. It is never a ' +
+    'dead end: the worst grade costs cultivation speed, not access, and a ' +
+    '<b>Root Cleansing Pill</b> moves you up a grade.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Grade</th><th>Root</th><th>Chance</th>' +
+    '<th>Cultivation</th><th>Breakthrough</th></tr></thead><tbody>';
+  var rootTotal = 0;
+  MOD_ROOTS.forEach(function (r) { rootTotal += r.weight; });
+  MOD_ROOTS.forEach(function (r) {
+    h += '<tr class="wk-e' + (r.n === MOD_root().n ? ' here' : '') + '">' +
+      '<td class="num">' + r.n + '</td>' +
+      '<td><b>' + MOD_WIKI.safe(r.name) + '</b><div class="dim flav">' +
+        MOD_WIKI.safe(r.desc) + '</div></td>' +
+      '<td class="num">' + Math.round(r.weight / rootTotal * 100) + '%</td>' +
+      '<td class="num">&times;' + r.xp + '</td>' +
+      '<td class="num">' + (r.odds >= 0 ? '+' : '') +
+        Math.round(r.odds * 100) + '%</td></tr>';
   });
   h += '</tbody></table>';
   return h;
@@ -9733,3 +9927,850 @@ function modItems() {
   console.log(out);
   return out;
 }
+
+
+/* ===========================================================================
+   38. THE CULTIVATOR'S ROAD
+   ---------------------------------------------------------------------------
+   Section 28 gave the game a realm ladder. What it did not give it was the
+   road between the rungs: reach a Qi Circulation level, own a pill, press the
+   pill, realm +1. Ten transactions across a game that runs for months.
+
+   This section is sourced rather than invented. Wuxiaworld's "General Glossary
+   of Terms in Wuxia, Xianxia & Xuanhuan Novels" is the genre's own reference
+   work, and it describes the machinery this mod was missing by name. Where a
+   piece below has a Chinese term beside it, that term and its description come
+   from that glossary; the numbers are ours.
+
+       Spiritual Root      灵根    innate talent, tested, occasionally rare
+       Layers              层      nine to a stage, and stage words besides
+       Insight             参悟    "needed ... to advance to higher stages"
+       Closed Door         闭关    seclusion, specifically to break a bottleneck
+       Internal Demons     心魔    the mental barrier at the wall
+       Qi Deviation        走火入魔 what failing it does to you
+       Impurities          杂质    what a body expels on the way up
+       Heavenly Tribulation 天劫   the Heavens object to your progress
+
+   The glossary's sentence on bottlenecks is the whole design brief:
+
+       "cultivators may require new Insights, the aid of medicinal pills, or
+        even harsher training in order to make a Breakthrough"
+
+   Three routes. The mod shipped with one of them — the pill — which is why a
+   bottleneck was a shopping trip. All three are here now: insight is earned,
+   the pill is bought, and the harsher training is an action you sit in.
+
+   --- where the story goes --------------------------------------------------
+
+   The macro arc is read off the same shelf. Two of the genre's canonical long
+   works, both on Wuxiaworld, divide into books like this:
+
+       I Shall Seal the Heavens     one sect -> one domain -> reputation ->
+                                    death and rebirth -> fame -> leaving the
+                                    plane -> a realm of your own -> the peak
+       A Will Eternal               one sect -> an alias in a rival sect ->
+                                    a sect of your own -> the wider world ->
+                                    the peak -> the immortal domains
+
+   The shape both share: ONE SECT, then ONE REGION, then THE WORLD, then YOUR
+   OWN, then ABOVE IT. proto23 already owns the first and the last of those —
+   the dojo is a sect in everything but name, and section 34's Hall of the First
+   Gate is the regional ranking tournament the middle books are built around.
+   MOD-NOTES.md records the rungs that are still missing (disciple grades, the
+   sect's own contribution currency, a secret realm) and why each one waits.
+   This section builds the spine they would hang from.
+   =========================================================================== */
+
+var MOD_CULT = {
+  /* Nine layers to a stage, per the glossary: "there are 9 ranks/levels/layers
+     to each stage of cultivation, with rank 1 being the start and rank 9 being
+     the peak." Derived from Qi Circulation level, never stored. */
+  layers: 9,
+  layerMult: 0.02,       // stats, per layer above the first  -> x1.16 at peak
+  layerBody: 0.03,       // body,  per layer above the first  -> x1.24 at peak
+
+  /* Insight. Realm 1 opens straight out of the tutorial, so it is nearly free;
+     the cost climbs so the late wall is understanding rather than money.
+     1, 3, 5 ... 19 — a hundred across the whole ladder. */
+  insightBase: 1,
+  insightStep: 2,
+  meditateChance: 0.004, // a second of Circulate Qi
+  secludeChance: 0.012,  // a second of seclusion is worth three of that
+  brinkFrac: 0.20,       // "life-or-death battle": won it from under this much HP
+  brinkChance: 0.25,
+  worldAlways: true,     // somewhere genuinely new always teaches you something
+
+  /* Closed Door Training. Fifteen minutes of real seclusion is worth thirty
+     points of breakthrough odds, which is more than nine levels of
+     over-training — the genre's advice that you consolidate before you push,
+     made mechanical. */
+  secludeFull: 900,      // seconds for the full benefit
+  secludeOdds: 0.30,
+
+  /* Qi Deviation. Half an in-game day, and it is meant to be felt: this is the
+     cost of pushing a breakthrough in the open instead of in seclusion. */
+  devMinutes: 720,
+  devStat: 0.55,
+  devBody: 0.70,
+
+  /* Heavenly Tribulation. The Heavens start paying attention three realms from
+     the top, and realm 10 is called Tribulation Transcendence — the mod named a
+     rung after a mechanic it did not have. The cost is a FRACTION OF MAX HP,
+     anchored to the player like every other number in the mod, so it is a gate
+     on going in healthy rather than a damage race. */
+  tribFrom: 8,
+  tribBase: 0.55,        // realm 8 wants 55% of your max HP to spare
+  tribStep: 0.15,        // realm 9 70%, realm 10 85%
+  tribBolts: 3,          // bolts counted out in the log: 3, 5, 7
+  tribBoltStep: 2
+};
+
+/* The two axes' new contributors. Declared here rather than in MOD_BODY's own
+   literal so section 19 stays generic — the registry's contract is only that a
+   contributor owns a key and sets it every call. */
+MOD_BODY.hp.layer = MOD_BODY.sat.layer = 1;
+MOD_BODY.hp.qidev = MOD_BODY.sat.qidev = 1;
+
+
+/* --- Spiritual Root (灵根) -------------------------------------------------
+   The glossary: "Cultivation usually requires some minimum level of innate
+   talent, so someone with bad luck or a poor bodily constitution may find it
+   impossible to even take the first step. In some novels, the quality of a
+   person's Spiritual Root can be tested to determine if they have the talent
+   needed to cultivate. Rare individuals may even have special Spiritual Roots
+   which allow them to cultivate quickly."
+
+   Graded by PURITY — how many of the Five Elements the root carries, fewest
+   being best. That is the genre's common convention rather than any one
+   author's, the same footing the realm ladder stands on.
+
+   Rolled once, when the instructor finishes teaching you to fight, which is
+   already the beat where the first pill changes hands. It is NEVER a dead end:
+   a bad root costs 15% of your cultivation speed, not your access to the
+   ladder, and a Root Cleansing Pill moves you up a grade. An idle game cannot
+   ask you to reroll a character, and the genre's protagonist is usually
+   someone who started with a bad root anyway.
+   -------------------------------------------------------------------------- */
+
+var MOD_ROOTS = [
+  ['Muddled Root',   40, 0.85, -0.05, 'Five elements, and all of them arguing.'],
+  ['Mixed Root',     28, 1.00,  0.00, 'Four elements. Common as dirt, and dirt grows things.'],
+  ['Clear Root',     18, 1.15,  0.03, 'Three elements, and they have learned to take turns.'],
+  ['True Root',      10, 1.35,  0.07, 'Two elements. The village would talk, if the village knew.'],
+  ['Heavenly Root',   4, 1.70,  0.12, 'One element, unmixed. Nobody here has seen one before.']
+].map(function (r, i) {
+  return { n: i + 1, name: r[0], weight: r[1], xp: r[2], odds: r[3], desc: r[4] };
+});
+
+var MOD_ROOT_NONE = { n: 0, name: 'Untested', weight: 0, xp: 1, odds: 0,
+                      desc: 'Nobody has ever looked.' };
+
+function MOD_root() {
+  var n = Number(global.flags.mod_root) || 0;
+  if (n < 1 || n > MOD_ROOTS.length) return MOD_ROOT_NONE;
+  return MOD_ROOTS[n - 1];
+}
+
+/* Weighted, once, and only once — the flag is the guard. */
+function MOD_rollRoot() {
+  if (Number(global.flags.mod_root) > 0) return MOD_root();
+  var total = 0, i;
+  for (i = 0; i < MOD_ROOTS.length; i++) total += MOD_ROOTS[i].weight;
+  var roll = random() * total;
+  for (i = 0; i < MOD_ROOTS.length; i++) {
+    roll -= MOD_ROOTS[i].weight;
+    if (roll <= 0) { global.flags.mod_root = MOD_ROOTS[i].n; break; }
+  }
+  if (!global.flags.mod_root) global.flags.mod_root = 1;
+  var r = MOD_root();
+  try {
+    msg('Instructor: hold still. — ' + r.name + '.', 'gold');
+    msg(r.desc, 'plum');
+  } catch (e) {}
+  return r;
+}
+
+/* The root's effect on cultivation speed goes through `skl.qic.p`, which IS
+   saved and IS restored after milestones fire, so it cannot be set once and
+   forgotten — section 24 learned that with title exp. Reconciled against a
+   flag on the tick instead, multiplicatively, so the delta divides back out
+   cleanly when a Root Cleansing Pill changes the grade. */
+function MOD_applyRootBonus() {
+  try {
+    if (!skl.qic || !global.flags) return;
+    var want = MOD_root().xp;
+    var have = Number(global.flags.mod_rootxp);
+    if (!isFinite(have) || have <= 0) have = 1;
+    if (want === have) return;
+    skl.qic.p = Math.max((Number(skl.qic.p) || 1) * (want / have), 0.05);
+    global.flags.mod_rootxp = want;
+  } catch (e) { /* never break a tick over an exp multiplier */ }
+}
+
+
+/* --- the layers (层) -------------------------------------------------------
+   Derived from Qi Circulation level between this realm's threshold and the
+   next one's — no new saved field, and no way for the two to drift. Breaking
+   through lands you at layer 1 of the new stage on its own, which is what the
+   glossary says happens: "After breaking through to the next stage, the
+   practitioner starts at rank 1 of that new stage."
+
+   The stage words are the glossary's too — Early, Middle, Late, Peak — and so
+   is "a half step to __", which it defines as someone "infinitely close to
+   breaking through ... but hasn't achieved it yet". That is exactly the state
+   the mod calls a bottleneck, so the bottleneck finally has the genre's name
+   for it on the sheet.
+   -------------------------------------------------------------------------- */
+
+var MOD_LAYER_ORD = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'];
+
+/* The Qi Circulation span a realm covers. The top realm has no next rung, so it
+   borrows the width of the one below it rather than dividing by zero. */
+function MOD_realmSpan(n) {
+  var r = MOD_REALMS[n];
+  if (!r || !r.n) return null;
+  var next = MOD_REALMS[n + 1];
+  if (next) return { lo: r.qic, hi: next.qic };
+  var prev = MOD_REALMS[n - 1];
+  var width = prev ? Math.max(r.qic - prev.qic, 1) : 1;
+  return { lo: r.qic, hi: r.qic + width };
+}
+
+function MOD_layer() {
+  var r = MOD_realm();
+  if (!r.n) return 0;
+  var span = MOD_realmSpan(r.n);
+  if (!span) return 1;
+  var lv = (skl.qic && skl.qic.lvl) || 0;
+  var frac = (lv - span.lo) / (span.hi - span.lo);
+  var l = 1 + Math.floor(frac * MOD_CULT.layers);
+  return Math.min(Math.max(l, 1), MOD_CULT.layers);
+}
+
+/* Early / Middle / Late / Peak, the glossary's own four. */
+function MOD_layerStage(l) {
+  if (l >= 9) return 'peak';
+  if (l >= 7) return 'late stage';
+  if (l >= 4) return 'middle stage';
+  return 'early stage';
+}
+
+/* What to call where you are standing, in the genre's register. */
+function MOD_realmTitle() {
+  var r = MOD_realm();
+  if (!r.n) return r.name;
+  if (MOD_atBottleneck()) {
+    var next = MOD_REALMS[r.n + 1];
+    if (next) return 'Half a step to ' + next.name;
+  }
+  var l = MOD_layer();
+  if (l >= MOD_CULT.layers) return 'Peak of ' + r.name;
+  return r.name + ', ' + MOD_LAYER_ORD[l] + ' layer (' + MOD_layerStage(l) + ')';
+}
+
+function MOD_layerMult() {
+  var l = MOD_layer();
+  return l > 0 ? 1 + (l - 1) * MOD_CULT.layerMult : 1;
+}
+
+function MOD_layerBody() {
+  var l = MOD_layer();
+  return l > 0 ? 1 + (l - 1) * MOD_CULT.layerBody : 1;
+}
+
+
+/* --- Insight (参悟) --------------------------------------------------------
+   The glossary names the three sources and this implements those three, not a
+   fourth of our own: "Cultivators usually gain insights by meditating,
+   engaging in life-or-death battles, or going out into the world to experience
+   new things. These insights are often needed in order to master techniques or
+   advance to higher stages of cultivation."
+
+       meditating              a second of Circulate Qi, or of seclusion
+       life-or-death battle    a kill made while under 20% of your own health
+       out into the world      the first time you set foot in an area
+
+   A plain count in `global.flags.mod_insight`, spent on the attempt. It is the
+   thing that makes a bottleneck something you work at: the pill can be bought,
+   this cannot.
+   -------------------------------------------------------------------------- */
+
+function MOD_insight() {
+  var n = Number(global.flags.mod_insight);
+  return isFinite(n) && n > 0 ? n : 0;
+}
+
+function MOD_insightNeed(realm) {
+  return MOD_CULT.insightBase + (Math.max(realm, 1) - 1) * MOD_CULT.insightStep;
+}
+
+function MOD_giveInsight(n, why) {
+  try {
+    n = Math.max(Math.round(Number(n) || 0), 1);
+    global.flags.mod_insight = MOD_insight() + n;
+    msg('Insight: ' + (why || 'something settles into place') +
+        '  (' + MOD_insight() + ')', 'mediumorchid');
+  } catch (e) { /* never break a tick over a counter */ }
+}
+
+/* Meditating. Wrapped rather than edited: Circulate Qi belongs to section 3,
+   and its return value is not used but the pattern is the pattern. */
+(function () {
+  if (!act.mod_qi || typeof act.mod_qi.use !== 'function') return;
+  var before = act.mod_qi.use;
+  act.mod_qi.use = function () {
+    var r = before.apply(this, arguments);
+    try {
+      if (random() < MOD_CULT.meditateChance) {
+        MOD_giveInsight(1, 'the channels make more sense than they did');
+      }
+    } catch (e) {}
+    return r;
+  };
+})();
+
+/* A life-or-death battle. `callback.onDeath` is the game's own hook and
+   `attachCallback` is its own way in, so this adds nothing to the fight path. */
+(function () {
+  try {
+    if (typeof attachCallback !== 'function' || !callback || !callback.onDeath) return;
+    attachCallback(callback.onDeath, {
+      id: 9380,
+      data: {},
+      f: function (victim, killer) {
+        try {
+          if (!killer || !you || killer.id !== you.id) return;
+          if (!you.hpmax || you.hp / you.hpmax >= MOD_CULT.brinkFrac) return;
+          if (random() < MOD_CULT.brinkChance) {
+            MOD_giveInsight(1, 'you saw it clearly, a moment before it would have killed you');
+          }
+        } catch (e) {}
+      }
+    });
+  } catch (e) { /* never break the kill path */ }
+})();
+
+/* Out into the world. area.nwh is where current_z parks between fights and
+   area.tst hangs off a location with id -1, so neither is a place you went —
+   the wiki excludes the same two for the same reason. */
+var MOD_area_init_before_road = area_init;
+
+area_init = function (a) {
+  try {
+    if (a && typeof a.id === 'number' && a !== area.nwh && a !== area.tst &&
+        act.mod_qi && act.mod_qi.have === true) {
+      if (!global.flags.mod_seen || typeof global.flags.mod_seen !== 'object') {
+        global.flags.mod_seen = {};
+      }
+      if (!global.flags.mod_seen[a.id]) {
+        global.flags.mod_seen[a.id] = 1;
+        if (MOD_CULT.worldAlways) {
+          MOD_giveInsight(1, 'nowhere you have stood before');
+        }
+      }
+    }
+  } catch (e) { /* never break a spawn */ }
+  return MOD_area_init_before_road.apply(this, arguments);
+};
+
+
+/* --- Closed Door Training (闭关) -------------------------------------------
+   The glossary, in full, because both halves of it are mechanics:
+
+       "Training done in seclusion, usually to focus on breaking through a
+        bottleneck or to avoid becoming distracted at a crucial moment and
+        suffering a backlash as a result."
+
+   So seclusion does two things here. It CONSOLIDATES — time in it buys
+   breakthrough odds — and it SHELTERS: a breakthrough attempted while you are
+   still sitting in it cannot end in Qi Deviation, only in a lost pill. That
+   makes the whole sequence a decision rather than a button. Sit for fifteen
+   minutes and break through from inside seclusion, or push it in the open and
+   risk half a day with your qi in knots.
+
+   It is the one action with a real cost: it holds the shared action timer, so
+   nothing else runs, and it refuses to start unless you are actually AT a wall,
+   which is the only thing the glossary says it is for.
+   -------------------------------------------------------------------------- */
+
+act.mod_seclu = new Action(); act.mod_seclu.id = 905; act.mod_seclu.type = 1;
+act.mod_seclu.name = 'Closed Door Training';
+act.mod_seclu.desc = function () {
+  var c = Math.round(MOD_consolidation() * 100);
+  return 'Shut the door and work at the wall' + MOD_SEP +
+    '<span style="color:pink">Exp +0.3/s</span><br>' +
+    '<span style="color:skyblue">Trains Qi Circulation, Meditation and Patience</span><br>' +
+    '<span style="color:mediumorchid">Consolidation ' + c + '% — up to +' +
+    Math.round(MOD_CULT.secludeOdds * 100) + '% breakthrough</span><br>' +
+    '<span style="color:gold">Breaking through from inside seclusion cannot ' +
+    'cause Qi Deviation</span>';
+};
+act.mod_seclu.cond = function (l) {
+  if (!MOD_atBottleneck()) {
+    if (l !== false) msg('There is no wall in front of you to sit at', 'red');
+    return false;
+  }
+  if (MOD_deviated()) {
+    if (l !== false) msg('Your qi is in no state to be shut in with', 'red');
+    return false;
+  }
+  return MOD_baseCond(l, 'You cannot shut yourself away from this');
+};
+act.mod_seclu.use = function () {
+  giveExp(0.3, true, true);
+  giveSkExp(skl.qic, 1.1);
+  if (skl.mdt) giveSkExp(skl.mdt, 0.5);
+  if (skl.ptnc) giveSkExp(skl.ptnc, 0.5);
+  var s = Number(global.flags.mod_seclu);
+  global.flags.mod_seclu = (isFinite(s) && s > 0 ? s : 0) + 1;
+  if (random() < MOD_CULT.secludeChance) {
+    MOD_giveInsight(1, 'the wall has a shape, and you can feel the edges of it');
+  }
+};
+act.mod_seclu.activate = function () {
+  msg('You shut the door and sit down facing the wall', 'mediumorchid');
+  MOD_startAction(this);
+};
+act.mod_seclu.deactivate = function () {
+  MOD_stopAction(this, 'You open the door');
+};
+
+/* 0..1 — how much of the full benefit the time already sat is worth. */
+function MOD_consolidation() {
+  var s = Number(global.flags.mod_seclu);
+  if (!isFinite(s) || s <= 0) return 0;
+  return Math.min(s / MOD_CULT.secludeFull, 1);
+}
+
+MOD_ACTIONS.push(act.mod_seclu);
+
+/* Earned at the first wall, on the tick, for the same reason Circulate Qi is:
+   the condition is a state of the character rather than a skill level, so
+   there is no milestone to hang it on. One-way — the flag only ever gets set. */
+function MOD_checkSecluUnlock() {
+  try {
+    if (act.mod_seclu.have === true) return;
+    if (!MOD_atBottleneck()) return;
+    giveAction(act.mod_seclu);
+    msg('You have gone as far as pushing will take you. The rest is sitting still.',
+        'mediumorchid');
+  } catch (e) { /* never break a tick over an unlock */ }
+}
+
+
+/* --- Internal Demons (心魔) and Qi Deviation (走火入魔) ---------------------
+   The glossary, on what is actually waiting at a bottleneck:
+
+       Internal Demons — "a practitioner's negative emotions and other mental
+       barriers which hinder their training ... failure to adequately resist
+       them may result in Qi Deviation."
+
+       Qi Deviation — "a state wherein the cultivation base becomes dangerously
+       unstable, causing internal damage to the body and symptoms of psychosis."
+
+   Section 28's failed breakthrough dropped you to 1 HP and was over, which is a
+   scratch rather than a state. This is the state: half an in-game day at 55% of
+   your stats and 70% of your body, no second attempt until it clears, and the
+   instability is visible on the sheet the whole time.
+
+   It still never kills. The game has a death system with real consequences
+   (`global.stat.deadt`, the `ndthextr` title) and a breakthrough has no business
+   reaching into it — that was section 28's rule and it stands.
+
+   Timed on `time.minute`, the game's own clock, which is saved (`j:time.minute`)
+   — so a deviation survives a reload and expires on schedule rather than on
+   whether the tab stayed open.
+   -------------------------------------------------------------------------- */
+
+function MOD_deviated() {
+  try {
+    var until = Number(global.flags.mod_qidev);
+    return isFinite(until) && until > 0 && time.minute < until;
+  } catch (e) { return false; }
+}
+
+function MOD_deviationLeft() {
+  try {
+    var until = Number(global.flags.mod_qidev);
+    if (!isFinite(until) || until <= 0) return 0;
+    return Math.max(until - time.minute, 0);
+  } catch (e) { return 0; }
+}
+
+function MOD_enterDeviation(why) {
+  try {
+    global.flags.mod_qidev = time.minute + MOD_CULT.devMinutes;
+    msg('— Qi Deviation —', 'crimson');
+    msg(why || 'The qi turns back on you and goes where it likes.', 'crimson');
+    msg('Your cultivation base is unstable. Sit it out, or find something that ' +
+        'will settle it.', 'grey');
+    you.hp = 1;
+    try { allbuff(you); } catch (e) {}
+    if (you.hp > you.hpmax) you.hp = you.hpmax;
+  } catch (e) {}
+}
+
+function MOD_clearDeviation() {
+  try {
+    if (!MOD_deviated()) return false;
+    global.flags.mod_qidev = 0;
+    msg('Your qi comes back under your hand.', 'springgreen');
+    try { allbuff(you); } catch (e) {}
+    return true;
+  } catch (e) { return false; }
+}
+
+
+/* --- Heavenly Tribulation (天劫) -------------------------------------------
+   The glossary:
+
+       "a trial encountered by cultivators at key points in their cultivation,
+        which they must resist and ultimately transcend. Because immortal
+        cultivation (generally) goes against the Will of Heaven, the Heavens
+        will send down tribulations to oppress high-level cultivators who make
+        progress towards Immortality, often right when they enter a new
+        cultivation stage. This typically takes the form of a lightning storm,
+        with extraordinarily powerful bolts of lightning raining down."
+
+   "Right when they enter a new cultivation stage" is the part that sets where
+   this goes: AFTER the breakthrough roll succeeds, before the realm is written.
+   The last three rungs are the ones the Heavens bother with, and the last of
+   them is already named Tribulation Transcendence — section 28 named a realm
+   after a mechanic that did not exist.
+
+   The cost is a FRACTION OF YOUR MAX HP, not a number, so it is anchored to the
+   player the way section 8 anchors everything else: 55% at realm 8, 70%, then
+   85%. It is a gate on walking in healthy rather than a damage race you can
+   lose to arithmetic — and the realm bonus you are standing on is what pays it.
+
+   Not an area and not a creature on purpose. A tribulation is a thing that
+   happens to you at the moment you break through, and a location you walk to
+   would put a door in front of it.
+   -------------------------------------------------------------------------- */
+
+function MOD_tribulationCost(realm) {
+  return MOD_CULT.tribBase + Math.max(realm - MOD_CULT.tribFrom, 0) * MOD_CULT.tribStep;
+}
+
+function MOD_tribulationBolts(realm) {
+  return MOD_CULT.tribBolts + Math.max(realm - MOD_CULT.tribFrom, 0) * MOD_CULT.tribBoltStep;
+}
+
+/* true if you are still standing at the end of it. */
+function MOD_tribulation(realm) {
+  var bolts = MOD_tribulationBolts(realm);
+  var total = Math.ceil(MOD_tribulationCost(realm) * you.hpmax);
+  var each = Math.max(Math.ceil(total / bolts), 1);
+
+  msg('The sky goes the colour of a bruise.', 'slateblue');
+  msg('— Heavenly Tribulation, ' + bolts + ' bolts —', 'gold');
+
+  for (var i = 1; i <= bolts; i++) {
+    you.hp -= each;
+    if (you.hp <= 0) {
+      /* Never through zero: the death system stays out of this. */
+      you.hp = 1;
+      msg('Bolt ' + i + ' of ' + bolts + ' puts you on the ground.', 'crimson');
+      MOD_enterDeviation('The Heavens had the last word. ' +
+        MOD_REALMS[realm].name + ' does not open.');
+      return false;
+    }
+    msg('Bolt ' + i + ' of ' + bolts + ' — ' + Math.round(you.hp) + ' left.', 'slateblue');
+  }
+  msg('The sky closes. You are still standing in it.', 'gold');
+  return true;
+}
+
+
+/* --- Impurities (杂质) -----------------------------------------------------
+   "usually described as a smelly, black substance which is secreted from a
+   cultivator's skin when they reach new cultivation stages" — pure flavour, and
+   the genre's signature note at exactly this moment. Free to have, and the
+   breakthrough reads wrong without it.
+   -------------------------------------------------------------------------- */
+
+var MOD_IMPURITIES = [
+  'Something black and foul-smelling comes out of your skin. All of it used to be in you.',
+  'You spend the next while washing off what your body decided it was done carrying.',
+  'The water goes grey, then black, then grey again.',
+  'Whatever leaves you on the way up is not missed.'
+];
+
+
+/* --- the two pills the road needs ------------------------------------------
+   Both Medicine/Tool by id, because `dscr` reads the class off the number and
+   nothing else — 4230 and 4231, from MOD_ITEM_IDS. The Herbalist stocks them
+   for the same reason she stocks the breakthrough pills: she is already the
+   plants-and-medicine vendor, and appending to `vendor.pha1.items` uses the
+   game's own restock and purchase machinery rather than a new screen.
+   -------------------------------------------------------------------------- */
+
+(function () {
+  var cleanse = new Item();
+  cleanse.id = MOD_ITEM_IDS.cultPill;
+  cleanse.name = 'Root Cleansing Pill';
+  cleanse.rar = 5;
+  cleanse.stype = 4;
+  cleanse.v = 26000;
+  cleanse.desc = 'Bitter enough to be doing something.' + MOD_SEP +
+    '<span style="color:hotpink">Refines your Spiritual Root one grade</span><br>' +
+    '<small style="color:grey">A root is rolled once and is not a dead end</small>';
+  cleanse.use = function () {
+    var r = MOD_root();
+    if (!r.n) { msg('Nothing has looked at your root yet', 'red'); return; }
+    if (r.n >= MOD_ROOTS.length) {
+      msg('There is no grade above ' + r.name, 'red');
+      return;
+    }
+    this.amount--;
+    global.flags.mod_root = r.n + 1;
+    var now = MOD_root();
+    msg('Something in you comes apart and settles cleaner. — ' + now.name, 'gold');
+    msg(now.desc, 'plum');
+    MOD_applyRootBonus();
+  };
+  item.mod_rootpill = cleanse;
+
+  var settle = new Item();
+  settle.id = MOD_ITEM_IDS.cultPill + 1;
+  settle.name = 'Qi Settling Pill';
+  settle.rar = 3;
+  settle.stype = 4;
+  settle.v = 4200;
+  settle.desc = 'Kept on hand by anyone who has pushed a breakthrough in the open.' +
+    MOD_SEP +
+    '<span style="color:hotpink">Ends Qi Deviation at once</span>';
+  settle.use = function () {
+    if (!MOD_deviated()) { msg('Your qi is already where you left it', 'red'); return; }
+    this.amount--;
+    MOD_clearDeviation();
+  };
+  item.mod_settlepill = settle;
+
+  try {
+    if (!vendor.pha1 || !vendor.pha1.items) return;
+    vendor.pha1.items.push({ item: settle,  p: 5200,  c: 0.5,  min: 1, max: 2 });
+    vendor.pha1.items.push({ item: cleanse, p: 31000, c: 0.18, min: 1, max: 1 });
+    console.log('[mod] Herbalist stocks the Qi Settling and Root Cleansing pills');
+  } catch (e) { console.warn('[mod] could not stock the road pills: ' + e.message); }
+})();
+
+
+/* --- the attempt, rebuilt --------------------------------------------------
+   Section 28's MOD_breakthrough is replaced rather than wrapped: the change is
+   inside it — what it costs, what it rolls against, and what failing does — and
+   a wrapper would have had to duplicate every check to get at any of it.
+
+   The order is the genre's order. You must be at the wall, not deviated, and
+   holding both halves of the price. Insight is SPENT WHETHER OR NOT IT WORKS,
+   because what you spend is understanding and a failed attempt used it. Then the
+   roll, then the Heavens, then the realm.
+   -------------------------------------------------------------------------- */
+
+MOD_breakthrough = function (realm, pill) {
+  var here = MOD_realm(), want = MOD_REALMS[realm];
+  if (!want) return;
+
+  if (realm !== here.n + 1) {
+    msg(realm <= here.n ? 'You are already past that'
+                        : 'There is a realm between you and that one', 'red');
+    return;
+  }
+  if (skl.qic.lvl < want.qic) {
+    msg('Your qi is too thin for it — Qi Circulation ' + want.qic +
+        ' (you are ' + skl.qic.lvl + ')', 'red');
+    return;
+  }
+  if (global.flags.btl) { msg('Not in the middle of a fight', 'red'); return; }
+  if (MOD_deviated()) {
+    msg('Your qi is still in knots. Settle it first.', 'red');
+    return false;
+  }
+
+  var need = MOD_insightNeed(realm);
+  if (MOD_insight() < need) {
+    msg('You have the pill and not the understanding — ' + MOD_insight() +
+        ' of ' + need + ' insights', 'red');
+    msg('Insight comes from meditating, from fights you nearly lost, and from ' +
+        'going somewhere new.', 'grey');
+    return false;
+  }
+
+  if (pill) pill.amount--;
+
+  /* Sheltered means sitting in seclusion AT THIS MOMENT, not having sat in it
+     once — the glossary's clause is about not being interrupted "at a crucial
+     moment", and the crucial moment is this one. */
+  var sheltered = !!(act.mod_seclu && act.mod_seclu.active === true);
+  var consol = MOD_consolidation();
+
+  global.flags.mod_insight = MOD_insight() - need;
+  global.flags.mod_seclu = 0;                    // the sitting is spent with it
+
+  var over = skl.qic.lvl - want.qic;
+  var odds = Math.min(0.55 + over * 0.05 +
+                      consol * MOD_CULT.secludeOdds +
+                      MOD_root().odds, 0.95);
+
+  if (random() > odds) {
+    msg('The qi turns back on you. ' + want.name + ' does not open.', 'crimson');
+    if (sheltered) {
+      /* The whole point of the closed door. */
+      msg('The door held. You lose the pill and the sitting, and nothing else.', 'grey');
+      you.hp = 1;
+      try { allbuff(you); } catch (e) {}
+    } else {
+      MOD_enterDeviation('Your internal demons had the run of it, out here in the open.');
+    }
+    return false;
+  }
+
+  /* The Heavens, at the top of the ladder, and they can still take it off you. */
+  if (realm >= MOD_CULT.tribFrom && !MOD_tribulation(realm)) return false;
+
+  global.flags[MOD.realm_flag] = realm;
+  you.stat_r();
+  try { allbuff(you); } catch (e) {}
+
+  msg('— ' + want.name + ' —', 'gold');
+  msg(want.desc, 'plum');
+  msg(MOD_IMPURITIES[(random() * MOD_IMPURITIES.length) << 0], 'darkkhaki');
+  try { if (ttl['mod_realm' + realm]) giveTitle(ttl['mod_realm' + realm]); } catch (e) {}
+  try { MOD_updateRenown(); } catch (e) {}
+  return true;
+};
+
+
+/* --- the layer bonus, and what deviation takes back ------------------------
+   Its own wrapper rather than an edit to section 28's, because these are this
+   section's numbers. Both publish through MOD_BODY and call MOD_applyBody at
+   the end; the applier is idempotent, so section 28 having already called it
+   this same call costs nothing and changes nothing.
+   -------------------------------------------------------------------------- */
+
+var MOD_allbuff_before_road = allbuff;
+
+allbuff = function (who) {
+  MOD_allbuff_before_road(who);
+  try { if (!who || typeof you === 'undefined' || who.id !== you.id) return; }
+  catch (e) { return; }
+
+  try {
+    MOD_BODY.hp.layer = MOD_BODY.sat.layer = 1;
+    MOD_BODY.hp.qidev = MOD_BODY.sat.qidev = 1;
+
+    var lm = MOD_layerMult();
+    if (lm !== 1) { you.str *= lm; you.int *= lm; you.agl *= lm; you.spd *= lm; }
+    MOD_BODY.hp.layer = MOD_BODY.sat.layer = MOD_layerBody();
+
+    if (MOD_deviated()) {
+      var d = MOD_CULT.devStat;
+      you.str *= d; you.int *= d; you.agl *= d; you.spd *= d;
+      MOD_BODY.hp.qidev = MOD_BODY.sat.qidev = MOD_CULT.devBody;
+    }
+  } catch (e) {
+    MOD_BODY.hp.layer = MOD_BODY.sat.layer = 1;
+    MOD_BODY.hp.qidev = MOD_BODY.sat.qidev = 1;
+  }
+
+  MOD_applyBody();
+};
+
+
+/* --- the tick -------------------------------------------------------------- */
+
+var MOD_ontick_before_road = ontick;
+
+ontick = function () {
+  MOD_ontick_before_road();
+  try {
+    if (act.mod_qi && act.mod_qi.have === true) MOD_rollRoot();
+    MOD_applyRootBonus();
+    MOD_checkSecluUnlock();
+    /* Deviation clearing itself is worth saying out loud — it is half an
+       in-game day and you will not be watching the clock. */
+    if (global.flags.mod_qidev && !MOD_deviated() &&
+        global.flags.mod_qidev !== 0) {
+      global.flags.mod_qidev = 0;
+      msg('Your qi settles back into its channels on its own.', 'springgreen');
+      try { allbuff(you); } catch (e) {}
+    }
+  } catch (e) { /* never break a tick */ }
+};
+
+
+/* --- the console report ---------------------------------------------------- */
+
+function modRoad() {
+  var r = MOD_realm(), next = MOD_REALMS[r.n + 1];
+  var root = MOD_root();
+  var lines = [
+    'Where you are: ' + MOD_realmTitle(),
+    '  Spiritual Root   ' + root.name +
+      (root.n ? '  (cultivation x' + root.xp + ', breakthrough ' +
+        (root.odds >= 0 ? '+' : '') + Math.round(root.odds * 100) + '%)' : ''),
+    '  Insight          ' + MOD_insight() +
+      (next ? '  (' + MOD_insightNeed(next.n) + ' to reach ' + next.name + ')' : ''),
+    '  Consolidation    ' + Math.round(MOD_consolidation() * 100) + '%' +
+      '  (' + (Number(global.flags.mod_seclu) || 0) + 's of ' + MOD_CULT.secludeFull + ')',
+    '  Qi Deviation     ' + (MOD_deviated()
+      ? 'YES — ' + MOD_deviationLeft() + ' in-game minutes left' : 'no'),
+    ''
+  ];
+
+  if (!next) {
+    lines.push('There is nothing above ' + r.name + '.');
+  } else if (!MOD_atBottleneck()) {
+    lines.push('Not at a wall yet. ' + next.name + ' wants Qi Circulation ' +
+      next.qic + ' (you are ' + ((skl.qic && skl.qic.lvl) || 0) + ').');
+  } else {
+    var over = ((skl.qic && skl.qic.lvl) || 0) - next.qic;
+    var base = Math.min(0.55 + over * 0.05 + MOD_root().odds, 0.95);
+    var full = Math.min(base + MOD_CULT.secludeOdds, 0.95);
+    lines.push('At the wall before ' + next.name + '. To get through it:');
+    lines.push('  pill       ' + item['mod_bp' + next.n].name);
+    lines.push('  insight    ' + MOD_insight() + ' of ' + MOD_insightNeed(next.n));
+    lines.push('  odds       ' + Math.round(base * 100) + '% now, ' +
+      Math.round(full * 100) + '% after a full ' + MOD_CULT.secludeFull +
+      's of Closed Door Training');
+    if (next.n >= MOD_CULT.tribFrom) {
+      lines.push('  and then   Heavenly Tribulation — ' +
+        MOD_tribulationBolts(next.n) + ' bolts, ' +
+        Math.round(MOD_tribulationCost(next.n) * 100) + '% of your max HP');
+    }
+    lines.push('');
+    lines.push('Failing in the open costs you the pill and ' + MOD_CULT.devMinutes +
+      ' in-game minutes of Qi Deviation.');
+    lines.push('Failing from inside seclusion costs you the pill.');
+  }
+
+  lines.push('');
+  lines.push('Insight comes from meditating (Circulate Qi, seclusion), from a kill ' +
+    'made under ' + Math.round(MOD_CULT.brinkFrac * 100) + '% health, and from ' +
+    'the first time you enter an area.');
+
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+/* Every grade of root, and what each is worth. */
+function modRoots() {
+  var total = 0;
+  MOD_ROOTS.forEach(function (r) { total += r.weight; });
+  var lines = ['Spiritual Roots — rolled once, when the dojo finishes with you', ''];
+  MOD_ROOTS.forEach(function (r) {
+    lines.push('  ' + (MOD_root().n === r.n ? '-> ' : '   ') + r.n + '  ' +
+      (r.name + '              ').slice(0, 15) +
+      String(Math.round(r.weight / total * 100)).padStart(3) + '%   ' +
+      'cultivation x' + r.xp + '   breakthrough ' +
+      (r.odds >= 0 ? '+' : '') + Math.round(r.odds * 100) + '%');
+  });
+  lines.push('', 'A Root Cleansing Pill moves you up one grade. The Herbalist has them.');
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+console.log('[mod] the cultivator\'s road: roots, nine layers a realm, insight, ' +
+            'seclusion, qi deviation and tribulation. modRoad() / modRoots().');

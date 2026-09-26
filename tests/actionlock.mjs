@@ -128,9 +128,13 @@ const granted = await p.evaluate(() => {
   return modUnlockAll();
 });
 st = await status();
-const allFour = await p.evaluate(() => MOD_ACTIONS.filter(a => a.have === true).length);
-check(granted === 4, `modUnlockAll() granted all four from locked (${granted})`);
-check(allFour === 4, `and all four are held afterwards (${allFour})`);
+// Derived, not hardcoded: section 38 added a fifth action (Closed Door Training)
+// and a literal 4 here failed on a legitimate addition rather than on a bug. What
+// matters is that modUnlockAll grants EVERY action the mod owns, whatever that is.
+const total = await p.evaluate(() => MOD_ACTIONS.length);
+const allHeld = await p.evaluate(() => MOD_ACTIONS.filter(a => a.have === true).length);
+check(granted === total, `modUnlockAll() granted all ${total} from locked (${granted})`);
+check(allHeld === total, `and all ${total} are held afterwards (${allHeld})`);
 check(st.locked.every(u => u.have), 'including the three that are skill-gated');
 
 console.log('\n--- and modActions() reports honestly');

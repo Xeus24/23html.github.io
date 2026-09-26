@@ -173,7 +173,7 @@ is it *practically* on target — and `fightsmoke` and `targets.mjs` both use it
   plain sample mean put two of forty-five rank-duel spawns the wrong side of
   `kill < die` on noise alone.
 
-### Max HP: write the multiplier, not the total — FIXED
+### The body maximums: write the multiplier, not the total — FIXED
 
 `hpTrack` (sections 9/10) used to **assign** `you.hpmax` at the end of the
 `allbuff` wrapper. The assignment did not survive: `stat_r` recomputes hpmax as
@@ -211,6 +211,40 @@ recompute those from `(r + a) * m * e` and wipe them. Setting `hpmax` by hand
 alongside `hpm` keeps the current call right and lets the next `stat_r` reach
 the same number on its own. `tests/targets.mjs` checks all of it, and fails
 against the old behaviour.
+
+**The same bug was still in the realm code**, found while extending it (v4.0).
+Section 28 raised max HP *and max energy* by assigning `you.hpmax`/`you.satmax`,
+and `stat_r` recomputes **both**:
+
+```js
+hpmax  = ceil((hp_r  + hpa ) * hpm  * hpe )
+satmax = ceil((sat_r + sata) * satm * sate)
+```
+
+Measured on a realm-10 character: `hpmax` 332 after `allbuff` and **39** after
+one `stat_r`; `satmax` 1700, then **200**. The ×8.5 the top realm advertised
+lasted one call, so ten realms of body were decoration.
+
+**Nothing writes `hpm` or `satm` any more.** Two contributors wanted the same two
+fields, and two delta-trackers on one field cannot coexist — each recovers its
+base by dividing out *its own* factor and finds the other's sitting inside that
+base. So contributors publish a factor to **`MOD_BODY`** and `MOD_applyBody()`
+writes the product, once, with one delta flag per axis (`mod_hpm`, `mod_satm`).
+
+- To add a contributor: give it a key on `MOD_BODY.hp` / `MOD_BODY.sat`, set that
+  key **every call** for `you` — to 1 when it does not apply, or last call's
+  factor lingers — and never touch `hpm`, `satm`, `hpmax` or `satmax` yourself.
+- `MOD_applyBody()` is **idempotent**, which is what lets more than one wrapper
+  call it. Sections 28 and 38 both do. `tests/cultivation.mjs` asserts it.
+- `satm` is saved (`satm:you.satm`) exactly like `hpm`, so it needs the delta
+  pairing for the same reason `you.res` did.
+- The recovered base is floored at 1 on both axes, for the reason above.
+
+Note that `mod.js:1862` assigns `you.hpmax` in a **dead wrapper** — sections 6, 7
+and 19 each re-anchor to `MOD_allbuff_original`, so only section 10's and section
+28's wrappers are in the live chain. Measured: the game's `allbuff` runs once per
+call, and `skl.qic.use()` once. Left in place with the others; don't "fix" it
+expecting an effect.
 
 ## Content gating
 
