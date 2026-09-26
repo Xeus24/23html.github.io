@@ -24,6 +24,10 @@ const R = await p.evaluate(() => {
     const lv = (s.mlstn || []).map(m => m.lv);
     rows.push({
       k, name: s.name, type: s.type, n: lv.length,
+      // section 39: a converged skill is an aggregate of a whole section. It
+      // never takes exp, so a perk ladder on it could never be climbed, and
+      // section 24's title generator skips it for the same reason.
+      aggregate: !!s._modConverged,
       max: lv.length ? Math.max(...lv) : 0,
       ascending: lv.every((v, i) => i === 0 || v > lv[i - 1]),
       // the biggest gap between consecutive perks, below the cap
@@ -37,7 +41,14 @@ const R = await p.evaluate(() => {
 
 const TOP = Math.max(...R.caps);
 const skipped = ['rnwn'];                      // driven by titles, not levels
-const graded = R.rows.filter(r => !skipped.includes(r.k));
+// Derived rather than ten more literals here: anything the mod marks as an
+// aggregate is not trained and so is not graded on a training ladder.
+const graded = R.rows.filter(r => !skipped.includes(r.k) && !r.aggregate);
+const aggregates = R.rows.filter(r => r.aggregate);
+if (aggregates.length) {
+  console.log(`  note: ${aggregates.length} converged aggregates not graded ` +
+    `(${aggregates.map(r => r.name).join(', ')})`);
+}
 
 const fail = [];
 const check = (c, what) => { if (!c) fail.push(what); console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${what}`); };

@@ -520,6 +520,57 @@ took the Companions parent's level cap.
   reads `global.titles` should still prefer counting from `ttl`, as
   `MOD_titleCount` does.
 
+## Skill rarity and convergence (section 39)
+
+**Rarity is derived:** `MOD_skillRank(sk)` is `MOD_rankForLevel(sk.lvl)` — the
+rank of the level the player has taken it to, against `MOD_RANK_AT`, painted
+with `MOD_RANK_COLOUR`. Never hand-assign a rarity to a skill.
+
+The colour goes on the row's `children[0]` **style**, never into the name. The
+game's per-second updater rewrites `children[0].innerHTML` every tick, which
+wipes markup but leaves the element's own inline style alone. Names are a
+primary key and must stay plain.
+
+**Folding HIDES a skill; it must never remove it from `you.skls`.** A Jade Slip
+marks the skill in `global.flags.mod_folded` and section 13's `renderSkl`
+wrapper hides the row through the same branch that hides collapsed groups and
+maxed skills. Shortening `you.skls` instead breaks three things at once:
+
+- the game's panel only redraws when the list **grows**
+  (`let sklsize=you.skls.length; ... if(sklsize<you.skls.length)`), and
+  `sklsize` is never updated, so a shrink leaves orphaned rows displayed forever;
+- `giveSkExp` pushes a skill back on its next level-up
+  (`if(!scanbyid(you.skls,skl.id)) you.skls.push(skl)`), with a "New Skill
+  Unlocked!" banner, so a removal undoes itself;
+- `you.skls` is saved by id.
+
+The only splice is in `MOD_unfold`, for the converged skill itself, and it is
+followed immediately by `MOD_redrawSkills()`.
+
+This works **because `you.skls` was only ever the display list.** The mod's
+allbuff wrappers walk `skl` by key; the game's own `allbuff` names `skl.fgt` and
+`skl.twoh` directly; most base-game skills pay out through milestones already
+written into stats. So a folded skill keeps applying every buff it applied.
+`tests/convergence.mjs` proves it: every stat after folding all hundred is
+exactly the unfolded value times `MOD_convergenceMult()`.
+
+- The ten converged skills (ids 2201-2210, `skl.mod_conv1..10`) are created
+  **unconditionally at load**, because `a7` saves exp and `p` positionally over
+  `for..in skl`. One that appeared only when you first folded would shift every
+  slot after it. The test asserts they sit at the end of `skl`.
+- They are **aggregates**: no milestones, never take exp, `use()` returns 0 (the
+  folded skills still apply their own buffs, so anything here double-counts).
+  No milestones means section 24 generates no titles for them, and
+  `perkcoverage.mjs` skips anything with `_modConverged`, as it skips Renown.
+- A converged skill's displayed level is the **best** folded level in its
+  section, so it stays inside the story cap and `MOD_UI.hideMaxed` still works.
+- The convergence bonus is a stat multiplier applied in allbuff, deliberately
+  **not** a body factor — it never touches `MOD_BODY`.
+- `removeItem(obj, flag)` takes a **flag**, not an amount — passing a count drops
+  the whole stack. Stackable items sit in `inv` once and carry their own
+  `amount`; there is no `you.inv`. Decrement `amount`, then `removeItem` only an
+  emptied stack, as the game does at `index.html:8893`.
+
 ## Names are the other primary key
 
 Ids are the save's key; **names are the player's**, and nothing checked them

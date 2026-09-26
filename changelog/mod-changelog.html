@@ -18,6 +18,40 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 4.1:</span><br>
+<span style="color:blue">[2026/09/26]</span><br>
+<b>Skill rarity, and convergence &mdash; fold a whole section into one skill.</b><br>
+&nbsp;&nbsp;<b>Every skill has a rarity now</b>, ten of them from Novice to Transcendent, and the<br>
+&nbsp;&nbsp;skill list paints each row in its colour<br>
+&nbsp;&nbsp;<span style="color:grey">It is the rank of the level you have taken the skill to &mdash; the same thresholds and<br>
+&nbsp;&nbsp;the same ten colours titles use. Derived, not assigned: a hand-picked rarity per skill<br>
+&nbsp;&nbsp;would be a hundred numbers to keep in step with a ladder that moves, and would say<br>
+&nbsp;&nbsp;nothing about your character.</span><br>
+&nbsp;&nbsp;<b>Jade Slips (&#x7389;&#x7B80;)</b> fold a skill into its section. Fold every skill in a section and it<br>
+&nbsp;&nbsp;is one line on your sheet instead of up to twenty-five &mdash; Warfare, Constitution,<br>
+&nbsp;&nbsp;Pathfinding, Livelihood, Workmanship, Fortitude, Attunement, Provision, Maintenance,<br>
+&nbsp;&nbsp;Fellowship<br>
+&nbsp;&nbsp;<b>The Slip Archive</b> is on the dojo lobby, beside Level Advancement. It sells the slips;<br>
+&nbsp;&nbsp;the price rises with every one you have spent, so converging all hundred is a project<br>
+&nbsp;&nbsp;<b>Folding costs you nothing but the slip.</b> A folded skill keeps its level, keeps earning<br>
+&nbsp;&nbsp;exp, keeps every perk and keeps applying every buff it ever applied. It is hidden, not<br>
+&nbsp;&nbsp;removed, which is also why it can be unpicked at any time<br>
+&nbsp;&nbsp;<span style="color:grey">Hiding rather than removing is the whole design. Shortening the skill list breaks three<br>
+&nbsp;&nbsp;things at once: the game's panel only redraws when the list GROWS, so removed rows would<br>
+&nbsp;&nbsp;stay on screen forever; the game pushes a skill back onto the list on its next level-up,<br>
+&nbsp;&nbsp;banner and all, so a fold would undo itself; and the list is saved by id. The mod's<br>
+&nbsp;&nbsp;buffs were always applied from the skills themselves, never from the list &mdash; so "all<br>
+&nbsp;&nbsp;of the buffs" is literally true rather than re-implemented. Measured: every stat after<br>
+&nbsp;&nbsp;folding all hundred is exactly its unfolded value times the convergence bonus.</span><br>
+&nbsp;&nbsp;<b>A converged section is worth x1.03 on every stat</b>, compounding &mdash; x1.34 with all ten.<br>
+&nbsp;&nbsp;A partly folded one pays a share in proportion, so it rewards you as you go<br>
+&nbsp;&nbsp;<b>A Skill handbook in the wiki</b>, beside the skills page: the rarity ladder, which skills<br>
+&nbsp;&nbsp;fold into which, where you stand, and what the slips cost<br>
+&nbsp;&nbsp;<span style="color:grey">New: modConverge(), modRarity(), modFold(section), modUnfold(section).<br>
+&nbsp;&nbsp;tests/convergence.mjs, 43 checks. tests/perkcoverage.mjs no longer grades the ten<br>
+&nbsp;&nbsp;converged skills &mdash; they are never trained, so a perk ladder on them could never be<br>
+&nbsp;&nbsp;climbed, the same reason Renown was already exempt.</span><br>
+<br>
 <span style="color:gold;background-color:black">----MOD 4.0:</span><br>
 <span style="color:blue">[2026/09/25]</span><br>
 <b>The cultivator's road &mdash; the realm ladder finally has a road between its rungs.</b><br>

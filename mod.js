@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '4.0',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '4.1',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -421,6 +421,7 @@ var MOD_ITEM_IDS = {
   spiritPill: 4220,  //               -> 4220-4223, Medicine/Tool
   material:   5200,  //               -> 5200-5211, Material/Misc
   cultPill:   4230,  // + 0..1        -> 4230-4231, Medicine/Tool
+  jadeSlip:   5212,  //               -> 5212, Material/Misc — a tool, not a drug
   manual:     9110   //               -> 9110-9115, Book — these really are books
 };
 
@@ -3340,8 +3341,14 @@ renderSkl = function (sk) {
     // it by MOD_levelCap() would hide it the moment it passed the current cap.
     var ceiling = MOD_skillCeiling(sk);
     var maxedOut  = MOD_UI.hideMaxed && sk.lvl >= ceiling;
+    /* Section 39: a folded skill is hidden rather than removed from you.skls.
+       Reusing this branch rather than adding a third renderSkl wrapper is the
+       whole reason folding is safe — you.skls is never shortened, so the save,
+       the game's grow-only panel rebuild and giveSkExp's re-add on level-up all
+       stay exactly as they were. */
+    var folded = (typeof MOD_isFolded === 'function') && MOD_isFolded(sk);
 
-    if (collapsed || maxedOut) {
+    if (collapsed || maxedOut || folded) {
       if (header) {
         // keep this row as a bare header: hide its own cells, drop its chrome
         for (var i = 0; i < el.children.length; i++) {
@@ -10774,3 +10781,718 @@ function modRoots() {
 
 console.log('[mod] the cultivator\'s road: roots, nine layers a realm, insight, ' +
             'seclusion, qi deviation and tribulation. modRoad() / modRoots().');
+
+
+/* ===========================================================================
+   39. SKILL RARITY, AND THE CONVERGENCE
+   ---------------------------------------------------------------------------
+   Two problems, one answer.
+
+   The first is that the skill list is too long to read. A hundred skills, and
+   Daily Life alone holds twenty-five of them. Section 11 grouped them and
+   section 13 made the groups collapse, which helps, but the list only ever
+   grows.
+
+   The second is that nothing on the sheet says which of a hundred skills is
+   worth anything.
+
+   --- rarity, derived like everything else ----------------------------------
+
+   A skill's rarity is the RANK OF THE LEVEL YOU HAVE TAKEN IT TO, through the
+   same `MOD_rankForLevel` that ranks titles, against the same `MOD_RANK_AT`
+   thresholds, painted with the same ten `MOD_RANK_COLOUR` entries. So a skill
+   at 110 is rank 10 and white-hot, and a skill at 3 is rank 1 and grey.
+
+   Deriving it rather than hand-assigning a rarity per skill is not just the
+   house style — a static rarity would be a hundred more numbers to keep in step
+   with a ladder that moves, and it would say nothing about YOUR character. The
+   base game already made this mistake in the other direction: it handed out a
+   rank 3 title at skill level 8.
+
+   The colour goes on the row's name element, not into the name. The game's
+   per-second updater rewrites `children[0].innerHTML` every tick, which would
+   wipe any markup — but it never touches that element's own inline style, so a
+   colour set once survives. Names are a primary key and are not to be
+   decorated (section 4's note on `skl.frg`).
+
+   --- convergence -----------------------------------------------------------
+
+   A Jade Slip (玉简) is the genre's own object for this, and it comes off the
+   same shelf section 38 was built from: "a long, narrow strip of jade used as a
+   magical item. A cultivator can magically store information inside it, and
+   other cultivators can then use that Jade Slip to directly transmit the stored
+   information into their minds."
+
+   So: spend a slip to FOLD a skill into its section's converged skill. Fold
+   every skill in a section and that section is one line on your sheet instead
+   of twenty-five — a skill that stands for the whole of it.
+
+   --- what folding does NOT do, and why that is the point -------------------
+
+   Folding does not remove anything from `you.skls`. It marks the skill in
+   `global.flags.mod_folded` and section 13's renderSkl wrapper HIDES the row,
+   the same branch that already hides a collapsed group or a maxed-out skill.
+
+   That is a deliberate choice against the obvious implementation, because
+   shortening `you.skls` breaks three things at once:
+
+     * the game's panel only rebuilds when the list GROWS
+       (`let sklsize=you.skls.length; ... if(sklsize<you.skls.length)`), so a
+       shrink leaves orphaned rows displayed forever;
+     * `giveSkExp` pushes a skill back into `you.skls` on its next level-up
+       (`if(!scanbyid(you.skls,skl.id)) you.skls.push(skl)`) — complete with a
+       "New Skill Unlocked!" banner — so a fold would undo itself;
+     * and the save stores `you.skls` by id, so anything removed would have to
+       be re-derived on load rather than simply restored.
+
+   Hiding sidesteps all three. Nothing mechanical changes at all: a folded skill
+   keeps its level, keeps earning exp, keeps its milestones, and keeps applying
+   every buff it ever applied — the mod's allbuff wrappers walk `skl` by key,
+   never `you.skls`, so `you.skls` was only ever the display list. "All of the
+   buffs" is therefore literally true rather than re-implemented, which is the
+   only version of this feature that cannot quietly cost you a stat.
+
+   What convergence adds on top is a bonus for having done it, applied in
+   allbuff like every other multiplier and never written into a stat field.
+   =========================================================================== */
+
+var MOD_CONV = {
+  /* One slip per skill folded. The Archive's price climbs with how many you
+     have already used, so the first folds are affordable early and folding a
+     hundred skills is a project rather than a purchase. */
+  slipBase: 900,
+  slipStep: 1.055,        // price *= this ^ (slips used)
+  slipCap: 4000000,
+
+  /* A fully converged section is worth this much on every stat, compounding
+     across sections — x1.03 each, x1.34 with all ten. Deliberately modest:
+     section 8's enemy model measures the player rather than assuming a curve,
+     so it absorbs this as tougher enemies, and `allareas` is what says whether
+     it went too far. */
+  sectionBonus: 0.03,
+
+  /* A partial section is worth a share of that, so folding is rewarded as you
+     go rather than only at the end. */
+  partialShare: 0.5
+};
+
+/* --- rarity ---------------------------------------------------------------- */
+
+/* Ten names for the ten ranks. Plain, in the author's register — these read as
+   grades of quality, not as invented fantasy words. */
+var MOD_SKILL_RAR = ['Novice', 'Common', 'Practised', 'Capable', 'Skilled',
+                     'Expert', 'Masterful', 'Renowned', 'Peerless', 'Transcendent'];
+
+function MOD_skillRank(sk) {
+  if (!sk) return 1;
+  var lv = Number(sk.lvl) || 0;
+  if (lv < 1) return 1;
+  try { return MOD_rankForLevel(lv); } catch (e) { return 1; }
+}
+
+function MOD_skillRarityName(sk) {
+  return MOD_SKILL_RAR[Math.min(Math.max(MOD_skillRank(sk), 1), 10) - 1];
+}
+
+/* Paint a rendered row's name element. Style survives the game's per-second
+   innerHTML rewrite; markup inside the name would not. */
+function MOD_paintSkillRow(el, sk) {
+  try {
+    if (!el || !el.children || !el.children[0]) return;
+    var st = MOD_rankStyle(MOD_skillRank(sk));
+    el.children[0].style.color = st.c;
+    el.children[0].style.textShadow = st.s || 'none';
+  } catch (e) {}
+}
+
+/* Rarity moves as levels do, and the row is only painted when it is drawn, so
+   the colours are refreshed on the tick. Bounded by you.skls.length and doing
+   nothing but two style writes a row, which is what the game's own updater is
+   already doing beside it. */
+function MOD_repaintSkillRows() {
+  try {
+    if (!dom.skcon || !dom.skcon.children || !you.skls) return;
+    var n = Math.min(dom.skcon.children.length, you.skls.length);
+    for (var i = 0; i < n; i++) MOD_paintSkillRow(dom.skcon.children[i], you.skls[i]);
+  } catch (e) {}
+}
+
+
+/* --- the converged skills --------------------------------------------------
+   Ten of them, one per section, CREATED AT LOAD whether or not you ever fold
+   anything. That is not laziness — `skl` is walked positionally when exp and
+   the exp multiplier are saved:
+
+       let a7 = []; for(let obj in skl) a7.push([skl[obj].exp, skl[obj].p]);
+
+   so a skill that only comes into existence once you fold something would shift
+   every slot after it and hand a played-in save the wrong exp for the wrong
+   skill. Created unconditionally, in a fixed order, at the end of `skl`, they
+   simply append ten slots that are always there.
+
+   They carry NO milestones on purpose. They are aggregates, not skills you
+   train: they never take exp, so a perk ladder would never be climbed, and
+   section 24's title generator skips anything without milestones, so they add
+   no titles either. `tests/perkcoverage.mjs` skips them for the same reason it
+   already skips Renown — it is not graded on a ladder it does not use.
+   -------------------------------------------------------------------------- */
+
+var MOD_CONV_ID = 2200;                  // + section -> 2201-2210
+
+var MOD_CONV_NAMES = {
+  1:  ['Warfare',     'The whole of fighting, held as one thing.'],
+  2:  ['Constitution', 'Everything your body learned to take, in one place.'],
+  3:  ['Pathfinding', 'All of reading the land, folded together.'],
+  4:  ['Livelihood',  'The hundred small competences of getting through a day.'],
+  5:  ['Workmanship', 'Every trade you picked up, answering to one hand.'],
+  6:  ['Fortitude',   'All of what no longer touches you.'],
+  7:  ['Attunement',  'Every affinity, running in the same channel.'],
+  8:  ['Provision',   'All of taking from the world without emptying it.'],
+  9:  ['Maintenance', 'Everything that keeps working because you keep it working.'],
+  10: ['Fellowship',  'Everyone who follows you, and why they do.']
+};
+
+var MOD_CONVERGED = {};                  // section -> skill
+
+(function () {
+  for (var sec = 1; sec <= 10; sec++) {
+    var row = MOD_CONV_NAMES[sec];
+    if (!row) continue;
+    var key = 'mod_conv' + sec;
+    var sk = new Skill();
+    sk.id = MOD_CONV_ID + sec;
+    sk.type = sec;                       // MOD_sectionOf reads type, so it lands home
+    sk.name = row[0];
+    sk.desc = row[1];
+    sk.mlstn = [];                       // an aggregate, not a ladder
+    sk._modConverged = sec;
+    /* Never trained and never called: the folded skills keep applying their own
+       buffs untouched, so anything here would double-count them. */
+    sk.use = function () { return 0; };
+    skl[key] = sk;
+    MOD_CONVERGED[sec] = sk;
+    /* A skill created after sections 10 and 11 is invisible to their maps and
+       silently loses its cap and its section heading. */
+    MOD_KEY_BY_ID[sk.id] = key;
+    MOD_PARENT_OF[key] = MOD_PARENT_KEY[sec];
+  }
+})();
+
+/* Everything in a section that CAN be folded: every named skill whose type is
+   that section, minus the converged skill itself. Derived from `skl`, so a skill
+   added later is foldable without being listed anywhere. */
+function MOD_sectionSkills(sec) {
+  var out = [];
+  for (var k in skl) {
+    var sk = skl[k];
+    if (!sk || typeof sk !== 'object' || !sk.name) continue;
+    if (sk._modConverged) continue;
+    if (MOD_sectionOf(sk) !== sec) continue;
+    out.push({ key: k, skill: sk });
+  }
+  return out;
+}
+
+function MOD_foldedMap() {
+  if (!global.flags.mod_folded || typeof global.flags.mod_folded !== 'object') {
+    global.flags.mod_folded = {};
+  }
+  return global.flags.mod_folded;
+}
+
+function MOD_isFolded(sk) {
+  try {
+    if (!sk || sk._modConverged) return false;
+    var key = MOD_KEY_BY_ID[sk.id];
+    if (!key) return false;
+    return MOD_foldedMap()[key] === 1;
+  } catch (e) { return false; }
+}
+
+/* {total, folded, left} for a section. */
+function MOD_sectionFold(sec) {
+  var all = MOD_sectionSkills(sec), map = MOD_foldedMap(), folded = 0;
+  for (var i = 0; i < all.length; i++) if (map[all[i].key] === 1) folded++;
+  return { total: all.length, folded: folded, left: all.length - folded };
+}
+
+function MOD_sectionConverged(sec) {
+  var f = MOD_sectionFold(sec);
+  return f.total > 0 && f.left === 0;
+}
+
+/* The converged skill's displayed level is the best level in the section it
+   stands for — meaningful ("as strong as your strongest here"), and inside the
+   story cap, so MOD_UI.hideMaxed and MOD_skillCeiling keep working on it. The
+   exp bar shows how much of the section has been folded, which is the only
+   progress the thing actually has. */
+function MOD_refreshConverged() {
+  try {
+    for (var sec = 1; sec <= 10; sec++) {
+      var sk = MOD_CONVERGED[sec];
+      if (!sk) continue;
+      var f = MOD_sectionFold(sec);
+      if (!f.folded) continue;                    // not on the sheet yet
+
+      var all = MOD_sectionSkills(sec), map = MOD_foldedMap(), best = 0, held = 0;
+      for (var i = 0; i < all.length; i++) {
+        if (map[all[i].key] !== 1) continue;
+        held++;
+        if ((all[i].skill.lvl || 0) > best) best = all[i].skill.lvl || 0;
+      }
+      sk.lvl = best;
+      sk.exp = f.folded;
+      sk.expnext_t = f.total || 1;
+      sk.bname = sk.name + ' (' + f.folded + ' of ' + f.total + ')';
+
+      if (you.skls && you.skls.indexOf(sk) === -1) you.skls.push(sk);
+    }
+  } catch (e) { /* never break a tick over a display aggregate */ }
+}
+
+/* --- the bonus ------------------------------------------------------------
+   A fully converged section is worth sectionBonus on every stat; a partially
+   folded one is worth a share of it, in proportion. Applied in allbuff and
+   never written into you.stra and friends, so it cannot compound across loads.
+   -------------------------------------------------------------------------- */
+
+function MOD_convergenceMult() {
+  var m = 1;
+  try {
+    for (var sec = 1; sec <= 10; sec++) {
+      var f = MOD_sectionFold(sec);
+      if (!f.total || !f.folded) continue;
+      var share = f.left === 0 ? 1 : (f.folded / f.total) * MOD_CONV.partialShare;
+      m *= 1 + MOD_CONV.sectionBonus * share;
+    }
+  } catch (e) { return 1; }
+  return m;
+}
+
+
+/* --- the Jade Slip (玉简) --------------------------------------------------- */
+
+(function () {
+  var slip = new Item();
+  slip.id = MOD_ITEM_IDS.jadeSlip;
+  slip.name = 'Jade Slip';
+  slip.rar = 4;
+  slip.stype = 5;
+  slip.v = Math.round(MOD_CONV.slipBase * 0.25);
+  slip.desc = 'A finger of jade with something already written inside it.' + MOD_SEP +
+    '<span style="color:hotpink">Folds one skill into its section at the Slip Archive</span><br>' +
+    '<small style="color:grey">Folded skills keep every level, every perk and ' +
+    'every bonus — they just stop taking up a line</small>';
+  item.mod_slip = slip;
+})();
+
+function MOD_slipsUsed() {
+  var n = Number(global.flags.mod_slipsused);
+  return isFinite(n) && n > 0 ? n : 0;
+}
+
+function MOD_slipPrice() {
+  var p = MOD_CONV.slipBase * Math.pow(MOD_CONV.slipStep, MOD_slipsUsed());
+  return Math.min(Math.round(p), MOD_CONV.slipCap);
+}
+
+/* A non-slot item is pushed into the global `inv` ONCE and stacks in its own
+   `amount` (`giveItem`: `obj.amount += am`). There is no `you.inv`. */
+function MOD_slipsHeld() {
+  try {
+    var s = item.mod_slip;
+    if (!s || s.have !== true) return 0;
+    var n = Number(s.amount);
+    return isFinite(n) && n > 0 ? n : 0;
+  } catch (e) { return 0; }
+}
+
+/* `removeItem(obj, flag)` takes a FLAG, not an amount — passing a count there
+   drops the whole stack. Decrement the amount and only hand the emptied stack
+   back to removeItem, which is what the game does at index.html:8893. */
+function MOD_spendSlips(n) {
+  try {
+    var s = item.mod_slip;
+    s.amount -= n;
+    if (s.amount <= 0) { s.amount = 0; removeItem(s); }
+    return true;
+  } catch (e) { return false; }
+}
+
+
+/* --- folding --------------------------------------------------------------
+   Lowest level first, which is both the obvious order — you give up the ones
+   you have barely trained before the ones you live on — and the one that makes
+   a partial fold predictable. Folds as many as the slips in hand will pay for,
+   so a section is one click rather than twenty-five.
+   -------------------------------------------------------------------------- */
+
+function MOD_fold(sec, howMany) {
+  var f = MOD_sectionFold(sec);
+  if (!f.left) { msg('There is nothing left to fold there', 'red'); return 0; }
+
+  var have = MOD_slipsHeld();
+  if (have < 1) { msg('You have no Jade Slips', 'red'); return 0; }
+
+  var want = Math.min(howMany || f.left, f.left, have);
+  var map = MOD_foldedMap();
+  var pool = MOD_sectionSkills(sec).filter(function (e) { return map[e.key] !== 1; });
+  pool.sort(function (a, b) { return (a.skill.lvl || 0) - (b.skill.lvl || 0); });
+
+  var done = 0, names = [];
+  for (var i = 0; i < want; i++) {
+    var e = pool[i];
+    if (!e) break;
+    map[e.key] = 1;
+    names.push(e.skill.bname || e.skill.name);
+    done++;
+  }
+  if (!done) return 0;
+
+  MOD_spendSlips(done);
+  global.flags.mod_slipsused = MOD_slipsUsed() + done;
+
+  var conv = MOD_CONVERGED[sec];
+  msg('The slip takes ' + (done === 1 ? names[0] : done + ' skills') +
+      ' and closes over ' + (done === 1 ? 'it' : 'them') + '.', 'mediumorchid');
+  MOD_refreshConverged();
+
+  var after = MOD_sectionFold(sec);
+  if (!after.left) {
+    msg('— ' + conv.name + ' —', 'gold');
+    msg(conv.desc, 'plum');
+    msg('The whole of ' + MOD_SECTIONS[sec] + ' is one line now.', 'grey');
+  } else {
+    msg(conv.name + ': ' + after.folded + ' of ' + after.total + ' folded.', 'skyblue');
+  }
+
+  try { MOD_redrawSkills(); } catch (e) {}
+  try { allbuff(you); } catch (e) {}
+  return done;
+}
+
+/* Undoing it costs nothing, because folding cost nothing mechanical. The slips
+   are not refunded — you spent them on the filing, not on the skill. */
+function MOD_unfold(sec) {
+  var map = MOD_foldedMap(), all = MOD_sectionSkills(sec), n = 0;
+  for (var i = 0; i < all.length; i++) {
+    if (map[all[i].key] === 1) { delete map[all[i].key]; n++; }
+  }
+  if (!n) { msg('Nothing there is folded', 'red'); return 0; }
+  var conv = MOD_CONVERGED[sec];
+  if (conv && you.skls) {
+    var at = you.skls.indexOf(conv);
+    /* The one place you.skls is shortened, and it is safe here because the fold
+       screen forces a full redraw immediately afterwards. */
+    if (at >= 0) you.skls.splice(at, 1);
+    conv.lvl = 0; conv.exp = 0; conv.bname = undefined;
+  }
+  msg('You unpick ' + n + ' skill' + (n === 1 ? '' : 's') + ' from ' +
+      MOD_SECTIONS[sec] + '.', 'skyblue');
+  try { MOD_redrawSkills(); } catch (e) {}
+  try { allbuff(you); } catch (e) {}
+  return n;
+}
+
+
+/* --- the Slip Archive -----------------------------------------------------
+   On the dojo lobby, beside section 27's Level Advancement, and gated on the
+   same `dj1rw6`: the dojo is already where manuals change hands, and a slip is
+   a manual you can fit in your palm.
+
+   Every chs() here passes false except the first — chs(txt, true) calls
+   clr_chs() and would wipe the screen it was just drawn on. Lines stay under
+   fifty characters: `.chs` is height:22px with no overflow rule, so one that
+   wraps spills over the row below it.
+   -------------------------------------------------------------------------- */
+
+chss.mod_slips = new Chs(); chss.mod_slips.id = 974;
+
+chss.mod_slips.sl = function () {
+  global.flags.inside = true;
+  d_loc('The Slip Archive');
+  global.lst_loc = 974;
+  chs('Racks of jade, most of it blank. A desk, and a price.', true);
+
+  var held = MOD_slipsHeld();
+  var price = MOD_slipPrice();
+
+  var buy = chs('"Buy a Jade Slip"  ' + formatw(price) + 'c  (have ' + held + ')',
+                false, 'gold');
+  buy.addEventListener('click', function () {
+    if (you.wealth < price) { msg('Not enough coin', 'red'); return; }
+    you.wealth -= price;
+    giveItem(item.mod_slip, 1);
+    try { dom.d6.update(); } catch (e) {}
+    smove(chss.mod_slips, false);
+  });
+  addDesc(buy, null, 2, 'Jade Slip',
+    'The price rises with every slip you have spent. ' +
+    'Folding a skill costs one.');
+
+  for (var sec = 1; sec <= 10; sec++) {
+    (function (s) {
+      var f = MOD_sectionFold(s);
+      if (!f.total) return;
+      var label = MOD_SECTION_SHORT[s] + '  ' + f.folded + '/' + f.total;
+      var node;
+      if (!f.left) {
+        node = chs('  ' + label + '  ' + MOD_CONVERGED[s].name, false, 'orange');
+        addDesc(node, null, 2, MOD_CONVERGED[s].name,
+          MOD_CONVERGED[s].desc + ' Click to unpick it.');
+        node.addEventListener('click', function () {
+          MOD_unfold(s); smove(chss.mod_slips, false);
+        });
+      } else {
+        node = chs('  "Fold ' + label + '"', false, 'plum');
+        addDesc(node, null, 2, MOD_SECTIONS[s],
+          f.left + ' left to fold, one slip each. Lowest level first. ' +
+          'Folded skills keep everything they had.');
+        node.addEventListener('click', function () {
+          MOD_fold(s); smove(chss.mod_slips, false);
+        });
+      }
+    })(sec);
+  }
+
+  chs('"<= Back"', false).addEventListener('click', function () {
+    smove(chss.t3, false);
+  });
+};
+
+/* The dojo lobby entry. Same guards section 27 uses, for the same reason:
+   chss.t3.sl draws several one-time screens and this belongs only on the
+   ordinary lobby one. */
+var MOD_t3_sl_before_slips = chss.t3.sl;
+
+chss.t3.sl = function () {
+  MOD_t3_sl_before_slips.apply(this, arguments);
+  try {
+    if (global.flags.nbtfail) return;
+    if (!global.flags.dj1end) return;
+    if (global.flags.trnex1 === true && !global.flags.trnex2) return;
+    if (global.flags.trne4e1 && !global.flags.trne4e1b) return;
+    if (!global.flags.dj1rw6) return;
+
+    chs('"The Slip Archive"', false, 'plum')
+      .addEventListener('click', function () { smove(chss.mod_slips, false); });
+  } catch (e) {
+    console.warn('[mod] slip archive failed to draw: ' + e.message);
+  }
+};
+
+
+/* --- the convergence bonus, and keeping the aggregates current ------------- */
+
+var MOD_allbuff_before_conv = allbuff;
+
+allbuff = function (who) {
+  MOD_allbuff_before_conv(who);
+  try { if (!who || typeof you === 'undefined' || who.id !== you.id) return; }
+  catch (e) { return; }
+  try {
+    var m = MOD_convergenceMult();
+    if (m !== 1) { you.str *= m; you.int *= m; you.agl *= m; you.spd *= m; }
+  } catch (e) { /* never break a stat refresh */ }
+};
+
+var MOD_ontick_before_conv = ontick;
+
+ontick = function () {
+  MOD_ontick_before_conv();
+  try {
+    MOD_refreshConverged();
+    MOD_repaintSkillRows();
+  } catch (e) { /* never break a tick */ }
+};
+
+
+/* --- console reports ------------------------------------------------------- */
+
+function modConverge() {
+  var lines = ['The Slip Archive — ' + MOD_slipsHeld() + ' slip(s) held, next costs ' +
+               MOD_slipPrice() + 'c (' + MOD_slipsUsed() + ' spent)', ''];
+  var totalF = 0, totalT = 0;
+  for (var sec = 1; sec <= 10; sec++) {
+    var f = MOD_sectionFold(sec);
+    totalF += f.folded; totalT += f.total;
+    lines.push('  ' + (f.left === 0 ? '[x] ' : '[ ] ') +
+      (MOD_SECTIONS[sec] + '                  ').slice(0, 18) +
+      String(f.folded).padStart(3) + '/' + String(f.total).padEnd(3) +
+      '  ' + (f.left === 0 ? MOD_CONVERGED[sec].name : ''));
+  }
+  lines.push('', totalF + ' of ' + totalT + ' skills folded. Stats x' +
+    MOD_convergenceMult().toFixed(4) + ' from convergence.');
+  lines.push('A fully converged section is worth x' + (1 + MOD_CONV.sectionBonus) +
+    '; a partial one a ' + MOD_CONV.partialShare + ' share of that, in proportion.');
+  lines.push('modFold(section) / modUnfold(section) do it from here. ' +
+    'The Archive is on the dojo lobby.');
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+function modRarity() {
+  var lines = ['Skill rarity — the rank of the level you have taken it to', ''];
+  MOD_SKILL_RAR.forEach(function (n, i) {
+    lines.push('  ' + String(i + 1).padStart(2) + '  ' + (n + '            ').slice(0, 13) +
+      'level ' + MOD_RANK_AT[i] + '+');
+  });
+  var held = [];
+  try {
+    for (var j = 0; j < you.skls.length; j++) {
+      held.push({ n: you.skls[j].bname || you.skls[j].name, r: MOD_skillRank(you.skls[j]) });
+    }
+  } catch (e) {}
+  held.sort(function (a, b) { return b.r - a.r; });
+  lines.push('', 'Your best:');
+  held.slice(0, 10).forEach(function (h) {
+    lines.push('  ' + String(h.r).padStart(2) + '  ' +
+      (MOD_SKILL_RAR[h.r - 1] + '            ').slice(0, 13) + h.n);
+  });
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+function modFold(sec, n) { return MOD_fold(Number(sec), n ? Number(n) : undefined); }
+function modUnfold(sec) { return MOD_unfold(Number(sec)); }
+
+console.log('[mod] skill rarity from the level you reached, and convergence: ' +
+            'fold a section into one skill with a Jade Slip. modConverge() / modRarity().');
+
+
+/* --- the skill handbook ----------------------------------------------------
+   The wiki already lists every skill, built from `skl`. This is the page about
+   the SYSTEM: what rarity means, which skills fold into which converged skill,
+   and what the slips cost.
+
+   Spliced in beside the skills page rather than appended, so the nav reads in
+   an order that makes sense. Everything list-shaped goes in a collapsed group —
+   the tallest page is already at 5,897px against tests/wiki.mjs's 6,000 cap.
+   -------------------------------------------------------------------------- */
+
+MOD_wikiPage('handbook', 'Skill handbook', function () {
+  var conv = MOD_convergenceMult();
+
+  var h = '<h1>Skill handbook <span class="tag mod">mod</span></h1>' +
+    '<p class="lede">A hundred and ten skills, ten sections, and two things the ' +
+    'base game did not have: a rarity that says which of them is worth ' +
+    'anything, and a way to fold a whole section into one line.</p>' +
+
+    '<div class="wk-now"><h3>Where you are</h3><table>' +
+    '<tr><td>Jade Slips held</td><td>' + MOD_slipsHeld() + '</td></tr>' +
+    '<tr><td>Next slip costs</td><td>' + MOD_slipPrice() + ' coin</td></tr>' +
+    '<tr><td>Slips spent</td><td>' + MOD_slipsUsed() + '</td></tr>' +
+    '<tr><td>Convergence bonus</td><td>&times;' + conv.toFixed(4) +
+      ' to every stat</td></tr>' +
+    '</table></div>' +
+
+    '<h2>Rarity</h2>' +
+    '<p>A skill\'s rarity is the <b>rank of the level you have taken it to</b> — ' +
+    'the same <code>MOD_RANK_AT</code> thresholds that rank titles, and the same ' +
+    'ten colours. It is derived rather than assigned, so it cannot drift out of ' +
+    'step with the ladder, and it describes <i>your</i> character rather than a ' +
+    'label somebody typed once.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Rank</th><th>Rarity</th>' +
+    '<th>From level</th><th>You have</th></tr></thead><tbody>';
+
+  var haveAt = {};
+  try {
+    for (var si = 0; si < you.skls.length; si++) {
+      var rk = MOD_skillRank(you.skls[si]);
+      haveAt[rk] = (haveAt[rk] || 0) + 1;
+    }
+  } catch (e) {}
+
+  MOD_SKILL_RAR.forEach(function (name, i) {
+    var st = MOD_rankStyle(i + 1);
+    h += '<tr class="wk-e"><td class="num">' + (i + 1) + '</td>' +
+      '<td><b style="color:' + st.c + ';text-shadow:' + (st.s || 'none') + '">' +
+        MOD_WIKI.safe(name) + '</b></td>' +
+      '<td class="num">' + MOD_RANK_AT[i] + '</td>' +
+      '<td class="num">' + (haveAt[i + 1] || '<span class="dim">—</span>') + '</td></tr>';
+  });
+
+  h += '</tbody></table>' +
+
+    '<h2>Convergence</h2>' +
+    '<p>A <b>Jade Slip</b> folds one skill into its section. Fold every skill in ' +
+    'a section and it becomes a single line on the sheet — the converged skill, ' +
+    'which stands for the whole of it.</p>' +
+    '<p class="note"><b>Folding costs you nothing but the slip.</b> A folded ' +
+    'skill keeps its level, keeps earning exp, keeps every perk it unlocked and ' +
+    'keeps applying every buff it applied before. It is hidden from the list, ' +
+    'not removed from the character — <code>you.skls</code> is never shortened, ' +
+    'which is what makes it safe to undo at any time.</p>' +
+    '<p>A fully converged section is worth &times;' + (1 + MOD_CONV.sectionBonus) +
+    ' on every stat, compounding across sections. A partly folded one is worth a ' +
+    MOD_CONV.partialShare + ' share of that, in proportion to how much of it is ' +
+    'folded, so folding pays as you go.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Section</th><th>Converged skill</th>' +
+    '<th>Folded</th><th>Level</th></tr></thead><tbody>';
+
+  for (var sec = 1; sec <= 10; sec++) {
+    var f = MOD_sectionFold(sec), cs = MOD_CONVERGED[sec];
+    if (!cs) continue;
+    var st2 = MOD_rankStyle(MOD_skillRank(cs));
+    h += '<tr class="wk-e' + (f.left === 0 ? ' done' : '') + '">' +
+      '<td>' + MOD_WIKI.safe(MOD_SECTIONS[sec]) + '</td>' +
+      '<td><b style="color:' + st2.c + '">' + MOD_WIKI.safe(cs.name) + '</b>' +
+        '<div class="dim flav">' + MOD_WIKI.safe(cs.desc) + '</div></td>' +
+      '<td class="num">' + f.folded + ' / ' + f.total + '</td>' +
+      '<td class="num">' + (f.folded ? cs.lvl : '<span class="dim">—</span>') +
+      '</td></tr>';
+  }
+
+  h += '</tbody></table>' +
+    '<p class="note">The Slip Archive is on the dojo lobby, beside Level ' +
+    'Advancement. The price of a slip rises with every one you have spent, so ' +
+    'converging everything is a long project rather than a purchase.</p>' +
+
+    '<h2>What folds into what</h2>' +
+    '<p>Derived from <code>skl</code> by section, so a skill added later is ' +
+    'foldable without being written down anywhere. Lowest level folds first.</p>';
+
+  for (var s2 = 1; s2 <= 10; s2++) {
+    var list = MOD_sectionSkills(s2);
+    if (!list.length) continue;
+    list.sort(function (a, b) { return (b.skill.lvl || 0) - (a.skill.lvl || 0); });
+    var inner = '<table class="wk-tbl"><thead><tr><th>Skill</th><th>Level</th>' +
+      '<th>Rarity</th><th>Folded</th></tr></thead><tbody>';
+    list.forEach(function (e) {
+      var st3 = MOD_rankStyle(MOD_skillRank(e.skill));
+      var fold = MOD_isFolded(e.skill);
+      inner += '<tr class="wk-e' + (fold ? ' done' : '') + '">' +
+        '<td>' + MOD_WIKI.safe(e.skill.bname || e.skill.name) + '</td>' +
+        '<td class="num">' + (e.skill.lvl || 0) + '</td>' +
+        '<td style="color:' + st3.c + '">' +
+          MOD_WIKI.safe(MOD_skillRarityName(e.skill)) + '</td>' +
+        '<td>' + (fold ? 'yes' : '<span class="dim">no</span>') + '</td></tr>';
+    });
+    inner += '</tbody></table>';
+    var fs = MOD_sectionFold(s2);
+    h += MOD_wikiGroup(MOD_WIKI.safe(MOD_SECTIONS[s2]) + ' &rarr; ' +
+      MOD_WIKI.safe(MOD_CONVERGED[s2].name) +
+      ' <span class="dim">' + fs.folded + '/' + fs.total + ' folded</span>',
+      list.length, inner, 3);
+  }
+
+  return h;
+});
+
+/* Next to the skills page rather than last in the nav. */
+(function () {
+  try {
+    var at = -1, hb = -1, i;
+    for (i = 0; i < MOD_WIKI_PAGES.length; i++) {
+      if (MOD_WIKI_PAGES[i].id === 'skills') at = i;
+      if (MOD_WIKI_PAGES[i].id === 'handbook') hb = i;
+    }
+    if (at < 0 || hb < 0 || hb === at + 1) return;
+    var page = MOD_WIKI_PAGES.splice(hb, 1)[0];
+    for (i = 0; i < MOD_WIKI_PAGES.length; i++) {
+      if (MOD_WIKI_PAGES[i].id === 'skills') { MOD_WIKI_PAGES.splice(i + 1, 0, page); break; }
+    }
+  } catch (e) { /* order is cosmetic; the page itself is what matters */ }
+})();
