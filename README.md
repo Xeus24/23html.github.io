@@ -28,72 +28,92 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Thirty-seven sections, roughly in the order they were built. The design record
+Forty-three sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
-[MOD-NOTES.md](MOD-NOTES.md).
+[MOD-NOTES.md](MOD-NOTES.md). Version 4.3.
+
+**Measured against the original**
+
+The mod is checked against the author's untouched game: a test loads it twice,
+once with `mod.js` blocked, and runs the same measurements on both.
+
+- Skill exp costs **exactly what the original charges below level 10**. That is
+  the range he designed — all 22 of his perk ladders end between level 1 and 15.
+  From level 10 the cost rises about 3% a level, at a rate solved so level 110
+  is reachable in the same time as before. His own curve cannot be kept past
+  that: 109→110 alone costs about 10¹⁴ xp.
+- Skill exp multiplier 1 and enemy coin drops off, the original's defaults —
+  both adjustable in settings.
+- Fights are the one deliberate difference. The original's early fights are
+  nearly free once you out-level its fixed creatures; the mod's enemy model
+  exists to remove that.
 
 **Progression**
 
-- Skill level caps tied to story progress, 10 through 110, rather than one flat
-  ceiling.
-- A geometric skill exp curve, replacing the base game's. Its own was
-  super-exponential — level 109→110 alone cost 1.16e14 xp, making the top of
-  the ladder unreachable by a factor of about 10¹³. Level 110 now takes roughly
-  six months of steady play at 1× speed.
-- Perks at 10/25/50/60/75/90/110 on every skill. 81 of 94 skills previously
-  gave nothing at all between level 51 and 110.
+- Skill level caps tied to story progress, 10 through 110.
+- Perks at 10/25/50/60/75/90/110 on every skill.
 - The dojo's "Level Advancement" ladder carried from level 30 to 110, which is
   what the instructor promises and the base game stops delivering.
 
-**Combat**
+**Combat and places**
 
-- Enemy scaling rewritten. It is solved per spawn against your actual power —
+- Enemy scaling rewritten. It is solved per spawn against your measured power —
   about 8 swings to kill, 20 to die — rather than fitted to a level. See the
   note below on why the obvious approach does not work here.
-- Three areas past the base game's last: the Sunken Hollow, the Ashen Spire and
-  the Long Vigil, opening in order once the golem arena is cleared.
-- **Crafting to five stars.** The base game's crafting stops at two in practice:
-  its only 3★ recipe is one nothing can teach, and 5★ has none at all. Four new
-  rungs add a full set each — weapon, armour, shield, accessory, tonic — from
-  twelve gathered materials at four resource nodes that open with the story.
+- Three areas past the base game's last — the Sunken Hollow, the Ashen Spire and
+  the Long Vigil — opening in order once the golem arena is cleared. An entrance
+  to the author's catacombs, the Pill Tower, and the Damp cellar, which he wrote
+  and never connected.
 - **The rank ladder.** The Power rank under your portrait is computed from your
-  stats, and rank 1 was only reachable by taking every single skill to 110 — at
-  108 across the board you are still rank 3. The Hall of the First Gate adds ten
-  named challengers, rank 10 down to rank 1, fought strictly in order. Beating
+  stats, and rank 1 was only reachable by taking every single skill to 110. The
+  Hall of the First Gate adds ten named challengers, fought in order; beating
   one takes that rank, and the rank you hold floors the rank you are shown
   without ever capping it.
+- **Crafting to five stars.** The base game's crafting stops at two in practice.
+  Four new rungs add a full set each — weapon, armour, shield, accessory, tonic —
+  from twelve gathered materials at four resource nodes that open with the story.
 
 **Cultivation**
 
-- Seven realms — Mortal through Ascendant — advanced by breaking through a
-  bottleneck, which costs a pill and can fail. Each is worth a compounding
-  multiplier on every stat.
-- Six elemental mastery skills whose techniques fire during combat, scaling
-  with INT and their element rather than with your weapon. Nothing fires until
-  your channels are open.
+- **Ten realms above Mortal**, Qi Refining through Tribulation Transcendence,
+  advanced by breaking through a bottleneck. Each is worth a compounding
+  multiplier — up to ×6 on every stat and ×8.5 on health and energy.
+- **The road between them**, modelled on the genre's own glossary: a Spiritual
+  Root rolled once, nine layers to every realm, insight earned by meditating,
+  by fights you nearly lost and by going somewhere new, Closed Door Training to
+  consolidate and shelter an attempt, Qi Deviation for failing in the open, and
+  a Heavenly Tribulation at the top.
+- Six elemental mastery skills whose techniques fire during combat.
+- Your realm sits on the rank line, and at a bottleneck it is the breakthrough
+  button.
 
 **Skills, titles and items**
 
-- Four new skills with paired actions, each earned from a milestone on the
-  base-game skill it grows out of.
+- Skills of the mod's own, five earned actions, and effects for the skills and
+  affinities the base game left inert.
+- **Skill rarity** — ten grades, from the level you have taken a skill to —
+  shown in the list and tooltips, with a sort and a filter.
+- **Folding.** A Jade Slip folds a skill into its section; fold a whole section
+  and it is one line. Folded skills keep every level, perk and buff.
 - Title ranks 1–10, derived from the level that earns the title rather than
-  assigned by feel; five titles per skill; and titles that do something, worn
-  or made passive by Renown.
-- Selling, enemy coin drops, and effects for the skills and affinities the base
-  game left inert.
+  assigned by feel; five titles per skill; titles that do something, worn or
+  made passive by Renown; and four of the author's unfinished titles finished.
+- Selling, with anything that is the only way to unlock something protected.
 
 **Quality of life**
 
 - Three save slots, with a "start new save" button.
-- Game speed, skill xp and coin-drop multipliers as settings boxes.
+- Settings boxes for game speed, skill exp, coin drops and **number format** —
+  short (4.56M), scientific, myriads (5.6亿) or as the original. Up to 9,999
+  every format prints exactly what the original prints.
 - An optional "unrestricted actions" toggle — several actions at once, started
   anywhere. Off by default; both are deliberate limits.
 - Collapsible skill sections, live effect descriptions, and a title picker
   grouped by skill.
-- **A wiki**, on the bottom bar and in settings. Eleven pages covering every
-  skill, area, item, title, action and realm — generated from the live game
-  data each time it opens, so it cannot fall out of step, and reading your save,
-  so it doubles as a progress sheet.
+- **A wiki**, on the bottom bar and in settings. Fifteen pages covering every
+  skill, area, item, title, action and realm, generated from the live game data
+  each time it opens and reading your save — including a skill handbook and a
+  **What next** page that says what you can do right now.
 
 Every change is logged in `changelog/mod-changelog.html`, reachable in game from
 the `changelog` button in the bottom bar. The version number next to it opens the
@@ -117,15 +137,16 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 28 scripts
+npm test                                          # all 31 scripts
 ./tests/run.sh audit combat                       # a subset
 ```
 
 They drive a real browser against a served copy of the game, so they test the
 actual thing rather than a model of it. [tests/README.md](tests/README.md)
 explains what each one covers. The broadest is `allareas.mjs`: every area, every
-creature, both ends of every level band, ten story tiers, three skill builds —
-2,790 matchups, all of which must be winnable.
+creature, both ends of every level band, ten story tiers, four skill builds —
+3,720 matchups, all of which must be winnable. `vanilla.mjs` holds the mod to
+the original game wherever it claims to match it.
 
 **Several tests write to the save.** Export one first, or run them against a
 copy of the folder.
@@ -134,12 +155,14 @@ copy of the folder.
 
 | | |
 |---|---|
-| `mod.js` | the entire mod, ~9,350 lines |
+| `mod.js` | the entire mod, ~12,550 lines |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 28 Playwright scripts, plus `lib/stats.mjs` |
+| `tests/` | 31 Playwright scripts, plus `lib/stats.mjs` |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
+
+The checkout's `origin` is this fork; the author's repository is `upstream`.
 
 ## Credit
 

@@ -804,20 +804,40 @@ function modUnlockAll() {
    =========================================================================== */
 
 function modHelp() {
+  /* Every console command the mod defines, grouped by what you would want it
+     for. This used to list six, from the first version; tests/polish.mjs now
+     checks that every mod- and set- function appears here, so it cannot fall behind
+     again. MOD-NOTES.md "Console commands" is the same list with a line each. */
   var lines = [
-    'Proto23 mod v' + MOD.version,
+    'Proto23 mod v' + MOD.version + ' — console commands',
     '',
-    '  setSpeed(n)     game speed, e.g. setSpeed(3). Current: ' + getSpeed() + 'x',
-    '  resetSpeed()    back to 1x',
-    '  setSkillXp(n)   skill xp multiplier. Current: ' + getSkillXp() + 'x',
-    '  modActions()    the added actions and what unlocks each',
-    '  modUnlockAll()  grant them all now, skipping the requirements',
-    '  modHelp()       this list',
+    ' Where you stand',
+    '  modNext()           what is ready now, what you are working on, what is locked',
+    '  modCaps()  modClears()  modResetCap()     story cap, and what raises it',
+    '  modRealm()  modRoad()  modRoots()          realm, the price of the next, roots',
+    '  modMastery()  modDojo()  modRankLadder()',
+    '  modConverge()  modRarity()  modFold(n)  modUnfold(n)',
+    '  modTitles()  modRenown()  modResetTitleBonuses()',
+    '  modPerks()  modParents()  modDiscoveries()  modActions()  modUnlockAll()',
     '',
-    '  New skills: Qi Circulation, Wildcraft, Calligraphy, Conditioning',
-    '  New actions: Circulate Qi, Forage, Practice Calligraphy, Endurance Drill',
-    '               each earned from a skill perk — see modActions()',
-    '  Speed persists across reloads. Skill xp resets to ' + MOD.skill_xp_mult + 'x.'
+    ' Economy and items',
+    '  modEconomy()  modItemValue(item)  modItems()  modCrafting()  modMeat()',
+    '  modLooseEnds()  modResetMoneyDrops()  modResetAffinities()',
+    '',
+    ' Settings (each persists; most have a box in the settings window)',
+    '  setSpeed(n)  getSpeed()  resetSpeed()         now ' + getSpeed() + 'x',
+    '  setSkillXp(n)  getSkillXp()                    now ' + getSkillXp() + 'x (the original is 1)',
+    '  setMoneyDrops(n)                               now ' + MOD_MONEY.chance + ' (the original is 0)',
+    '  setNumberFormat(m)  modNumbers()               now ' + MOD_NUM.mode,
+    '  setFreeActions(on)  getFreeActions()',
+    '  setXpCurve({vanillaTo: n})  modXpCurve()       until the next reload',
+    '',
+    ' Balance, for measuring',
+    '  modBalance()  setEnemyScale({...})  getEnemyScale()  setHpTrack(n)',
+    '',
+    ' Saves and documents',
+    '  modSaves()  modSwitchSave(n)  modNewSave(n)  modDeleteSave(n)',
+    '  modWiki()  modChangelog()  modGameChangelog()  modHelp()'
   ].join('\n');
   console.log(lines);
   return lines;
@@ -10075,22 +10095,21 @@ function modItems() {
    This section is sourced rather than invented. Wuxiaworld's "General Glossary
    of Terms in Wuxia, Xianxia & Xuanhuan Novels" is the genre's own reference
    work, and it describes the machinery this mod was missing by name. Where a
-   piece below has a Chinese term beside it, that term and its description come
-   from that glossary; the numbers are ours.
+   piece below has a Chinese term beside it, the term and the idea come from
+   that glossary — paraphrased here, not quoted; the numbers are ours.
 
        Spiritual Root      灵根    innate talent, tested, occasionally rare
        Layers              层      nine to a stage, and stage words besides
-       Insight             参悟    "needed ... to advance to higher stages"
+       Insight             参悟    understanding, needed to advance a stage
        Closed Door         闭关    seclusion, specifically to break a bottleneck
        Internal Demons     心魔    the mental barrier at the wall
        Qi Deviation        走火入魔 what failing it does to you
        Impurities          杂质    what a body expels on the way up
        Heavenly Tribulation 天劫   the Heavens object to your progress
 
-   The glossary's sentence on bottlenecks is the whole design brief:
-
-       "cultivators may require new Insights, the aid of medicinal pills, or
-        even harsher training in order to make a Breakthrough"
+   The glossary's entry on bottlenecks is the whole design brief: to break
+   through one, a cultivator may need new insight, a medicinal pill, or harsher
+   training.
 
    Three routes. The mod shipped with one of them — the pill — which is why a
    bottleneck was a shopping trip. All three are here now: insight is earned,
@@ -10118,9 +10137,8 @@ function modItems() {
    =========================================================================== */
 
 var MOD_CULT = {
-  /* Nine layers to a stage, per the glossary: "there are 9 ranks/levels/layers
-     to each stage of cultivation, with rank 1 being the start and rank 9 being
-     the peak." Derived from Qi Circulation level, never stored. */
+  /* Nine layers to a stage, per the glossary — the first is the start and the
+     ninth the peak. Derived from Qi Circulation level, never stored. */
   layers: 9,
   layerMult: 0.02,       // stats, per layer above the first  -> x1.16 at peak
   layerBody: 0.03,       // body,  per layer above the first  -> x1.24 at peak
@@ -10169,12 +10187,9 @@ MOD_BODY.hp.qidev = MOD_BODY.sat.qidev = 1;
 
 
 /* --- Spiritual Root (灵根) -------------------------------------------------
-   The glossary: "Cultivation usually requires some minimum level of innate
-   talent, so someone with bad luck or a poor bodily constitution may find it
-   impossible to even take the first step. In some novels, the quality of a
-   person's Spiritual Root can be tested to determine if they have the talent
-   needed to cultivate. Rare individuals may even have special Spiritual Roots
-   which allow them to cultivate quickly."
+   The glossary describes the root as the innate talent cultivation needs:
+   some people have too little to begin at all, the root's quality can be tested,
+   and a rare few have exceptional roots that let them cultivate unusually fast.
 
    Graded by PURITY — how many of the Five Elements the root carries, fewest
    being best. That is the genre's common convention rather than any one
@@ -10248,12 +10263,12 @@ function MOD_applyRootBonus() {
    Derived from Qi Circulation level between this realm's threshold and the
    next one's — no new saved field, and no way for the two to drift. Breaking
    through lands you at layer 1 of the new stage on its own, which is what the
-   glossary says happens: "After breaking through to the next stage, the
-   practitioner starts at rank 1 of that new stage."
+   glossary says happens: a breakthrough starts you at the first rank of the
+   new stage.
 
    The stage words are the glossary's too — Early, Middle, Late, Peak — and so
-   is "a half step to __", which it defines as someone "infinitely close to
-   breaking through ... but hasn't achieved it yet". That is exactly the state
+   is "a half step to __", its term for someone on the very edge of the next
+   stage who has not yet crossed into it. That is exactly the state
    the mod calls a bottleneck, so the bottleneck finally has the genre's name
    for it on the sheet.
    -------------------------------------------------------------------------- */
@@ -10316,11 +10331,9 @@ function MOD_layerBody() {
 
 
 /* --- Insight (参悟) --------------------------------------------------------
-   The glossary names the three sources and this implements those three, not a
-   fourth of our own: "Cultivators usually gain insights by meditating,
-   engaging in life-or-death battles, or going out into the world to experience
-   new things. These insights are often needed in order to master techniques or
-   advance to higher stages of cultivation."
+   The glossary names three sources of insight — meditation, fighting for your
+   life, and going out to experience new things — and says insight is often what
+   advancing a stage requires. This implements those three and no fourth:
 
        meditating              a second of Circulate Qi, or of seclusion
        life-or-death battle    a kill made while under 20% of your own health
@@ -10411,11 +10424,9 @@ area_init = function (a) {
 
 
 /* --- Closed Door Training (闭关) -------------------------------------------
-   The glossary, in full, because both halves of it are mechanics:
-
-       "Training done in seclusion, usually to focus on breaking through a
-        bottleneck or to avoid becoming distracted at a crucial moment and
-        suffering a backlash as a result."
+   The glossary gives seclusion two purposes, and both are mechanics here: to
+   concentrate on breaking a bottleneck, and to avoid being disturbed at the
+   crucial moment and suffering a backlash for it.
 
    So seclusion does two things here. It CONSOLIDATES — time in it buys
    breakthrough odds — and it SHELTERS: a breakthrough attempted while you are
@@ -10495,14 +10506,10 @@ function MOD_checkSecluUnlock() {
 
 
 /* --- Internal Demons (心魔) and Qi Deviation (走火入魔) ---------------------
-   The glossary, on what is actually waiting at a bottleneck:
-
-       Internal Demons — "a practitioner's negative emotions and other mental
-       barriers which hinder their training ... failure to adequately resist
-       them may result in Qi Deviation."
-
-       Qi Deviation — "a state wherein the cultivation base becomes dangerously
-       unstable, causing internal damage to the body and symptoms of psychosis."
+   The glossary, on what is actually waiting at a bottleneck: internal demons,
+   a cultivator's own negative emotions and mental barriers, which if not
+   resisted lead to Qi Deviation — a cultivation base gone dangerously unstable,
+   harming the body and the mind.
 
    Section 28's failed breakthrough dropped you to 1 HP and was over, which is a
    scratch rather than a state. This is the state: half an in-game day at 55% of
@@ -10558,18 +10565,11 @@ function MOD_clearDeviation() {
 
 
 /* --- Heavenly Tribulation (天劫) -------------------------------------------
-   The glossary:
+   The glossary describes a trial at key points in a cultivation, sent by the
+   Heavens against cultivators nearing immortality — usually as a lightning
+   storm, and often at the moment they enter a new stage.
 
-       "a trial encountered by cultivators at key points in their cultivation,
-        which they must resist and ultimately transcend. Because immortal
-        cultivation (generally) goes against the Will of Heaven, the Heavens
-        will send down tribulations to oppress high-level cultivators who make
-        progress towards Immortality, often right when they enter a new
-        cultivation stage. This typically takes the form of a lightning storm,
-        with extraordinarily powerful bolts of lightning raining down."
-
-   "Right when they enter a new cultivation stage" is the part that sets where
-   this goes: AFTER the breakthrough roll succeeds, before the realm is written.
+   "At the moment they enter a new stage" is the part that sets where this goes: AFTER the breakthrough roll succeeds, before the realm is written.
    The last three rungs are the ones the Heavens bother with, and the last of
    them is already named Tribulation Transcendence — section 28 named a realm
    after a mechanic that did not exist.
@@ -10619,8 +10619,8 @@ function MOD_tribulation(realm) {
 
 
 /* --- Impurities (杂质) -----------------------------------------------------
-   "usually described as a smelly, black substance which is secreted from a
-   cultivator's skin when they reach new cultivation stages" — pure flavour, and
+   The foul black residue the glossary says a body sweats out on reaching a new
+   stage — pure flavour, and
    the genre's signature note at exactly this moment. Free to have, and the
    breakthrough reads wrong without it.
    -------------------------------------------------------------------------- */
@@ -10735,8 +10735,8 @@ MOD_breakthrough = function (realm, pill) {
   if (pill) pill.amount--;
 
   /* Sheltered means sitting in seclusion AT THIS MOMENT, not having sat in it
-     once — the glossary's clause is about not being interrupted "at a crucial
-     moment", and the crucial moment is this one. */
+     once — the glossary's point is not being disturbed at the crucial moment,
+     and the crucial moment is this one. */
   var sheltered = !!(act.mod_seclu && act.mod_seclu.active === true);
   var consol = MOD_consolidation();
 
@@ -10947,10 +10947,9 @@ console.log('[mod] the cultivator\'s road: roots, nine layers a realm, insight, 
    --- convergence -----------------------------------------------------------
 
    A Jade Slip (玉简) is the genre's own object for this, and it comes off the
-   same shelf section 38 was built from: "a long, narrow strip of jade used as a
-   magical item. A cultivator can magically store information inside it, and
-   other cultivators can then use that Jade Slip to directly transmit the stored
-   information into their minds."
+   same shelf section 38 was built from: the glossary describes it as a strip of
+   jade that holds knowledge a cultivator stores in it, for another to take
+   straight into their own mind.
 
    So: spend a slip to FOLD a skill into its section's converged skill. Fold
    every skill in a section and that section is one line on your sheet instead

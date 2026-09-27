@@ -174,6 +174,20 @@ check(next.lateLocked, 'late areas read locked when the game has them locked');
 check(next.convLocked, 'convergence reads locked while the Slip Archive is');
 check(/^(ready,)*(working,)*(locked,?)*$/.test(next.order + ','), `ready lines first (${next.order})`);
 
+console.log('\n--- modHelp() lists every console command');
+// It listed six, from the first version, while the mod defined forty-nine.
+// Read the definitions straight from mod.js so a new command fails here until
+// it is added to the help.
+{
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../mod.js', import.meta.url), 'utf8');
+  const defined = [...src.matchAll(/^function ((?:mod|set|get|reset)[A-Z][A-Za-z]*)\(/gm)].map(m => m[1]);
+  const help = await p.evaluate(() => modHelp());
+  const missing = defined.filter(n => !new RegExp('\\b' + n + '\\(').test(help));
+  check(defined.length > 40 && missing.length === 0,
+    `all ${defined.length} commands are in modHelp() (${missing.join(', ') || 'none missing'})`);
+}
+
 console.log('\nerrors:', errs.length ? errs : 'none');
 if (errs.length) fail.push('page errors: ' + JSON.stringify(errs));
 await b.close();

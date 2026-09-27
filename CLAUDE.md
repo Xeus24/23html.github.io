@@ -175,8 +175,8 @@ the test scripts, `MOD_probe` in the mod). `dmg_calc` grants skill exp, so
 sampling it levels the player mid-measurement.
 
 Run `./tests/run.sh earlybal combat fightsmoke` after any balance change,
-`allareas` (all 2,490 matchups: every area x every creature x every tier x
-three skill builds) before calling one finished, and `capreach` after touching the curve or any xp rate.
+`allareas` (all 3,720 matchups: every area x every creature x every tier x
+four skill builds, the fourth with every section folded) before calling one finished, and `capreach` after touching the curve or any xp rate.
 What matters:
 
 - **`kill < die` at every matchup** — every balance script fails on this.
@@ -286,11 +286,11 @@ writes the product, once, with one delta flag per axis (`mod_hpm`, `mod_satm`).
   pairing for the same reason `you.res` did.
 - The recovered base is floored at 1 on both axes, for the reason above.
 
-Note that `mod.js:1862` assigns `you.hpmax` in a **dead wrapper** — sections 6, 7
-and 19 each re-anchor to `MOD_allbuff_original`, so only section 10's and section
-28's wrappers are in the live chain. Measured: the game's `allbuff` runs once per
-call, and `skl.qic.use()` once. Left in place with the others; don't "fix" it
-expecting an effect.
+Sections 6, 7 and 9 once each had an `allbuff` wrapper of their own (the section
+9 one assigned `you.hpmax` directly), but section 10 re-anchors on
+`MOD_allbuff_original`, so none of them ever ran after load. They were removed in
+v4.3. `tests/polish.mjs` asserts the live chain: the game's own `allbuff` runs
+once per call, and a mod skill's `use()` once.
 
 ## How big numbers are written (section 40)
 
@@ -484,13 +484,19 @@ those as such rather than leaving them out; the rule is literal on purpose, so
 there is never a judgement call about what counts. Newest first.
 
 That file is the mod's own. **`changelog/changelog.html` is the AUTHOR'S and must
-stay byte-identical to `origin/main`** — the mod's entries used to be prepended
+stay byte-identical to `upstream/main`** — the mod's entries used to be prepended
 to it, and were moved out precisely so the single script tag in `index.html` is
 the only change the mod makes to anything of his. Verify before committing:
 
 ```
-git diff origin/main -- changelog/changelog.html    # must be empty
+git diff upstream/main -- changelog/changelog.html    # must be empty
 ```
+
+**Remotes:** `origin` is the fork (`Xeus24/23html.github.io`) and is where pushes
+go; `upstream` is the author's game (`23html/23html.github.io`), which this
+account cannot push to. They were renamed so the desktop app's cloud move had a
+writable `origin` — compare the author's files against `upstream`, never
+`origin`.
 
 In game the `changelog` button opens the mod's file; the version number opens
 his.
@@ -600,7 +606,8 @@ took the Companions parent's level cap.
   back afterwards. It never rewrites the save — a migration that fails is
   better than a load that does.
 - Ranges in use: parents `2000+section` (2001-2010), masteries 2011-2016,
-  Renown 2100. Mod locations 975-980. **Check `tests/ids.mjs` before picking.**
+  Renown 2100, converged skills 2201-2210. Mod locations 973-990 (973 the Damp
+  cellar, 974 the Slip Archive, 979 the hall, 981-990 the rank duels and nodes). **Check `tests/ids.mjs` before picking.**
 - Prefer an explicit table to arithmetic when two schemes could ever meet:
   `MOD_ELEM_IDS` lists the six rather than computing them, and says why fire is
   out of line.
@@ -774,10 +781,13 @@ on its own, and that only works while the pages stay derived.
 
 ## Actions
 
-The mod adds four actions. They are **earned**, not granted on a timer. Three
+The mod adds five actions. They are **earned**, not granted on a timer. Three
 come from milestones on the base-game skill they grow out of, the same way
 `skl.walk` lv 1 grants "Run": Toughness 4 → Endurance Drill, Harvesting 4 →
 Forage, Literacy 8 → Practice Calligraphy.
+
+**Closed Door Training** (section 38) is granted on the tick at your first
+cultivation bottleneck, for the same reason as the next one.
 
 **Circulate Qi is the exception**: it comes from clearing the dojo's three
 tutorial fights (`tr1_win`/`tr2_win`/`tr3_win` — Easiest, Easy, Normal), checked
@@ -825,5 +835,5 @@ npm test                                          # everything
 **write to the save** — export one first, or run against a copy.
 
 Always finish a change with `node --check mod.js` (`npm run check`) plus the
-relevant test script. The mod is ~3,650 lines of wrappers around a codebase
+relevant test script. The mod is ~12,550 lines of wrappers around a codebase
 with no types and no module boundaries; the tests are the only safety net.

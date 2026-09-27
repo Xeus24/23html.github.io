@@ -19,6 +19,23 @@ Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and non
 <br>
 
 <span style="color:gold;background-color:black">----MOD 4.3:</span><br>
+<span style="color:blue">[2026/09/27]</span><br>
+<b>Documentation, not gameplay: the notes and READMEs brought up to date.</b><br>
+&nbsp;&nbsp;MOD-NOTES.md opens with an overview of the mod as it stands at 4.3, and gains the missing<br>
+&nbsp;&nbsp;chapters for 4.0 to 4.3. Older passages that later versions changed now carry a dated note<br>
+&nbsp;&nbsp;beside them rather than being rewritten, since the reasoning is the point of that file<br>
+&nbsp;&nbsp;<span style="color:grey">Two corrections along the way: the notes gave the top realm as "Ascendant" (it is Tribulation<br>
+&nbsp;&nbsp;Transcendence), and the README listed seven realms, Mortal through Ascendant (there are ten above<br>
+&nbsp;&nbsp;Mortal). Both READMEs now describe 43 sections, 31 test scripts and 3,720 matchups.</span><br>
+&nbsp;&nbsp;<span style="color:grey">Repository: the checkout's remotes were renamed &mdash; origin is the fork, upstream is the author's<br>
+&nbsp;&nbsp;game &mdash; so the author's-changelog check is now against upstream/main.</span><br>
+<b>modHelp() lists every console command</b> &mdash; fifty-four, grouped by purpose. It listed six, from the first<br>
+&nbsp;&nbsp;version, and said skill exp resets on reload, which stopped being true when the settings box<br>
+&nbsp;&nbsp;began persisting it. A check now fails if a new command is left out of it<br>
+&nbsp;&nbsp;<span style="color:grey">Housekeeping: the code comments in sections 38 and 39, and two lines of the 4.0 entry below,<br>
+&nbsp;&nbsp;quoted Wuxiaworld's glossary at length. They paraphrase and cite it now. CLAUDE.md brought up to<br>
+&nbsp;&nbsp;date as well: the remotes, five actions, the dead wrappers now removed, and current counts.</span><br>
+<br>
 <span style="color:blue">[2026/09/26]</span><br>
 <b>Your realm is on the main screen, and it is the breakthrough button.</b><br>
 &nbsp;&nbsp;The rank line now reads "rank: 135T &middot; Core Formation 5/9". At a bottleneck it says "&frac12; step to<br>
@@ -121,8 +138,8 @@ Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and non
 <b>The cultivator's road &mdash; the realm ladder finally has a road between its rungs.</b><br>
 &nbsp;&nbsp;<span style="color:grey">Sourced, not invented. Wuxiaworld's "General Glossary of Terms in Wuxia, Xianxia &amp;<br>
 &nbsp;&nbsp;Xuanhuan Novels" is the genre's own reference work and it names every piece below.<br>
-&nbsp;&nbsp;Its sentence on bottlenecks was the design brief: cultivators "may require new<br>
-&nbsp;&nbsp;Insights, the aid of medicinal pills, or even harsher training" to break through.<br>
+&nbsp;&nbsp;Its entry on bottlenecks was the design brief: breaking one can take new insight, a<br>
+&nbsp;&nbsp;medicinal pill, or harsher training.<br>
 &nbsp;&nbsp;The mod shipped with one of those three. All three are here now.</span><br>
 &nbsp;&nbsp;<b>Spiritual Root (&#x7075;&#x6839;)</b> &mdash; rolled once, when the dojo finishes teaching you to<br>
 &nbsp;&nbsp;fight. Five grades by purity, commonest worst. Never a dead end: the worst costs 15%<br>
@@ -139,9 +156,9 @@ Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and non
 &nbsp;&nbsp;<b>Closed Door Training (&#x95ED;&#x5173;)</b> &mdash; a fifth action, and the only one that costs you<br>
 &nbsp;&nbsp;something: it holds the action timer, and it refuses to start unless you are actually<br>
 &nbsp;&nbsp;at a wall. Fifteen minutes in it is worth +30% on the attempt<br>
-&nbsp;&nbsp;<span style="color:grey">And it shelters you. The glossary says seclusion is for "breaking through a<br>
-&nbsp;&nbsp;bottleneck or to avoid becoming distracted at a crucial moment and suffering a<br>
-&nbsp;&nbsp;backlash" &mdash; so a breakthrough attempted while you are still sitting in it cannot<br>
+&nbsp;&nbsp;<span style="color:grey">And it shelters you. The glossary gives seclusion two purposes, breaking a<br>
+&nbsp;&nbsp;bottleneck and not being disturbed at the crucial moment and suffering a backlash<br>
+&nbsp;&nbsp;&mdash; so a breakthrough attempted while you are still sitting in it cannot<br>
 &nbsp;&nbsp;deviate, only fail. Sit and be safe, or push it in the open and risk it.</span><br>
 &nbsp;&nbsp;<b>Qi Deviation (&#x8D70;&#x706B;&#x5165;&#x9B54;)</b> &mdash; failing in the open now leaves your cultivation base<br>
 &nbsp;&nbsp;unstable for half an in-game day: stats at x0.55, body at x0.70, no second attempt<br>
