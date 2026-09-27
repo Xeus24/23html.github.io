@@ -84,19 +84,56 @@ kill: 8, die: 20, hit: 0.45, margin: 1.5,
 hpSpread: 0.6, atkSpread: 0.3, bossKill: 2.0, bossDie: 0.7, armor: 1.0
 ```
 
-**The skill exp curve is the mod's, not the game's.** The base game's
-`expnext = 50 + (lvl+1)^log(9*lvl+1)` is super-exponential — 109→110 alone costs
-1.16e14 xp, so the cap ladder was unclimbable by a factor of ~10¹³. Section 19
-replaces it, per skill instance, with
+**The skill exp curve is the author's below level 10, and the mod's above.**
+The base game's `expnext = 50 + (lvl+1)^log(9*lvl+1)` is super-exponential —
+109→110 alone costs ~1.2e14 xp, so the cap ladder is unclimbable by ~10¹³. But
+the author only designed skills up to 15 (his 22 perk ladders end between 1 and
+15, median 10), and below that his curve is fine. So section 19 is in two parts:
 
 ```js
-MOD_XP = { base: 50, ratio: 1.106 }   // expnext = base * ratio^lvl
+MOD_XP = { vanillaTo: 10, total, ratio }   // levels < 10: HIS formula, exactly
+                                           // from 10: his level-9 cost * ratio^n
 ```
 
-tuned so a steadily-ticking skill reaches **level 110 in about six months** at
-1x. Only skills are re-curved; `you.expnext` (character level) is left alone.
+`ratio` (~1.029) is **solved**, not chosen: it is whatever makes 0→110 cost the
+same wall-clock time the old `50 * 1.106^lvl` curve took at its 2x multiplier.
+The end is exactly as far away; the time is spread evenly instead of the old
+curve's "cap 60 in under an hour, then months on the last twenty levels".
+
+- **Why 10 and not 15.** His level 15 alone costs 823k; 95 more levels even at
+  that flat price is 78M xp, 2.5x the whole budget. 10 is the highest start that
+  still leaves a rising ramp. `setXpCurve({vanillaTo})` accepts 0-12.
+- **The curve is installed twice — at section 19 and at the very END of mod.js.**
+  It used to run once, and every skill created later kept the author's curve:
+  section 29's six masteries cost 7,474,050 xp at level 20 instead of 375, so
+  their ladders to 110 stopped climbing at ~20. Keep the final call last.
+- **The defaults are the original's:** `MOD.skill_xp_mult` 1 (was 2) and
+  `MOD_MONEY.chance` 0 (was 0.15 — the author only turns the coin drop on through
+  the Coin Ring and Ring of Greed, and a 15% base made both rounding errors).
+  Both are settings boxes persisted in localStorage, so a value the player set
+  still wins.
+
+`tests/vanilla.mjs` holds all of this against the author's own page — it blocks
+`mod.js` so the one script tag loads nothing — and asserts every level below 10
+costs exactly what HIS `expnext` returns, not a reimplementation of it.
+
 The full ladder 10/15/20/30/40/50/60/75/90/110 is genuinely reachable, so
 **model the player AT the cap** — that is what the tests do.
+
+### Fights are the one axis that deliberately does NOT match the original
+
+At equal progression the original's opening route is nearly free: median 1.2
+swings to kill and ~25,000 to die, because its creatures are fixed and you
+out-level them. The mod's enemy model exists to remove out-levelling and holds
+every fight near 8.8 / 22. `tests/vanilla.mjs` prints that gap and asserts only
+what must hold either way — winnable wherever the original is, never deadlier
+than the deadliest fight the original lets you win. Matching it would mean
+switching the scaling off in the author's areas, and the meat drop (section 36)
+is tuned to the mod's kill times; treat it as a design decision, not a dial.
+
+An earlier comparison showed the original as a wall of unwinnable fights. That
+was the old skill curve: it handed the original's player far lower skills for
+the same xp. Compare at equal skill levels, which the matched curve now gives.
 
 ### The enemy model, and why it looks the way it does
 
@@ -169,6 +206,15 @@ is it *practically* on target — and `fightsmoke` and `targets.mjs` both use it
 - **Equivalence, not significance.** At n=45 the model tracks its targets to
   ±0.1%, so "does the CI contain the target" fails on a 1% quantisation bias
   that means nothing in play. `targets.mjs` uses a ±5% band.
+- **An empty stratum is topped up, never dropped.** Every stratified estimator
+  (mod.js `MOD_meanDamage` and the five test copies) used to fall back to a plain
+  mean when n swings rolled no crit. That does not average the crits badly — it
+  DROPS them, and at cap 30 they are 30% of all damage. In the mod it sized ~5%
+  of spawns ~20% weak (Tallyman p5 kill/target 0.795 → 0.968 after); in
+  `allareas` it read a fight ~40% long 0.15% of the time, which across 2,790
+  matchups intermittently failed the rank duels, whose margin was only 1.25
+  (now `MOD_RANK_MARGIN` 1.4, since v4.3).
+  They now keep sampling (up to 8n) until both strata show.
 - And the crit stratification the section above demands applies here too: a
   plain sample mean put two of forty-five rank-duel spawns the wrong side of
   `kill < die` on noise alone.
@@ -245,6 +291,54 @@ and 19 each re-anchor to `MOD_allbuff_original`, so only section 10's and sectio
 28's wrappers are in the live chain. Measured: the game's `allbuff` runs once per
 call, and `skl.qic.use()` once. Left in place with the others; don't "fix" it
 expecting an effect.
+
+## How big numbers are written (section 40)
+
+The mod's numbers are enormous next to the original's, which READS like a balance
+problem but is not one — section 8 scales enemies to the player, so a fight is
+the same length at STR 50 or 5,000,000. A `Number format` settings row (and
+`setNumberFormat()`) picks `game` / `short` / `sci` / `myriad`, default `short`.
+
+- **Up to 9,999 every mode prints exactly what the original prints** — commas
+  where he used `format3`, bare where he used `Math.round`. The threshold is his:
+  `printDamageNumber` does `if(ddmg>9999) formatw(ddmg);` and **discards the
+  result**, so his damage log never compacted anything. The wrapper hands it an
+  already-formatted string, which makes his `>9999` test false (NaN).
+- `myriad` (万 10⁴, 亿 10⁸ …) is his notation: `m_update` draws the wallet with a
+  10⁸ coin, `㊧`, over 10⁴ groups.
+- `game` mode is the original byte for byte, bugs included — past 10²¹ his
+  `format3` inserts commas into exponential notation (`7,.7e,+47`).
+- Every site is wrapped, not replaced: `formatw`, `update_db`, `update_m`, the
+  three bars, `dom.d6.update` (after section 34's gold held-rank paint, which it
+  leaves alone), `m_update`, `printDamageNumber`. Choose decimals AFTER rounding
+  (`MOD_sigFig`) or 99,996 prints as "100.0K".
+
+## The screen: the rank line, the skill panel, and What next (sections 42-43)
+
+- **The player panel is a fixed 310px box and it is full** (307px used). Never
+  give it a new line. The realm lives at the end of the rank line (`dom.d6`),
+  nowrap + ellipsis, as ONE persistent span re-appended after each
+  `dom.d6.update` rewrite (so its tooltip listeners survive). At a bottleneck the
+  span is the breakthrough button and calls `MOD_breakthrough` unchanged.
+- **ASCII only on that line.** The game's font is MS Gothic; where it is missing,
+  a symbol like ▲ or ⚠ falls back to a font with a taller line box — measured,
+  ▲ grew the line 1px and ⚠ 6px, pushing the panel past 310px. `½` is safe.
+  `tests/polish.mjs` asserts the longest possible line keeps panel height.
+- **The skill panel's per-second updater is the mod's now.** The game's captures
+  `sklsize` once and never updates it, so after the list first grows it rebuilt
+  every row every second forever (265 redraws in 5s at 53 rows), and it never
+  noticed a shrink. `MOD_skillUpdater` replaces it in the same `timers.sklupdate`
+  slot the game clears on close, keeps the row update line for line, and redraws
+  on any change of length.
+- Rarity filter and sort go through section 13's hide branch and
+  `MOD_skillCmp`, like everything else in that panel.
+- **`dom.ch_1` is not the first line of a screen.** `chs()` reassigns it on every
+  call, so it holds the LAST line drawn. To test which screen is up, read
+  `dom.ctr_2.children[0]`.
+- **What next** (`MOD_whatNext`, wiki page `next`, console `modNext()`) calls the
+  same gate each system uses — `MOD_tierFlag`, `MOD_atBottleneck`,
+  `MOD_hollowCleared`, the crafting tiers' `gate()` — and never restates a
+  threshold. A new progression track should add a line there.
 
 ## Content gating
 
@@ -356,9 +450,14 @@ family — it falls back to a plain row. The picker and the wiki's title page
 both read this, so they cannot drift apart.
 
 - The picker **skips** a title with no usable name; the wiki **keeps** it and
-  tags it "unfinished", the same call `area.clg` gets. The author left five:
-  `ttl.ddcd` (name and desc are the literal string `"null"`) and the blank
-  `shpt2` / `shpt3` / `mone3`. None is granted by anything.
+  tags it "unfinished". The author left five. Section 41 finished the four
+  whose intent is in his code — `shpt2`/`shpt3` at the 5,000 / 10,000
+  purchases his commented-out checks name, `mone2`/`mone3` at 10 / 100 gold
+  (his checks were placeholders at `GOLD`, his other ladders step 5-10x). The
+  new checks are pushed onto his own `global.shptchk` / `global.monchk`, so
+  they run at his call sites. **`ttl.ddcd` is left alone on purpose**: name
+  and desc are `"null"` and nothing says what it was for. It is NOT the
+  missing first rung of the stay-home ladder — that exists as `ttl.neet`.
 - `tests/wiki.mjs` caps the tallest page at 6,000px, which is why the ladders
   nest under one "Ladders of their own" group rather than sitting beside the
   skills — eleven more top-level summaries cost ~530px on the page that is
@@ -588,7 +687,7 @@ now; the key and id are untouched, because names are not saved and ids are.
   invented-fantasy, not compound.
 - The author's own repeats (Chashu Ramen, Bandage, Blue Slime, Nameless, and
   the nine areas called Training Grounds) are **listed and left alone** in the
-  test, the same call `area.clg` gets. Renaming his content is not the mod's
+  test. Renaming his content is not the mod's
   business; shipping a clash of our own is.
 
 ## The hunter's quest, and anything else on a rot timer
@@ -661,9 +760,14 @@ on its own, and that only works while the pages stay derived.
   not have to sum to 1 — the Southern forest's .35/.45/.25 are really 33/43/24%.
 - `area.nwh` and `area.tst` are excluded: the first is where `current_z` parks
   whenever you are not fighting, the second hangs off `chss.tst`, which has
-  `id -1` and is in no sector. `area.clg` **is** listed and flagged — its `pop`
-  entries carry no weight, so its bands are NaN and nothing can ever spawn
-  there. That is the author's unfinished content, reported rather than fixed.
+  `id -1` and is in no sector. The flag for an area whose `pop` carries no
+  weight (NaN bands, nothing can spawn) is **derived from `popc`** and stays:
+  `tests/wiki.mjs` strips a live area's weights to prove it still fires.
+  `area.clg`, the Damp cellar, was that area — section 41 gave it weights, an
+  entrance (Notice #1 on the Message Board, `chss.mod_cellar` 973) and a real
+  exit. Its original `onEnd` moved to `chss.q1lwn`/`q1l`, which do not exist.
+  The placement is an inference from those names ("quest 1"); everything else
+  is his.
 - A page builder that throws is caught and says so in place; it must not take
   the document down.
 - No fetches, no CDN, no dependencies. It has to work from `file://`.

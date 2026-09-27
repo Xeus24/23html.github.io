@@ -50,13 +50,23 @@ const R = await p.evaluate(() => {
   // the section-20 skills, and renown
   const IS_MINE = id => (id >= 901 && id <= 913) || (id >= 1001 && id <= 1100) ||
                         (id >= 2001 && id <= 2010) || id === 2100;
+  // 'folded' is 'all' with every section converged (section 39): the same
+  // skills, plus up to x1.34 on every stat. Without it no balance script ever
+  // saw a converged character. Every other build clears the folds.
+  const setFolds = (on) => {
+    global.flags.mod_folded = {};
+    if (on) for (let s = 1; s <= 10; s++) MOD_sectionSkills(s).forEach(e => { global.flags.mod_folded[e.key] = 1; });
+    try { MOD_refreshConverged(); } catch (e) {}
+  };
   const buildPlayer = (ti, build) => {
     freshYou(); const cap = setTier(ti);
+    setFolds(build === 'folded');
     for (let i = 1; i < CHARLVL[ti]; i++) { try { lvlup(you, 1); } catch (e) {} }
     for (const k in skl) { const s = skl[k];
       if (!s || typeof s !== 'object' || k === 'rnwn') continue;
       const mine = IS_MINE(s.id);
-      const want = build === 'all' || (build === 'base' && !mine) || (build === 'mine' && mine);
+      const want = build === 'all' || build === 'folded' ||
+                   (build === 'base' && !mine) || (build === 'mine' && mine);
       s.lvl = want ? cap : 0;
       if (s.mlstn) s.mlstn.forEach(m => { m.g = false;
         if (want && m.lv <= cap) { try { m.f(); m.g = true; } catch (e) {} } }); }
@@ -84,18 +94,26 @@ const R = await p.evaluate(() => {
   // two strata separately and recombining with the crit rate the game will
   // actually roll against removes that. Written out here rather than calling the
   // mod's MOD_meanDamage, so the test is not just agreeing with itself.
+  // Tops up until both strata have shown. Falling back to a plain mean when n
+  // swings roll no crit DROPS the crits rather than averaging them -- they are
+  // ~30% of all damage at cap 30 -- so a zero-crit sample (0.3% at a 9% crit
+  // rate and 60 swings) read a fight ~40% long. Across 2,790 matchups that was
+  // often enough to fail a thin-margin rank duel on a coin flip: the
+  // intermittent allareas failure. Extra swings only when needed.
   const meanDamage = (att, def, n) => {
-    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0;
-    for (let i = 0; i < n; i++) {
+    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0, i = 0;
+    const rate = MOD_critRate(att);
+    for (; i < n * 8; i++) {
+      if (i >= n && (critN >= 2 || rate <= 0) && plainN >= 2) break;
       global.flags.crti = false;
       const d = Math.max(0, Math.round(abl.default.f(att, def)));
       if (d <= 0) zeros++;
       if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
     }
     const mean = (critN && plainN)
-      ? (1 - MOD_critRate(att)) * (plainSum / plainN) + MOD_critRate(att) * (critSum / critN)
-      : (critSum + plainSum) / n;
-    return { mean, zeroPct: zeros / n * 100 };
+      ? (1 - rate) * (plainSum / plainN) + rate * (critSum / critN)
+      : (critSum + plainSum) / i;
+    return { mean, zeroPct: zeros / i * 100 };
   };
 
   const matchup = (z, crt, lvl) => {
@@ -126,7 +144,7 @@ const R = await p.evaluate(() => {
   };
 
   const areas = Object.keys(area).filter(k => area[k] && area[k].pop && area[k].pop.length);
-  const BUILDS = ['all', 'base', 'mine'];
+  const BUILDS = ['all', 'base', 'mine', 'folded'];
   const out = [];
   const power = [];
   BUILDS.forEach(build => {
@@ -146,6 +164,7 @@ const R = await p.evaluate(() => {
     }
   });
   setTier(0);
+  setFolds(false);
   return { rows: out, areas: areas.length, power, builds: BUILDS,
            enemy: JSON.parse(JSON.stringify(MOD_ENEMY)) };
 });
@@ -160,13 +179,14 @@ console.log(`targets: kill ${R.enemy.kill}, die ${R.enemy.die}, margin ${R.enemy
 // how far apart the three builds actually are, so "the model does not care" is
 // a claim about players who really are orders of magnitude apart
 console.log('\n  player STR by build — the added skills are most of it:');
-console.log('   cap  |  base game only  |  added only  |  together  | added share');
+console.log('   cap  |  base game only  |  added only  |  together  | added share |  all folded');
 [0, 4, 9].forEach(ti => {
   const g = b => R.power.find(x => x.build === b && x.ti === ti);
-  const a = g('all'), bs = g('base'), mn = g('mine');
+  const a = g('all'), bs = g('base'), mn = g('mine'), fo = g('folded');
   console.log(`  ${String(a.cap).padStart(4)}  | ${String(bs.str.toLocaleString()).padStart(16)}` +
     ` | ${String(mn.str.toLocaleString()).padStart(12)} | ${String(a.str.toLocaleString()).padStart(10)}` +
-    ` | ${Math.round((1 - bs.str / a.str) * 100)}%`);
+    ` | ${String(Math.round((1 - bs.str / a.str) * 100) + '%').padStart(11)}` +
+    ` | ${String(fo.str.toLocaleString()).padStart(11)} (x${(fo.str / a.str).toFixed(2)})`);
 });
 
 const fails = [];
@@ -218,4 +238,4 @@ if (fails.length) {
   if (fails.length > 40) console.error(` ... and ${fails.length - 40} more`);
   process.exit(1);
 }
-console.log(`PASS — all ${R.rows.length} matchups across all ${R.areas} areas are winnable at every story tier, in all three skill builds.`);
+console.log(`PASS — all ${R.rows.length} matchups across all ${R.areas} areas are winnable at every story tier, in all ${R.builds.length} skill builds (${R.builds.join(', ')}).`);

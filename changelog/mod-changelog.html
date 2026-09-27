@@ -18,6 +18,70 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 4.3:</span><br>
+<span style="color:blue">[2026/09/26]</span><br>
+<b>Your realm is on the main screen, and it is the breakthrough button.</b><br>
+&nbsp;&nbsp;The rank line now reads "rank: 135T &middot; Core Formation 5/9". At a bottleneck it says "&frac12; step to<br>
+&nbsp;&nbsp;Nascent Soul &gt;&gt;" and clicking it breaks through, with the same checks, odds and tribulation as ever.<br>
+&nbsp;&nbsp;Its tooltip shows your root, your insight, whether you hold the pill, your odds, and whether<br>
+&nbsp;&nbsp;you are sheltered in seclusion<br>
+&nbsp;&nbsp;<span style="color:grey">The player panel is a fixed-height box and already full, so this shares the rank line rather<br>
+&nbsp;&nbsp;than adding one. Plain text only: a &#9650; and a &#9888; each made the panel taller, measured.</span><br>
+<b>A What next page in the wiki</b>, right after Start here. It reads your save and says what is ready<br>
+&nbsp;&nbsp;now, what you are working on, and what opens the rest: story cap, cultivation, locked actions,<br>
+&nbsp;&nbsp;the dojo, the late areas, the rank ladder, crafting, convergence, and odd jobs<br>
+<b>Rarity reads as a word, not only a colour.</b> The skill tooltip names it. The skill panel sorts by rarity<br>
+&nbsp;&nbsp;and can show only one rarity and above<br>
+<b>The Damp cellar is finally somewhere.</b> It is the author's area, but it had no spawn weights (nothing could<br>
+&nbsp;&nbsp;appear), no way in, and an exit into two screens that were never written. It is Notice #1 on the<br>
+&nbsp;&nbsp;Message Board now, once the dojo has taught you to fight. The first clear pays<br>
+<b>Four unfinished titles finished:</b> Second-Rate and First-Rate Shopper at 5,000 and 10,000 purchases (the<br>
+&nbsp;&nbsp;author's own numbers, commented out in his code), and Peasant and Merchant at 10 and 100 gold<br>
+&nbsp;&nbsp;<span style="color:grey">The fifth, named "null", is left alone: nothing says what it was for.</span><br>
+<b>Fixed: the skill list rebuilt itself every second, forever,</b> once it had grown with the panel open: every<br>
+&nbsp;&nbsp;row, every second, until you closed it. It redraws once per change now, and notices a skill leaving<br>
+<b>Rank duels have more headroom</b> (1.25 to 1.4). The top challengers hit about 12% softer<br>
+<b>Every enemy has been checked against a fully merged character too</b>, 3,720 fights in all, and all are winnable<br>
+&nbsp;&nbsp;<span style="color:grey">Housekeeping: three unused copies of the stat-refresh code removed. Tutorial fight 1 was on the list<br>
+&nbsp;&nbsp;as a fight you could lose; that is only true of the original's numbers, and here it was already<br>
+&nbsp;&nbsp;winnable (8 swings to win, 23 to lose), so nothing changed. New check: tests/polish.mjs.</span><br>
+<br>
+<span style="color:gold;background-color:black">----MOD 4.2:</span><br>
+<span style="color:blue">[2026/09/26]</span><br>
+<b>Measured against the original game, and brought back in line with it.</b><br>
+&nbsp;&nbsp;<span style="color:grey">A new check (tests/vanilla.mjs) loads the game twice, once with this mod blocked, which is<br>
+&nbsp;&nbsp;the author's game exactly, and runs the same measurements on both.</span><br>
+&nbsp;&nbsp;<b>Skills cost exactly what the original charges, for the first ten levels.</b> The mod's old curve<br>
+&nbsp;&nbsp;was 12x faster than the author's at level 5 and 364x faster at level 10, which is exactly the<br>
+&nbsp;&nbsp;range he designed: all 22 of his perk ladders end between level 1 and 15. From level 10 it<br>
+&nbsp;&nbsp;rises about 3% a level, at a rate worked out so level 110 is exactly as far away as it was<br>
+&nbsp;&nbsp;<span style="color:grey">Why not match him to 15, his last perk? His level 15 alone costs 823,099 xp, and ninety-five<br>
+&nbsp;&nbsp;more levels even at that flat price is two and a half times the whole budget.</span><br>
+&nbsp;&nbsp;<b>Skill exp is 1x and enemy coin drops are off</b>, the original's values. Both were raised by this<br>
+&nbsp;&nbsp;mod (2x, 15%). The coin drop is the author's own mechanism, switched on only by the Coin Ring<br>
+&nbsp;&nbsp;and the Ring of Greed; at 15% under them those two rings were worthless. Both settings<br>
+&nbsp;&nbsp;boxes still work, and anything you set there yourself still wins<br>
+&nbsp;&nbsp;<b>Fixed: the six elemental masteries were stuck on the original's curve.</b> The mod installed its<br>
+&nbsp;&nbsp;curve before they existed, so level 20 cost 7,474,050 xp instead of 375 and their perks to<br>
+&nbsp;&nbsp;110 could not be reached<br>
+&nbsp;&nbsp;<b>Fixed: about one spawn in twenty came out much weaker than intended.</b> Enemy strength is set by<br>
+&nbsp;&nbsp;sampling 32 of your swings, and when none of them crit the crits were not averaged badly, they<br>
+&nbsp;&nbsp;were left out entirely, and they are 30% of your damage. Those spawns were ~20% short. Now<br>
+&nbsp;&nbsp;98% of spawns land within 4% of their intended fight length<br>
+&nbsp;&nbsp;<span style="color:grey">The same bug in the balance tests is also why they sometimes failed on a rank duel and<br>
+&nbsp;&nbsp;passed on a re-run: 0.15% of the time they read a fight 40% longer than it was.</span><br>
+&nbsp;&nbsp;<b>Not matched, on purpose: fight length.</b> At equal progression the original's early fights take<br>
+&nbsp;&nbsp;one or two swings and almost never hurt you, because you out-level its fixed creatures. This<br>
+&nbsp;&nbsp;mod holds every fight near 9 swings and 22 to die. The test prints that gap<br>
+<br>
+<b>Big numbers are readable: Short (4.56M), Scientific (1.23e7) or Myriads (5.6&#x4EBF;).</b><br>
+&nbsp;&nbsp;A Number format row in settings. Stats, health, energy, exp, damage, Power rank and money all use it<br>
+&nbsp;&nbsp;<b>Up to 9,999 every format prints exactly what the original prints.</b> That threshold is the author's.<br>
+&nbsp;&nbsp;His damage log checks for numbers over 9,999 and calls his own compactor, then throws the result<br>
+&nbsp;&nbsp;away, so damage was never compacted. It is now<br>
+&nbsp;&nbsp;<span style="color:grey">Myriads are his notation too: his wallet already counts in 10^8 coins (&#x32E7;) over groups of<br>
+&nbsp;&nbsp;10^4, which is &#x4EBF; and &#x4E07;. "As the original" leaves every number exactly as he draws it.</span><br>
+<br>
 <span style="color:gold;background-color:black">----MOD 4.1:</span><br>
 <span style="color:blue">[2026/09/26]</span><br>
 <b>Skill rarity, and convergence &mdash; fold a whole section into one skill.</b><br>

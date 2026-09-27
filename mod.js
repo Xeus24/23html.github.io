@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '4.1',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '4.3',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -85,7 +85,7 @@ var MOD = {
                      // sized against. It writes you.hpm now.
                      // Changes are listed in changelog/changelog.html.
   speed_key: 'p23_mod_speed',
-  skill_xp_mult: 2,     // change with setSkillXp(n)
+  skill_xp_mult: 1,     // the original's; change with setSkillXp(n). Was 2 before v4.2
   max_speed: 20
 };
 
@@ -992,18 +992,11 @@ skl.cnd.use = function () { you.str += you.str / 100 * (this.lvl * 3); };
 // act.mod_forage.use(). Shared here so the tooltip and the action can't drift.
 function MOD_forageChance(lvl) { return 0.010 + (lvl * 0.0015); }
 
+/* The game's own allbuff, captured before anything wraps it. Every live wrapper
+   ultimately calls this. The use() calls above are made from section 10's
+   wrapper; the wrapper that used to sit here was superseded twice over and never
+   ran once loading finished, so it was removed in v4.3. */
 var MOD_allbuff_original = allbuff;
-
-allbuff = function (who) {
-  MOD_allbuff_original(who);
-  try {
-    if (who && typeof you !== 'undefined' && who.id === you.id) {
-      if (skl.qic.lvl) skl.qic.use();
-      if (skl.clg.lvl) skl.clg.use();
-      if (skl.cnd.lvl) skl.cnd.use();
-    }
-  } catch (e) { /* never break a stat refresh */ }
-};
 
 
 /* ===========================================================================
@@ -1164,20 +1157,10 @@ MOD_DISCOVERED.forEach(function (d) {
   };
 });
 
-// --- continuous effects, same allbuff hook as section 6 ---------------------
-var MOD_allbuff_before_discovered = allbuff;
-
-allbuff = function (who) {
-  MOD_allbuff_before_discovered(who);
-  try {
-    if (who && typeof you !== 'undefined' && who.id === you.id) {
-      for (var i = 0; i < MOD_DISCOVERED.length; i++) {
-        var sk = skl[MOD_DISCOVERED[i].key];
-        if (sk && sk.lvl) sk.use();
-      }
-    }
-  } catch (e) { /* never break a stat refresh */ }
-};
+// --- continuous effects ------------------------------------------------------
+// Applied from section 10's allbuff wrapper, in its permanent pass. A wrapper
+// used to sit here too; section 10 re-anchors on the game's own allbuff, so it
+// never ran once loading finished, and it was removed in v4.3.
 
 // --- the single tick hook that grants the xp --------------------------------
 var MOD_seen = {};
@@ -1390,14 +1373,24 @@ function MOD_critRate(att) {
    flag; it sets it but never clears it, so clearing it per call reads it back. */
 function MOD_meanDamage(att, def, n) {
   var critN = 0, critSum = 0, plainN = 0, plainSum = 0, keepCrti = global.flags.crti;
-  for (var i = 0; i < n; i++) {
+  var p = MOD_critRate(att);
+  /* Top up until both strata have shown, rather than falling back to a plain
+     mean. The fallback used to be taken whenever n swings happened to roll no
+     crit — 4.6% of spawns at a 9% crit rate and 32 samples — and it does not
+     average the crits badly, it DROPS them: at cap 30 they are 30% of all
+     damage, so those spawns came out sized ~20% weaker than intended (measured:
+     p5 of kill/killT was 0.795 over 1,000 spawns). Only swings past n are
+     extra, so the common case costs nothing. A crit rate of 0 never tops up,
+     and there a plain mean is simply correct. */
+  var cap = n * 8, i = 0;
+  for (; i < cap; i++) {
+    if (i >= n && (critN >= 2 || p <= 0) && plainN >= 2) break;
     global.flags.crti = false;
     var d = Math.max(MOD_fin(MOD_dmg_calc_original(att, def, abl.default), 0), 0);
     if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
   }
   global.flags.crti = keepCrti;
-  if (!critN || !plainN) return (critSum + plainSum) / n;   // one stratum never showed
-  var p = MOD_critRate(att);
+  if (!critN || !plainN) return (critSum + plainSum) / i;   // still one-sided at the cap
   return (1 - p) * (plainSum / plainN) + p * (critSum / critN);
 }
 
@@ -1841,9 +1834,10 @@ console.log('[mod] enemy scaling active — kill in ~' + MOD_ENEMY.kill +
    curve the added skills raise damage, damped by hpTrack so combat still has
    teeth.
 
-   This also replaces the two nested allbuff wrappers from sections 6 and 7
+   This also replaced the two nested allbuff wrappers from sections 6 and 7
    with a single one, so the pre-effect STR can be read at the right moment.
-   Those wrappers are left defined but are no longer in the call chain.
+   Section 10 then re-anchored on the game's allbuff in turn; all three
+   superseded wrappers were removed in v4.3.
    =========================================================================== */
 
 var MOD_PLAYER = {
@@ -1929,29 +1923,11 @@ function MOD_applyBody() {
   } catch (e) { /* never break a stat refresh */ }
 }
 
-allbuff = function (who) {
-  MOD_allbuff_original(who);                      // the game's own, from section 6
-
-  try {
-    if (!who || typeof you === 'undefined' || who.id !== you.id) return;
-
-    var strRef = you.str, hpRef = you.hpmax;      // after the game's effects, before ours
-
-    if (skl.qic.lvl) skl.qic.use();               // section 4 skills
-    if (skl.clg.lvl) skl.clg.use();
-    if (skl.cnd.lvl) skl.cnd.use();
-    for (var i = 0; i < MOD_DISCOVERED.length; i++) {   // section 7 skills
-      var sk = skl[MOD_DISCOVERED[i].key];
-      if (sk && sk.lvl) sk.use();
-    }
-
-    if (strRef > 0 && you.str > strRef) {
-      var ratio = you.str / strRef;
-      you.hpmax = Math.round(hpRef * Math.pow(ratio, MOD_PLAYER.hpTrack));
-      if (you.hp > you.hpmax) you.hp = you.hpmax;
-    }
-  } catch (e) { /* never break a stat refresh */ }
-};
+/* hpTrack itself is applied in section 10's wrapper, through MOD_BODY. The
+   wrapper that first introduced it lived here and ASSIGNED you.hpmax, which
+   stat_r undoes; section 10 re-anchored on the game's own allbuff, so that one
+   never ran once loading finished. Removed in v4.3 — it had already misled one
+   investigation into thinking the hpmax bug was still live. */
 
 function setHpTrack(n) {
   n = Number(n);
@@ -2738,7 +2714,8 @@ function modParents() {
 
 /* --- list rendering: headers and hiding ----------------------------------- */
 
-var MOD_UI = { hideMaxed: false, group: true, lastSection: null, sort: 'lvl', sortDesc: false };
+var MOD_UI = { hideMaxed: false, group: true, lastSection: null, sort: 'lvl', sortDesc: false,
+              minRar: 1 };
 
 var MOD_renderSkl_original = renderSkl;
 
@@ -2794,6 +2771,9 @@ function MOD_skillCmp(a, b) {
   switch (MOD_UI.sort) {
     case 'name': return dir * (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     case 'type': return dir * (((a.type || 0) - (b.type || 0)) || ((a.id || 0) - (b.id || 0)));
+    /* rarest first, then by level within a rarity */
+    case 'rarity': return dir * ((MOD_skillRank(b) - MOD_skillRank(a)) || (b.lvl - a.lvl) ||
+                                 (a.name < b.name ? -1 : 1));
     default:     return dir * ((b.lvl - a.lvl) || (a.name < b.name ? -1 : 1));
   }
 }
@@ -2981,6 +2961,7 @@ function MOD_skillControls() {
     row.appendChild(rbtn);
 
     bar.appendChild(row);
+    try { bar.appendChild(MOD_rarityControls()); } catch (e) { /* section 42 not loaded */ }
 
     // captured before the bar goes in, on a freshly rebuilt panel
     MOD_UI.baseSkconH = parseInt(dom.skcon.style.height, 10) || dom.skcon.offsetHeight || 335;
@@ -3007,8 +2988,50 @@ function MOD_skillControls() {
   } catch (e) { console.warn('[mod] skill controls failed: ' + e.message); }
 }
 
+/* --- the panel's per-second updater ---------------------------------------
+   The game installs it inside its own click handler:
+
+       let sklsize=you.skls.length; timers.sklupdate=setInterval(()=>{
+         if(sklsize<you.skls.length){ empty(dom.skcon); ...renderSkl every row... }
+         ...update each row's name, exp and bar...
+       },1000)
+
+   `sklsize` is captured once and never updated, so the first time the list
+   grows while the panel is open, that branch is true FOREVER: every row is torn
+   down and rebuilt every second until the panel closes — measured at 53 rows,
+   265 redraws in five seconds. And it only ever notices growth, never a shrink.
+
+   Being an anonymous interval inside an inline handler it cannot be wrapped,
+   so it is replaced — in the same `timers.sklupdate` slot, which is exactly
+   what the game clears when the panel closes. The row update is the game's,
+   line for line; only the bookkeeping changes: remember the length actually
+   drawn, and redraw through MOD_redrawSkills (sections, sort, fit) on ANY
+   change of it. */
+function MOD_skillUpdater() {
+  try {
+    if (global.lw_op !== 2 || !dom.skcon) return;
+    clearInterval(timers.sklupdate);
+    var drawn = you.skls.length;
+    timers.sklupdate = setInterval(function () {
+      try {
+        if (you.skls.length !== drawn) { MOD_redrawSkills(); drawn = you.skls.length; }
+        var rows = dom.skcon.children, n = Math.min(rows.length, you.skls.length);
+        for (var i = 0; i < n; i++) {
+          var sk = you.skls[i], row = rows[i];
+          row.children[0].innerHTML = sk.name + ' lvl: ' + sk.lvl;
+          row.children[0].style.fontSize = sk.sp;
+          row.children[1].innerHTML = '　exp: ' + formatw(Math.floor(sk.exp)) + '/' + formatw(sk.expnext_t);
+          row.children[2].children[0].style.width = sk.exp / sk.expnext_t * 100 + '%';
+        }
+      } catch (e) { /* one bad row must not stop the rest updating next second */ }
+    }, 1000);
+  } catch (e) { console.warn('[mod] skill updater not replaced: ' + e.message); }
+}
+
 if (dom.ct_bt2 && dom.ct_bt2.addEventListener) {
-  dom.ct_bt2.addEventListener('click', function () { setTimeout(MOD_skillControls, 0); });
+  dom.ct_bt2.addEventListener('click', function () {
+    setTimeout(function () { MOD_skillControls(); MOD_skillUpdater(); }, 0);
+  });
 }
 
 /* --- live action tooltips -------------------------------------------------
@@ -3347,8 +3370,11 @@ renderSkl = function (sk) {
        the game's grow-only panel rebuild and giveSkExp's re-add on level-up all
        stay exactly as they were. */
     var folded = (typeof MOD_isFolded === 'function') && MOD_isFolded(sk);
+    /* Section 42's rarity filter, through the same branch for the same reason. */
+    var belowRar = MOD_UI.minRar > 1 && typeof MOD_skillRank === 'function' &&
+                   MOD_skillRank(sk) < MOD_UI.minRar;
 
-    if (collapsed || maxedOut || folded) {
+    if (collapsed || maxedOut || folded || belowRar) {
       if (header) {
         // keep this row as a bare header: hide its own cells, drop its chrome
         for (var i = 0; i < el.children.length; i++) {
@@ -3789,7 +3815,12 @@ console.log('[mod] selling enabled — Buy/Sell tabs in any shop. modItemValue(n
    would erase the Ring of Greed's bonus.
    =========================================================================== */
 
-var MOD_MONEY = { chance: 0.15 };
+/* Default 0 since v4.2 — the original's value. The author's coin drop is only
+   ever switched on by the Coin Ring (+1%) and the Ring of Greed (+3%), and with
+   a 15% base under them those two accessories were a rounding error. At 0 they
+   are worth wearing again, which is what he built them for. The settings box
+   still turns it on, and a value set there persists as before. */
+var MOD_MONEY = { chance: 0 };
 
 function MOD_applyMoneyDrops() {
   try {
@@ -3869,8 +3900,8 @@ function modEconomy() {
   return out;
 }
 
-console.log('[mod] enemy coin drops enabled at ' + Math.round(MOD_MONEY.chance * 100) +
-            '% (base game: 0%). modEconomy() for the income curve.');
+console.log('[mod] enemy coin drop chance ' + Math.round(MOD_MONEY.chance * 100) +
+            '% (base game: 0%, and the default here). modEconomy() for the income curve.');
 
 
 /* ===========================================================================
@@ -4228,7 +4259,7 @@ function MOD_settingsRow(label, get, set, hint, step) {
 MOD_settingsRow('Skill EXP multiplier',
   function () { return MOD.skill_xp_mult; },
   function (v) { return setSkillXp(v); },
-  'Multiplies all skill experience gain.<br>Base game is 1; this mod ships 2.<br>Persists across reloads.',
+  'Multiplies all skill experience gain.<br>Base game is 1, and so is this mod since v4.2.<br>Persists across reloads.',
   '0.5');
 
 MOD_settingsRow('Game speed',
@@ -4241,8 +4272,9 @@ MOD_settingsRow('Game speed',
 MOD_settingsRow('Enemy coin drop chance',
   function () { return MOD_MONEY.chance; },
   function (v) { return setMoneyDrops(v); },
-  'Chance an enemy drops coin. The base game leaves this at 0,<br>' +
-  'which is why nothing paid out; this mod ships 0.15.',
+  'Chance an enemy drops coin. The base game leaves this at 0 and<br>' +
+  'only the Coin Ring and Ring of Greed raise it; so does this mod<br>' +
+  'since v4.2. Set it here to turn combat income on.',
   '0.05');
 
 /* Keep the boxes in step with console changes, but never while one is focused —
@@ -4276,37 +4308,115 @@ console.log('[mod] settings menu: skill xp, game speed and coin drop boxes added
    years away at max game speed (measured in tests/capreach.mjs). No xp
    multiplier reaches that — the curve itself has to change.
 
-   Replaced with a plain geometric curve:
+   Replaced (v2.x) with a plain geometric curve, `50 * 1.106 ^ lvl`, tuned so a
+   skill earning ~2 xp/tick reaches level 110 in about six months.
 
-       expnext = round(base * ratio ^ lvl)
+   --- v4.2: the author's curve, where the author designed ------------------
 
-   `ratio` is set so a skill earning ~2 xp/tick reaches level 110 in about six
-   months of real time at 1x. The shape puts most of that time in the last two
-   tiers (a day to cap 60, 24 days to cap 90, ~6 months to 110) while the early
-   caps arrive in minutes — which is right, because early on it is the story
-   flags that gate you, not the xp.
+   Measured against the untouched game (tests/vanilla.mjs blocks mod.js and
+   runs the same code on both), that geometric curve was the single largest
+   departure from the original in the whole mod — and it was largest exactly
+   where the original was never broken:
+
+       level   original cost   geometric cost   the geometric curve was
+         5          1,003              83             12x faster
+        10         49,890             137            364x faster
+        15        823,099             227          3,600x faster
+
+   The author put perks on 22 skills, and every one of those ladders ends
+   between level 1 and 15 — ten or eleven for most. That is the range he
+   designed, and inside it the mod was letting a skill reach level 10 in a
+   hundredth of the time. It also doubled every skill's xp on top
+   (`MOD.skill_xp_mult: 2`), which the original does not.
+
+   So the curve is now in two parts:
+
+       levels 0 .. vanillaTo-1    EXACTLY the author's own formula
+       levels vanillaTo ..        geometric, continuing from his last level
+
+   and the geometric ratio is SOLVED, not chosen: it is whatever makes the whole
+   climb to 110 cost the same wall-clock time as the curve it replaced, at the
+   original's 1x multiplier. The end of the ladder is exactly as far away as it
+   was; what moved is where the time goes. The old curve front-loaded
+   everything — cap 60, the end of the author's content, in under an hour — and
+   then spent months on the last twenty levels. This one charges the author's
+   price for his levels and ramps about 3% a level after them.
+
+   Why 10 and not 15, his last perk: 15 cannot be matched and still reach 110.
+   His level 15 alone costs 823,099; ninety-five more levels at even that flat
+   price is 78 million xp, two and a half times the budget. Level 10 is the
+   highest start that leaves a ramp that still climbs rather than falls, and it
+   covers the bulk of his ladders. `setXpCurve({vanillaTo: n})` moves it and
+   re-solves the ratio; `vanillaTo: 0` is a pure geometric curve again.
 
    Only SKILLS are re-curved. `you.expnext` (character level) is the base
-   game's own progression and is left alone.
+   game's own progression, is left alone, and tests/vanilla.mjs checks it is
+   still identical.
    =========================================================================== */
 
-var MOD_XP = { base: 50, ratio: 1.106 };
+/* What shipped before, kept as the source of the time budget rather than as a
+   curve anyone uses. */
+var MOD_XP_LEGACY = { base: 50, ratio: 1.106, mult: 2 };
+
+var MOD_XP = {
+  vanillaTo: 10,    // levels below this cost exactly what the author's curve charges
+  total: 0,         // xp from level 0 to 110 — derived below
+  ratio: 1          // growth per level from vanillaTo on — solved below
+};
+
+/* The author's formula, verbatim from the Skill constructor (index.html:1698). */
+function MOD_vanillaExpnext(lvl) {
+  return Math.round(50 + Math.pow(lvl + 1, Math.log(9 * lvl + 1)));
+}
 
 function MOD_expnextFor(lvl) {
-  return Math.round(MOD_XP.base * Math.pow(MOD_XP.ratio, Math.max(Number(lvl) || 0, 0)));
+  lvl = Math.max(Number(lvl) || 0, 0);
+  var V = MOD_XP.vanillaTo;
+  if (lvl < V) return MOD_vanillaExpnext(lvl);
+  /* Continue from his last level, so there is no step where the two meet. With
+     vanillaTo 0 the anchor makes level 0 cost 50, which is the old curve. */
+  var anchor = V > 0 ? MOD_vanillaExpnext(V - 1) : MOD_XP_LEGACY.base / MOD_XP.ratio;
+  return Math.round(anchor * Math.pow(MOD_XP.ratio, lvl - V + 1));
 }
 
 /* Total xp to climb from 0 to L, for the console helpers and the tests. */
 function MOD_xpToReach(L) {
-  var r = MOD_XP.ratio;
-  return Math.round(MOD_XP.base * (Math.pow(r, L) - 1) / (r - 1));
+  var t = 0;
+  for (var l = 0; l < L; l++) t += MOD_expnextFor(l);
+  return t;
 }
 
+/* The budget is the old curve's wall-clock time, restated at the original's
+   multiplier: same days to 110 at 1x as the old curve took at its 2x. The ratio
+   is then whatever spends exactly that. Bisection, because the sum has no
+   closed form once the first ten terms are the author's. */
+function MOD_solveXpCurve() {
+  var L = MOD_XP_LEGACY;
+  MOD_XP.total = L.base * (Math.pow(L.ratio, 110) - 1) / (L.ratio - 1) / L.mult;
+  var lo = 1.000001, hi = 2;
+  for (var i = 0; i < 80; i++) {
+    MOD_XP.ratio = (lo + hi) / 2;
+    if (MOD_xpToReach(110) > MOD_XP.total) hi = MOD_XP.ratio; else lo = MOD_XP.ratio;
+  }
+  MOD_XP.ratio = (lo + hi) / 2;
+  return MOD_XP.ratio;
+}
+MOD_solveXpCurve();
+
+/* Every skill, including ones created after this section. That last clause is
+   a bug fix: this used to run once, here, and section 29's six masteries are
+   created later — so they kept the author's super-exponential curve, level 20
+   costing 7,474,050 instead of 375, and their perk ladders to 110 stopped being
+   climbable around 20. It runs again at the very end of mod.js now.
+
+   Converged skills (section 39) are skipped: they never take exp, and their
+   expnext_t is the fold-progress bar. */
 function MOD_installXpCurve() {
   var n = 0;
   for (var k in skl) {
     var s = skl[k];
     if (!s || typeof s !== 'object' || typeof s.expnext !== 'function') continue;
+    if (s._modConverged) continue;
     // per-instance, because the base game assigns expnext inside the Skill
     // constructor rather than on a prototype
     s.expnext = function () { return MOD_expnextFor(this.lvl); };
@@ -4316,28 +4426,37 @@ function MOD_installXpCurve() {
   return n;
 }
 
-function setXpCurve(ratio, base) {
-  if (ratio !== undefined) {
-    ratio = Number(ratio);
-    if (!isFinite(ratio) || ratio <= 1) { console.warn('[mod] setXpCurve: ratio must be > 1'); return MOD_XP; }
-    MOD_XP.ratio = ratio;
+/* setXpCurve({vanillaTo: 10})  — how many of the author's levels to keep.
+   The ratio is re-solved so 110 stays exactly as far away. */
+function setXpCurve(opts) {
+  if (opts && typeof opts === 'object' && opts.vanillaTo !== undefined) {
+    var v = Math.round(Number(opts.vanillaTo));
+    if (!isFinite(v) || v < 0 || v > 12) {
+      console.warn('[mod] setXpCurve: vanillaTo must be 0 to 12 — above that the author\'s ' +
+                   'own levels cost more than the whole budget allows');
+      return MOD_XP;
+    }
+    MOD_XP.vanillaTo = v;
   }
-  if (base !== undefined) {
-    base = Number(base);
-    if (isFinite(base) && base > 0) MOD_XP.base = base;
-  }
+  MOD_solveXpCurve();
   MOD_installXpCurve();
-  console.log('[mod] xp curve: ' + MOD_XP.base + ' x ' + MOD_XP.ratio + '^lvl; ' +
-              'total to 110 = ' + MOD_xpToReach(110).toLocaleString());
+  console.log('[mod] xp curve: the author\'s own cost below level ' + MOD_XP.vanillaTo +
+              ', then x' + MOD_XP.ratio.toFixed(4) + ' a level; 0 -> 110 = ' +
+              Math.round(MOD_xpToReach(110)).toLocaleString() + ' xp');
   return MOD_XP;
 }
 
 function modXpCurve() {
-  var lines = ['Skill exp curve: expnext = ' + MOD_XP.base + ' x ' + MOD_XP.ratio + '^lvl', ''];
-  var caps = [];
-  for (var i = 0; i < MOD_TIERS.length; i++) caps.push(MOD_TIERS[i]);
-  lines.push('  cap   total xp     at 2 xp/tick');
-  caps.forEach(function (t) {
+  var lines = ['Skill exp curve: the author\'s formula below level ' + MOD_XP.vanillaTo +
+               ', then x' + MOD_XP.ratio.toFixed(4) + ' per level', ''];
+  lines.push('  level   this curve     original    ');
+  [1, 3, 5, 8, 10, 12, 15, 20, 30, 50, 75, 90, 109].forEach(function (l) {
+    lines.push('  ' + String(l).padStart(5) + '   ' +
+      String(MOD_expnextFor(l).toLocaleString()).padStart(10) + '   ' +
+      String(MOD_vanillaExpnext(l).toLocaleString()).padStart(18));
+  });
+  lines.push('', '  cap   total xp       at 2 xp/tick');
+  MOD_TIERS.forEach(function (t) {
     var x = MOD_xpToReach(t.cap), d = x / 2 / 86400;
     lines.push('  ' + String(t.cap).padStart(3) + '   ' + String(x.toLocaleString()).padStart(12) +
                '   ' + (d < 1 ? (d * 24).toFixed(1) + ' h' : d.toFixed(1) + ' days').padStart(10) +
@@ -4350,8 +4469,9 @@ function modXpCurve() {
 }
 
 console.log('[mod] skill exp curve replaced on ' + MOD_installXpCurve() +
-            ' skills (' + MOD_XP.base + ' x ' + MOD_XP.ratio + '^lvl); ' +
-            'level 110 costs ' + MOD_xpToReach(110).toLocaleString() + ' xp. modXpCurve() for the ladder.');
+            ' skills — the author\'s cost below level ' + MOD_XP.vanillaTo + ', then x' +
+            MOD_XP.ratio.toFixed(4) + '; level 110 costs ' +
+            Math.round(MOD_xpToReach(110)).toLocaleString() + ' xp. modXpCurve() for the ladder.');
 
 
 /* ===========================================================================
@@ -7101,18 +7221,21 @@ MOD_wikiPage('progress', 'Progression', function () {
   h += '</tbody></table>' +
 
     '<h2>The experience curve</h2>' +
-    '<p>The mod replaces the game\'s skill curve, which was super-exponential — ' +
-    'level 109 to 110 alone cost 1.16&times;10<sup>14</sup> experience, so the top ' +
-    'of the ladder was unreachable by a factor of about ten trillion. It is now ' +
-    'geometric:</p>' +
-    '<pre>next level = ' + MOD_XP.base + ' &times; ' + MOD_XP.ratio + '<sup>level</sup></pre>' +
-    '<p>tuned so a skill that ticks steadily reaches 110 in roughly six months at ' +
-    '1&times; speed. Character level uses the game\'s own curve, untouched.</p>' +
+    '<p>The game\'s own skill curve is super-exponential — level 109 to 110 ' +
+    'alone costs ' + MOD_wikiNum(MOD_vanillaExpnext(109)) + ' experience, so the top of the ladder ' +
+    'is unreachable by a factor of about ten trillion. But the author only ever ' +
+    'designed skills up to level 15, and below that his curve is fine.</p>' +
+    '<p>So the mod keeps it. Below level ' + MOD_XP.vanillaTo + ' a skill costs ' +
+    '<b>exactly what the original charges</b>; from there it rises by &times;' +
+    MOD_XP.ratio.toFixed(4) + ' a level, a ratio solved so the climb to 110 takes ' +
+    'the same time it always did. Character level uses the game\'s own curve, ' +
+    'untouched.</p>' +
     '<table class="wk-tbl"><thead><tr><th>Level</th><th>Experience for the next</th>' +
-    '</tr></thead><tbody>';
-  [1, 10, 25, 50, 60, 75, 90, 109].forEach(function (l) {
-    h += '<tr><td class="num">' + l + '</td><td class="num">' +
-      MOD_wikiNum(MOD_XP.base * Math.pow(MOD_XP.ratio, l)) + '</td></tr>';
+    '<th>Original game</th></tr></thead><tbody>';
+  [1, 5, 9, 10, 15, 25, 50, 75, 90, 109].forEach(function (l) {
+    h += '<tr' + (l < MOD_XP.vanillaTo ? ' class="done"' : '') + '><td class="num">' + l +
+      '</td><td class="num">' + MOD_wikiNum(MOD_expnextFor(l)) + '</td><td class="num">' +
+      MOD_wikiNum(MOD_vanillaExpnext(l)) + '</td></tr>';
   });
   h += '</tbody></table>';
   return h;
@@ -8565,7 +8688,13 @@ setTimeout(function () {
    -------------------------------------------------------------------------- */
 
 var MOD_RANK_STEP = 0.07;      // per rung above rank 10, into fight length
-var MOD_RANK_MARGIN = 1.25;    // re-asserted kill<die headroom after the step
+/* Re-asserted kill<die headroom after the step. 1.25 until v4.3, and it was the
+   thinnest margin in the mod: the rank duels were the matchups that flipped to
+   kill > die whenever a damage estimate missed its crits. That estimator is fixed
+   (MOD_meanDamage now tops up an empty stratum — spawns land within ~4% of target
+   at p99), and this is the belt to go with those braces: ~35% of slack instead of
+   ~20%. Where it binds (the top rungs), the challenger hits ~12% softer. */
+var MOD_RANK_MARGIN = 1.4;
 
 var MOD_RANK_LADDER = [
   { rank: 10, key: 'rk10', id: 990, aid: 981, name: 'Ket the Doorkeeper',
@@ -11496,3 +11625,929 @@ MOD_wikiPage('handbook', 'Skill handbook', function () {
     }
   } catch (e) { /* order is cosmetic; the page itself is what matters */ }
 })();
+
+
+/* ===========================================================================
+   40. HOW BIG NUMBERS ARE WRITTEN
+   ---------------------------------------------------------------------------
+   The mod's numbers are enormous next to the original's — STR in the millions,
+   max HP in the hundreds of thousands, a Power rank the author himself prints
+   as a ten-digit blob. None of that is a balance problem: section 8 scales
+   every enemy to the player, so a fight takes the same eight swings at STR 50
+   or STR 5,000,000. But it READS like one, and the stat panel makes it worse by
+   printing a raw `Math.round` with no grouping at all.
+
+   Four ways to write them, picked in settings:
+
+       game      exactly as the original draws them
+       short     12.3K, 4.56M, 7.89B  — the author's own suffix list
+       sci       1.23e7
+       myriad    1234万, 5.6亿        — groups of ten thousand
+
+   Myriads are not decoration. The author already counts money that way: his
+   wallet (m_update) steps at 10^8 — `㊧` = you.wealth / 100000000 — with groups
+   of 10^4 beneath it, which is 亿 and 万. That is his notation, carried to the
+   rest of the sheet.
+
+   --- the threshold is his, too --------------------------------------------
+
+   `printDamageNumber` does
+
+       if(ddmg>9999) formatw(ddmg);
+
+   and throws the result away — it plainly meant `ddmg = formatw(ddmg)`, so
+   every hit over 9,999 has been printing raw. That line is the author telling
+   us where he wanted compaction to start. Every format here prints a number up
+   to 9,999 EXACTLY as the original does, commas where he used commas and bare
+   where he left them bare, and only compacts above it. The first hours of the
+   game look identical in all four modes.
+
+   A display preference, per viewer, so it lives in localStorage beside the
+   mod's other settings rather than in the save.
+   =========================================================================== */
+
+var MOD_NUM = {
+  mode: 'short',
+  key: 'p23_mod_numfmt',
+  plainTo: 9999           // the author's threshold, from printDamageNumber
+};
+
+var MOD_NUM_MODES = [
+  ['game',   'As the original'],
+  ['short',  'Short (12.3K, 4.56M)'],
+  ['sci',    'Scientific (1.23e7)'],
+  ['myriad', 'Myriads (1234万, 5.6亿)']
+];
+
+/* 万 10^4, 亿 10^8, 兆 10^12 ... the classical ladder, each a myriad of the last. */
+var MOD_MYRIAD = ['万', '亿', '兆', '京', '垓', '秭', '穰', '沟', '涧', '正', '载'];
+
+(function () {
+  try {
+    var saved = localStorage.getItem(MOD_NUM.key);
+    for (var i = 0; i < MOD_NUM_MODES.length; i++) {
+      if (MOD_NUM_MODES[i][0] === saved) { MOD_NUM.mode = saved; break; }
+    }
+  } catch (e) { /* a private window keeps the default */ }
+})();
+
+/* `sig` significant figures, with the decimals chosen AFTER rounding — 99.996
+   at three figures is "100", not "100.0", and 99.996 at four is "100.0", not
+   "100.00". Choosing them from the unrounded value gets one digit too many
+   whenever rounding carries into a new place. */
+function MOD_sigFig(m, sig) {
+  var d = Math.max(sig - 1 - Math.floor(Math.log10(m)), 0);
+  var t = m.toFixed(d), r = Number(t);
+  var d2 = Math.max(sig - 1 - Math.floor(Math.log10(r)), 0);
+  return d2 === d ? t : r.toFixed(d2);
+}
+
+/* `small` formats anything at or under the threshold, so each call site can
+   keep the original's own look there (format3's commas for the bars, a bare
+   integer for the stat panel). */
+function MOD_fmtNum(n, small) {
+  n = Number(n);
+  if (!isFinite(n)) return String(n);
+  var a = Math.abs(n), sign = n < 0 ? '-' : '';
+  if (MOD_NUM.mode === 'game' || a <= MOD_NUM.plainTo) {
+    return small ? small(n) : String(Math.round(n));
+  }
+
+  /* One routine for both grouped notations: `step` is the size of a unit
+     (1000 or 10000), `sig` the figures shown, `units` the names. A mantissa that
+     rounds up to a whole unit moves to the next unit — 999.96K is 1.00M. */
+  function grouped(step, sig, units) {
+    var g = Math.floor(Math.log10(a) / Math.log10(step));
+    var t = MOD_sigFig(a / Math.pow(step, g), sig);
+    if (Number(t) >= step) { g++; t = MOD_sigFig(a / Math.pow(step, g), sig); }
+    return (g >= 1 && g - 1 < units.length) ? sign + t + units[g - 1] : null;
+  }
+
+  var out = null;
+  if (MOD_NUM.mode === 'short') {
+    out = grouped(1000, 3, (global.text && global.text.nt) || ['K', 'M', 'B', 'T']);
+  } else if (MOD_NUM.mode === 'myriad') {
+    /* four figures, because a unit is a myriad: 1234万, never 1.23千万 */
+    out = grouped(10000, 4, MOD_MYRIAD);
+  }
+  if (out !== null) return out;
+
+  /* sci, and the fallback past the last named unit (the author's list ends at
+     10^54, the myriad ladder at 10^44) */
+  var e = Math.floor(Math.log10(a));
+  var man = MOD_sigFig(a / Math.pow(10, e), 3);
+  if (Number(man) >= 10) { e++; man = MOD_sigFig(a / Math.pow(10, e), 3); }
+  return sign + man + 'e' + e;
+}
+
+/* the original's comma grouping, for sites that used it below the threshold */
+function MOD_fmtComma(n) {
+  try { return format3(String(Math.round(n))); } catch (e) { return String(Math.round(n)); }
+}
+
+function setNumberFormat(mode) {
+  var ok = false;
+  for (var i = 0; i < MOD_NUM_MODES.length; i++) if (MOD_NUM_MODES[i][0] === mode) ok = true;
+  if (!ok) {
+    console.warn('[mod] setNumberFormat: one of ' +
+      MOD_NUM_MODES.map(function (m) { return m[0]; }).join(', '));
+    return MOD_NUM.mode;
+  }
+  MOD_NUM.mode = mode;
+  try { localStorage.setItem(MOD_NUM.key, mode); } catch (e) {}
+  MOD_refreshNumbers();
+  return mode;
+}
+
+/* Redraw everything this section touches, so a change shows at once. */
+function MOD_refreshNumbers() {
+  try { update_db(); } catch (e) {}
+  try { if (global.current_m) update_m(); } catch (e) {}
+  try { dom.d5_1_1.update(); } catch (e) {}
+  try { dom.d5_2_1.update(); } catch (e) {}
+  try { dom.d5_3_1.update(); } catch (e) {}
+  try { dom.d6.update(); } catch (e) {}
+  try { m_update(); } catch (e) {}
+}
+
+
+/* --- the call sites --------------------------------------------------------
+   Every one is wrapped, never replaced: the original runs first and does
+   everything it did, then the text it wrote is rewritten. In `game` mode the
+   rewrite is skipped outright, so that mode is the original byte for byte.
+   -------------------------------------------------------------------------- */
+
+/* formatw — the author's own compactor, used by the skill panel's exp column. */
+var MOD_formatw_original = formatw;
+formatw = function (a) {
+  if (MOD_NUM.mode === 'game') return MOD_formatw_original(a);
+  return MOD_fmtNum(a);
+};
+
+/* The stat panel: `'STR: ' + Math.round(you.str_d)`, bare, no grouping. */
+var MOD_update_db_original = update_db;
+update_db = function () {
+  var r = MOD_update_db_original.apply(this, arguments);
+  if (MOD_NUM.mode === 'game') return r;
+  try {
+    dom.d4_1.innerHTML = 'STR: ' + MOD_fmtNum(you.str_d);
+    dom.d4_2.innerHTML = 'AGL: ' + MOD_fmtNum(you.agl_d);
+    dom.d4_3.innerHTML = 'INT: ' + MOD_fmtNum(you.int_d);
+    /* The original prints spd unrounded; under the threshold, so do we. */
+    dom.d4_4.innerHTML = 'SPD: ' + MOD_fmtNum(you.spd, function (n) { return String(n); });
+  } catch (e) {}
+  return r;
+};
+
+/* The enemy's panel, same shape. */
+var MOD_update_m_original = update_m;
+update_m = function () {
+  var r = MOD_update_m_original.apply(this, arguments);
+  if (MOD_NUM.mode === 'game') return r;
+  try {
+    var m = global.current_m;
+    dom.d4_1m.innerHTML = 'STR: ' + MOD_fmtNum(m.str);
+    dom.d4_2m.innerHTML = 'AGL: ' + MOD_fmtNum(m.agl);
+    dom.d4_3m.innerHTML = 'INT: ' + MOD_fmtNum(m.int);
+    dom.d4_4m.innerHTML = 'SPD: ' + MOD_fmtNum(m.spd, function (n) { return String(n); });
+  } catch (e) {}
+  return r;
+};
+
+/* The three bars. Each keeps the original's width calculation — only the label
+   is rewritten, and under the threshold it is format3, which is what he used. */
+(function () {
+  function bar(node, write) {
+    if (!node || typeof node.update !== 'function') return;
+    var before = node.update;
+    node.update = function () {
+      var r = before.apply(this, arguments);
+      if (MOD_NUM.mode === 'game') return r;
+      try { this.innerHTML = write(); } catch (e) {}
+      return r;
+    };
+  }
+  bar(dom.d5_1_1, function () {
+    return 'hp: ' + MOD_fmtNum(you.hp, MOD_fmtComma) + '/' + MOD_fmtNum(you.hpmax, MOD_fmtComma);
+  });
+  bar(dom.d5_2_1, function () {
+    return 'exp: ' + MOD_fmtNum(you.exp, MOD_fmtComma) + '/' + MOD_fmtNum(you.expnext_t, MOD_fmtComma);
+  });
+  bar(dom.d5_3_1, function () {
+    return 'energy: ' + MOD_fmtNum(you.sat, MOD_fmtComma) + '/' + MOD_fmtNum(you.satmax, MOD_fmtComma) +
+      ' eff: ' + Math.round(you.efficiency() * 100) + '%';
+  });
+})();
+
+/* Power rank. Section 34 already wraps this to paint a HELD rank gold, and that
+   case is always 1-10, so it is left exactly as painted; only the raw rank —
+   the ten-digit blob — is rewritten. */
+var MOD_d6_update_before_num = dom.d6.update;
+dom.d6.update = function () {
+  var r = MOD_d6_update_before_num.apply(this, arguments);
+  if (MOD_NUM.mode === 'game') return r;
+  try {
+    if (this.innerHTML.indexOf('color:gold') < 0) {
+      this.innerHTML = 'rank: ' + MOD_fmtNum(you.rank(), MOD_fmtComma);
+    }
+  } catch (e) {}
+  return r;
+};
+
+/* The wallet: `㊧` is already his 10^8 coin, and everything beneath it is
+   bounded by its own modulus. Only the top count can grow without limit. */
+var MOD_m_update_original = m_update;
+m_update = function () {
+  var r = MOD_m_update_original.apply(this, arguments);
+  if (MOD_NUM.mode === 'game') return r;
+  try { dom.mn_1.innerHTML = '㊧' + MOD_fmtNum(you.wealth / 100000000 << 0); } catch (e) {}
+  return r;
+};
+
+/* The damage log — and the one place this finishes what the author started.
+   Handing printDamageNumber a string makes his `ddmg>9999` test false (a string
+   like "1.23M" compares as NaN), so his discarded formatw call is skipped and
+   the already-formatted text goes straight to msg_add. */
+var MOD_printDamageNumber_original = printDamageNumber;
+printDamageNumber = function (ddmg) {
+  if (MOD_NUM.mode !== 'game' && Math.abs(Number(ddmg)) > MOD_NUM.plainTo) {
+    return MOD_printDamageNumber_original.call(this, MOD_fmtNum(ddmg));
+  }
+  return MOD_printDamageNumber_original.apply(this, arguments);
+};
+
+
+/* --- the settings row ------------------------------------------------------
+   MOD_settingsRow only builds number inputs, so this is its own row in the
+   same classes — `opt_c` / `opt_t` — so it sits in the window like the rest.
+   -------------------------------------------------------------------------- */
+
+(function () {
+  try {
+    var row = addElement(dom.ctrwin4, 'div', null, 'opt_c');
+    var lab = addElement(row, 'div', null, 'opt_t');
+    lab.innerHTML = 'Number format';
+    var sel = addElement(row, 'select', null, 'opt_v mod_optn');
+    sel.style.cssText = 'background:transparent;color:inherit;border:1px solid #46a;' +
+                        'font-family:inherit;';
+    MOD_NUM_MODES.forEach(function (m) {
+      var o = document.createElement('option');
+      o.value = m[0]; o.textContent = m[1];
+      o.style.background = '#050730';
+      sel.appendChild(o);
+    });
+    sel.value = MOD_NUM.mode;
+    sel.addEventListener('change', function () { setNumberFormat(sel.value); });
+    try {
+      addDesc(row, null, 2, 'Number format',
+        'How large numbers are written: stats, health, damage, rank, money.<br>' +
+        'Anything up to 9,999 is written exactly as the original writes it<br>' +
+        'in every mode. Persists across reloads.');
+    } catch (e) {}
+    MOD_SETTINGS.inputs.push({ el: sel, get: function () { return MOD_NUM.mode; } });
+  } catch (e) { console.warn('[mod] number format row failed: ' + e.message); }
+})();
+
+MOD_refreshNumbers();
+
+function modNumbers() {
+  var eg = [950, 12345, 987654, 45678901, 3.2e10, 7.7e15, 1.5e22];
+  var keep = MOD_NUM.mode, lines = ['Number formats (set with setNumberFormat, or in settings):', ''];
+  MOD_NUM_MODES.forEach(function (m) {
+    MOD_NUM.mode = m[0];
+    lines.push('  ' + (m[0] === keep ? '-> ' : '   ') + (m[0] + '        ').slice(0, 8) +
+      eg.map(function (n) { return MOD_fmtNum(n, MOD_fmtComma); }).join('   '));
+  });
+  MOD_NUM.mode = keep;
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+console.log('[mod] big numbers written as "' + MOD_NUM.mode + '" — modNumbers() to compare, ' +
+            'setNumberFormat() to change.');
+
+
+/* ===========================================================================
+   41. THE AUTHOR'S LOOSE ENDS
+   ---------------------------------------------------------------------------
+   Two pieces of his content that were started and not finished, finished where
+   his own code says what he meant, and left alone where it does not.
+
+   --- the Damp cellar -------------------------------------------------------
+
+   `area.clg` is a complete area with two problems and a third hiding behind
+   them. Its two spawns are the only ones in the game with no `c` weight, so
+   z_bake's bands come out NaN and mon_gen can never match one; nothing in the
+   game ever starts it; and its onEnd moves to `chss.q1lwn` / `chss.q1l`, which
+   do not exist — reaching the end would have thrown.
+
+   Those two names are the one clue to where he meant it to hang: "q1" — quest
+   one — with a first-win flag. The Message Board posts jobs as numbered notices
+   and only "Notice #4" exists, so this is Notice #1. That placement is an
+   inference, not his; everything else — the creatures, their levels, the size
+   of 33, the `q1lwn` flag — is exactly as he wrote it.
+
+   --- the titles -------------------------------------------------------------
+
+   Of the five unfinished titles, four have their intent written down:
+
+       shpt2 / shpt3   his checks are in the code, commented out, at 5,000 and
+                       10,000 purchases. After his "Third-Rate Shopper" they
+                       are Second- and First-Rate: the jianghu's own grading of
+                       fighters, 三流 / 二流 / 一流, which is the joke he was
+                       making in the first place.
+       mone2 / mone3   named "Peasant" and blank, with ranks 2 and 3 set and
+                       their checks commented out — at GOLD, the same threshold
+                       as the first rung, which is plainly a placeholder. His
+                       other ladders step by five to ten, so these are 10 and
+                       100 gold, after 1.
+
+   `ttl.ddcd` is the fifth, and it is left alone. Its name and description are
+   the literal string "null", nothing grants it, and nothing near it says what it
+   was for — the obvious guess (the missing first rung of the stay-at-home
+   ladder) is wrong, because that rung exists as `ttl.neet`. Inventing a purpose
+   would be writing his game for him.
+   =========================================================================== */
+
+(function () {
+  try {
+    /* Equal odds — he gave the two no weights at all, and a bat and a cellar
+       spider at the same levels have no reason to differ. z_bake rebuilds the
+       bands mon_gen actually rolls against. */
+    area.clg.pop.forEach(function (e) { if (!(e.c > 0)) e.c = 0.5; });
+    z_bake(area.clg);
+
+    MOD_makeFightLocation('mod_cellar', 973, 'Village Center, A Damp Cellar',
+      'Stone steps, wet walls, and a smell that has been down here longer than you. ' +
+      'Something up in the dark is moving.', area.clg, 'mbrd');
+    /* a cellar is indoors, whatever the helper's default */
+    var drawCellar = chss.mod_cellar.sl;
+    chss.mod_cellar.sl = function () {
+      drawCellar.apply(this, arguments);
+      global.flags.inside = true;
+    };
+
+    /* His exit went to two screens that were never written. First clear pays,
+       once, at the low end of his own job rewards; every clear sets his flag
+       and walks you back to the board. */
+    area.clg.onEnd = function () {
+      var first = !global.flags.q1lwn;
+      global.flags.q1lwn = true;
+      if (first) {
+        msg('The last of them drops. Someone upstairs will sleep better tonight.', 'orange');
+        giveWealth(100);
+      }
+      smove(chss.mbrd, false);
+    };
+
+    var drawBoard = chss.mbrd.sl;
+    chss.mbrd.sl = function () {
+      drawBoard.apply(this, arguments);
+      try {
+        /* The board's sl() sometimes draws a different scene and returns early
+           (the girl who wants a doll). Only add the notice to the board itself —
+           read off the FIRST line, not dom.ch_1, which chs() reassigns on every
+           call and so always holds the last one drawn. */
+        var first = dom.ctr_2 && dom.ctr_2.children[0];
+        if (!first || first.innerHTML.indexOf('Message Board') < 0) return;
+        if (!global.flags.tr3_win) return;          // not before the dojo teaches you to fight
+        var n = MOD_chsAboveBack('"Notice #1"');
+        n.addEventListener('click', function () {
+          chs('It says here:<br><span style="color:orange">"' +
+            (global.flags.q1lwn
+              ? 'Cellar under the old grain store. Cleared once, filling up again. Same terms."'
+              : 'Bats, and worse, in the cellar under the old grain store. Whoever clears ' +
+                'it out gets paid. Ask no questions about the smell."') + '</span>', true);
+          chs('"Take the job"', false).addEventListener('click', function () {
+            smove(chss.mod_cellar, false);
+          });
+          chs('"<= Return"', false).addEventListener('click', function () {
+            smove(chss.mbrd, false);
+          });
+        });
+      } catch (e) { /* the board is already drawn; only the notice is lost */ }
+    };
+  } catch (e) { console.warn('[mod] damp cellar not wired: ' + e.message); }
+})();
+
+(function () {
+  try {
+    ttl.shpt2.name = 'Second-Rate Shopper';
+    ttl.shpt2.desc = 'Five thousand purchases. Shopkeepers have started nodding when you ' +
+      'come in, which is either respect or an inventory count';
+    ttl.shpt3.name = 'First-Rate Shopper';
+    ttl.shpt3.desc = 'Ten thousand things bought. There is no market in the village that ' +
+      'does not know your face, and most of them are glad to see it';
+    global.shptchk.push(function () {
+      if (ttl.shpt2.have === false && global.stat.buyt >= 5000) giveTitle(ttl.shpt2);
+    });
+    global.shptchk.push(function () {
+      if (ttl.shpt3.have === false && global.stat.buyt >= 10000) giveTitle(ttl.shpt3);
+    });
+
+    ttl.mone2.desc = 'Ten gold coins have passed through your hands. Not wealth, but you have ' +
+      'stopped counting the copper twice before you part with it';
+    ttl.mone3.name = 'Merchant';
+    ttl.mone3.desc = 'A hundred gold, all told. People have started calling you by your ' +
+      'family name, and some of them are even being polite about it';
+    global.monchk.push(function () {
+      if (ttl.mone2.have === false && global.stat.moneyg >= GOLD * 10) giveTitle(ttl.mone2);
+    });
+    global.monchk.push(function () {
+      if (ttl.mone3.have === false && global.stat.moneyg >= GOLD * 100) giveTitle(ttl.mone3);
+    });
+  } catch (e) { console.warn('[mod] unfinished titles not finished: ' + e.message); }
+})();
+
+function modLooseEnds() {
+  var bands = area.clg.popc.map(function (b) { return Math.round((b[1] - b[0]) * 100) + '%'; });
+  var out = [
+    'Damp cellar: spawns ' + bands.join(' / ') + ', ' +
+      (global.flags.q1lwn ? 'cleared' : 'not yet cleared') +
+      ' — Notice #1 on the Message Board, after the dojo tutorial',
+    'Titles: Second-/First-Rate Shopper at 5,000/10,000 purchases (you have ' +
+      (global.stat.buyt || 0) + '); Peasant/Merchant at 10/100 gold earned (' +
+      Math.floor((global.stat.moneyg || 0) / GOLD) + ' so far)',
+    'Left alone: ttl.ddcd, named "null" — no evidence of what it was for.'
+  ].join('\n');
+  console.log(out);
+  return out;
+}
+
+
+/* ===========================================================================
+   42. ON THE SCREEN: REALM, BREAKTHROUGH, AND RARITY YOU CAN READ
+   ---------------------------------------------------------------------------
+   Four small things that were only reachable through the console or the wiki.
+
+   --- the realm, on the rank line -------------------------------------------
+
+   The player panel is a fixed 310px box and it is full — 307px used, and its
+   last line (critical chance) already hangs past the bottom. So nothing new
+   gets a line of its own. The rank line has room: 430px wide, centred, holding
+   "rank: 135T". The realm goes on the end of it, kept to one line (nowrap +
+   ellipsis) so it can never push the panel taller, with the full detail in its
+   tooltip.
+
+   It is one persistent span rather than markup in the rank text: dom.d6.update
+   rewrites innerHTML on every call, which would recreate the span, and its
+   tooltip, each time. Re-appending the same node after each rewrite keeps its
+   listeners.
+
+   --- the breakthrough, from the same span -----------------------------------
+
+   At a bottleneck the realm reads "½ step to …" and the span becomes the button.
+   It finds the pill in the inventory and hands it to MOD_breakthrough, which
+   does every check it always did — insight, deviation, the odds, seclusion's
+   shelter, the tribulation. Nothing about the attempt changes; only where you
+   click. An emptied stack is removed the way the game does it (index.html:8893),
+   since this is not the inventory's own click handler.
+
+   --- rarity as text, and as a sort and a filter ----------------------------
+
+   Rarity was colour and nothing else, which says nothing to someone who cannot
+   tell #ff5fb0 from #ff3b3b. The skill tooltip now names it. The skill panel
+   gets a second row: sort by rarity, and show only a rarity and above — the
+   filter goes through section 13's hide branch, the one that already hides
+   maxed skills and folded ones, so section headers survive it the same way.
+   =========================================================================== */
+
+var MOD_HUD = { span: null, text: '' };
+
+/* The short form, for the rank line. */
+function MOD_hudRealmText() {
+  var r = MOD_realm(), next = MOD_REALMS[r.n + 1];
+  var t;
+  /* ASCII cue, not ▲: the game's font is MS Gothic, and where it is missing a
+     symbol falls back to a font whose line box is 1px taller — measured, it grew
+     the panel past its fixed 310px. The dotted underline, pointer and tooltip
+     already say "click". */
+  if (MOD_atBottleneck() && next) t = '½ step to ' + next.name + ' >>';
+  else if (!r.n) t = r.name;
+  else {
+    var l = MOD_layer();
+    t = (l >= MOD_CULT.layers) ? 'Peak ' + r.name : r.name + ' ' + l + '/' + MOD_CULT.layers;
+  }
+  /* The realm is also painted crimson while deviated; the tooltip says the rest.
+     Plain ASCII on purpose: ⚠ renders through the emoji font, whose taller line
+     box grew this line from 21px to 26px and the full panel past its 310px box
+     (tests/polish.mjs). */
+  if (MOD_deviated()) t += ' (!)';
+  return t;
+}
+
+function MOD_hudTooltip() {
+  var r = MOD_realm(), next = MOD_REALMS[r.n + 1];
+  var lines = ['<b>' + MOD_realmTitle() + '</b>',
+    'Spiritual Root: ' + MOD_root().name,
+    'Insight: ' + MOD_insight() + (next ? ' of ' + MOD_insightNeed(next.n) + ' for ' + next.name : '')];
+  if (MOD_deviated()) {
+    lines.push('<span style="color:crimson">Qi Deviation — ' + MOD_deviationLeft() +
+      ' in-game minutes left</span>');
+  }
+  if (next && MOD_atBottleneck()) {
+    var pill = item['mod_bp' + next.n];
+    var held = pill && pill.have === true && pill.amount > 0;
+    var over = ((skl.qic && skl.qic.lvl) || 0) - next.qic;
+    var base = Math.min(0.55 + over * 0.05 + MOD_consolidation() * MOD_CULT.secludeOdds +
+                        MOD_root().odds, 0.95);
+    lines.push('', 'At the wall before ' + next.name + '.');
+    lines.push('Pill: ' + (held ? pill.name + ' (held)' : '<span style="color:crimson">' +
+      (pill ? pill.name : '?') + ' — not held</span>'));
+    lines.push('Chance: ' + Math.round(base * 100) + '%' +
+      (MOD_consolidation() < 1 ? ' (more with Closed Door Training)' : ''));
+    lines.push((act.mod_seclu && act.mod_seclu.active === true)
+      ? '<span style="color:gold">In seclusion: a failure cannot cause Qi Deviation</span>'
+      : 'Out in the open: a failure causes Qi Deviation');
+    if (next.n >= MOD_CULT.tribFrom) {
+      lines.push('Then Heavenly Tribulation: ' + Math.round(MOD_tribulationCost(next.n) * 100) +
+        '% of your max HP');
+    }
+    lines.push('', '<span style="color:skyblue">Click to break through</span>');
+  } else if (next) {
+    lines.push('', next.name + ' opens at Qi Circulation ' + next.qic +
+      ' (you are ' + ((skl.qic && skl.qic.lvl) || 0) + ')');
+  }
+  return lines.join('<br>');
+}
+
+function MOD_hudBreakthrough() {
+  try {
+    var r = MOD_realm(), next = MOD_REALMS[r.n + 1];
+    if (!next || !MOD_atBottleneck()) return;
+    var pill = item['mod_bp' + next.n];
+    if (!pill || pill.have !== true || !(pill.amount > 0)) {
+      msg('You need a ' + (pill ? pill.name : 'breakthrough pill') + ' to try', 'red');
+      return;
+    }
+    var res = MOD_breakthrough(next.n, pill);
+    if (pill.amount <= 0) { pill.amount = 0; try { removeItem(pill); } catch (e) {} }
+    MOD_hudRefresh(true);
+    return res;
+  } catch (e) { console.warn('[mod] breakthrough from the HUD failed: ' + e.message); }
+}
+
+function MOD_hudSpan() {
+  if (MOD_HUD.span) return MOD_HUD.span;
+  var sp = document.createElement('span');
+  sp.addEventListener('click', function () { if (MOD_atBottleneck()) MOD_hudBreakthrough(); });
+  try { addDesc(sp, null, 2, 'Cultivation', MOD_hudTooltip); } catch (e) {}
+  MOD_HUD.span = sp;
+  return sp;
+}
+
+/* Only once cultivation has begun — a fresh character has no realm to show. */
+function MOD_hudRefresh(force) {
+  try {
+    if (!dom.d6) return;
+    var on = act.mod_qi && act.mod_qi.have === true;
+    var sp = MOD_hudSpan();
+    if (!on) { if (sp.parentNode) sp.parentNode.removeChild(sp); return; }
+
+    var text = MOD_hudRealmText();
+    if (force || text !== MOD_HUD.text) {
+      MOD_HUD.text = text;
+      var r = MOD_realm(), st = MOD_rankStyle(Math.max(r.n, 1));
+      var wall = MOD_atBottleneck();
+      sp.innerHTML = ' · ' + '<span style="color:' + (MOD_deviated() ? 'crimson' : st.c) +
+        ';text-shadow:' + (st.s || 'none') + '">' + text + '</span>';
+      sp.style.cursor = wall ? 'pointer' : 'default';
+      sp.style.textDecoration = wall ? 'underline dotted' : 'none';
+    }
+    if (sp.parentNode !== dom.d6) dom.d6.appendChild(sp);
+    dom.d6.style.whiteSpace = 'nowrap';
+    dom.d6.style.overflow = 'hidden';
+    dom.d6.style.textOverflow = 'ellipsis';
+  } catch (e) { /* the rank line is already drawn; the realm is all that is lost */ }
+}
+
+/* After every rewrite of the rank line — section 34's gold paint and section
+   40's number format both run before this, since it is wrapped last. */
+var MOD_d6_update_before_hud = dom.d6.update;
+dom.d6.update = function () {
+  var r = MOD_d6_update_before_hud.apply(this, arguments);
+  MOD_hudRefresh(false);
+  return r;
+};
+
+var MOD_ontick_before_hud = ontick;
+ontick = function () {
+  MOD_ontick_before_hud();
+  MOD_hudRefresh(false);
+};
+
+
+/* --- rarity in the skill tooltip ------------------------------------------- */
+
+var MOD_dscr_before_rarity = dscr;
+dscr = function (c, what, type) {
+  var r = MOD_dscr_before_rarity.apply(this, arguments);
+  if (type !== 6 || !what) return r;
+  try {
+    var label = global.dscr.querySelector('#d_l');
+    var rank = MOD_skillRank(what), st = MOD_rankStyle(rank);
+    if (label) { label.style.color = st.c; label.style.textShadow = st.s || 'none'; }
+    var line = document.createElement('div');
+    line.innerHTML = '<small style="color:' + st.c + '">' + MOD_skillRarityName(what) +
+      '</small><small style="color:grey"> — rarity ' + rank + ' of ' + MOD_SKILL_RAR.length + '</small>';
+    if (what._modConverged) {
+      var f = MOD_sectionFold(what._modConverged);
+      line.innerHTML += '<br><small style="color:plum">Stands for ' + f.folded + ' of ' + f.total +
+        ' skills in ' + MOD_SECTIONS[what._modConverged] + '</small>';
+    }
+    if (label && label.parentNode) label.parentNode.insertBefore(line, label.nextSibling);
+    else global.dscr.appendChild(line);
+  } catch (e) { /* a tooltip must never break a hover */ }
+  return r;
+};
+
+
+/* --- the rarity row in the skill panel ------------------------------------- */
+
+MOD_UI.minRarKey = 'p23_mod_minrar';
+try {
+  var MOD_savedMinRar = Number(localStorage.getItem(MOD_UI.minRarKey));
+  if (MOD_savedMinRar >= 1 && MOD_savedMinRar <= 10) MOD_UI.minRar = MOD_savedMinRar;
+} catch (e) { /* private window: show everything */ }
+
+function MOD_rarityControls() {
+  var row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:10px;align-items:center;justify-content:center;padding-top:3px;';
+
+  var sort = document.createElement('div');
+  sort.innerHTML = 'Sort by rarity' + (MOD_UI.sort === 'rarity' ? (MOD_UI.sortDesc ? ' ▲' : ' ▼') : '');
+  sort.style.cssText = 'cursor:pointer;border:1px solid #46a;padding:0 6px;border-radius:2px;' +
+                       'color:#cfe;user-select:none;';
+  sort.addEventListener('mouseenter', function () { sort.style.background = '#0b1040'; });
+  sort.addEventListener('mouseleave', function () { sort.style.background = 'transparent'; });
+  sort.addEventListener('click', function () {
+    if (MOD_UI.sort === 'rarity') MOD_UI.sortDesc = !MOD_UI.sortDesc;
+    else { MOD_UI.sort = 'rarity'; MOD_UI.sortDesc = false; }
+    sort.innerHTML = 'Sort by rarity' + (MOD_UI.sortDesc ? ' ▲' : ' ▼');
+    MOD_redrawSkills();
+  });
+  row.appendChild(sort);
+
+  var lab = document.createElement('label');
+  lab.style.cssText = 'display:flex;align-items:center;gap:4px;';
+  lab.appendChild(document.createTextNode('Show'));
+  var sel = document.createElement('select');
+  sel.style.cssText = 'background:#050730;color:inherit;border:1px solid #46a;font-family:inherit;' +
+                      'font-size:inherit;';
+  MOD_SKILL_RAR.forEach(function (name, i) {
+    var o = document.createElement('option');
+    o.value = String(i + 1);
+    o.textContent = i === 0 ? 'every rarity' : name + ' and up';
+    o.style.color = MOD_rankStyle(i + 1).c;
+    sel.appendChild(o);
+  });
+  sel.value = String(MOD_UI.minRar);
+  sel.addEventListener('change', function () {
+    MOD_UI.minRar = Number(sel.value) || 1;
+    try { localStorage.setItem(MOD_UI.minRarKey, String(MOD_UI.minRar)); } catch (e) {}
+    MOD_redrawSkills();
+  });
+  lab.appendChild(sel);
+  row.appendChild(lab);
+  return row;
+}
+
+MOD_hudRefresh(true);
+
+
+/* ===========================================================================
+   43. THE WIKI'S "WHAT NEXT" PAGE
+   ---------------------------------------------------------------------------
+   Every other wiki page describes the game. This one reads YOUR save and says
+   what is next on each track the mod runs: the story cap, cultivation, the
+   actions still locked, the dojo, the late areas, the rank ladder, crafting,
+   convergence, and the odd job on the Message Board.
+
+   Nothing here restates a threshold. Each line calls the same helper the game
+   itself gates on — MOD_tierFlag, MOD_realmEligible, MOD_hollowCleared, the
+   crafting tiers' own gate() — so the page cannot tell you a door is open when
+   the door disagrees.
+
+   A line is READY (you can do it now), WORKING (you are on it) or LOCKED (what
+   opens it). Ready lines come first, because that is the question the page
+   exists to answer.
+   =========================================================================== */
+
+function MOD_whatNext() {
+  var rows = [];
+  function add(state, track, text) { rows.push({ state: state, track: track, text: text }); }
+  var safe = MOD_WIKI.safe;
+
+  /* the story cap */
+  try {
+    var cap = MOD_levelCap(), atCap = 0, n = 0;
+    for (var i = 0; i < you.skls.length; i++) {
+      if (you.skls[i]._modConverged) continue;
+      n++; if (you.skls[i].lvl >= MOD_skillCeiling(you.skls[i])) atCap++;
+    }
+    var nxt = MOD_nextTierLine().replace(/<[^>]+>/g, '').replace(/^\s*Next:\s*/, '');
+    add(nxt ? 'working' : 'ready', 'Story',
+      'Skill cap ' + cap + ' (' + atCap + ' of ' + n + ' skills at it). ' +
+      (nxt ? 'Next: ' + safe(nxt) + '.' : 'Every cap is open.'));
+  } catch (e) {}
+
+  /* cultivation */
+  try {
+    if (!act.mod_qi || act.mod_qi.have !== true) {
+      var done = MOD_QI_UNLOCK.filter(function (f) { return global.flags[f] === true; }).length;
+      add('locked', 'Cultivation', 'Clear the dojo\'s Easiest, Easy and Normal dummies to learn ' +
+        'to circulate qi (' + done + '/3).');
+    } else {
+      var here = MOD_realm(), next = MOD_REALMS[here.n + 1];
+      if (MOD_deviated()) {
+        add('working', 'Cultivation', 'Qi Deviation — ' + MOD_deviationLeft() + ' in-game minutes ' +
+          'left, or a Qi Settling Pill from the Herbalist.');
+      } else if (!next) {
+        add('ready', 'Cultivation', safe(here.name) + '. There is nothing above it.');
+      } else if (MOD_atBottleneck()) {
+        var pill = item['mod_bp' + next.n];
+        var held = pill && pill.have === true && pill.amount > 0;
+        var need = MOD_insightNeed(next.n), have = MOD_insight();
+        var missing = [];
+        if (!held) missing.push('a ' + pill.name);
+        if (have < need) missing.push((need - have) + ' more insight');
+        add(missing.length ? 'working' : 'ready', 'Cultivation',
+          'Half a step to ' + safe(next.name) + '. ' + (missing.length
+            ? 'Still needs ' + safe(missing.join(' and ')) + '.'
+            : 'You have the pill and the insight — click the realm on the rank line. ' +
+              'From inside Closed Door Training a failure cannot deviate you.'));
+      } else {
+        add('working', 'Cultivation', safe(MOD_realmTitle()) + '. ' + safe(next.name) +
+          ' opens at Qi Circulation ' + next.qic + ' (you are ' + ((skl.qic && skl.qic.lvl) || 0) + ').');
+      }
+    }
+  } catch (e) {}
+
+  /* actions still locked */
+  try {
+    var locked = [];
+    MOD_ACTION_UNLOCKS.forEach(function (u) {
+      if (!u.act || u.act.have === true) return;
+      var sk = skl[u.skill];
+      locked.push(u.act.name + ' at ' + (sk ? (sk.bname || sk.name) : u.skill) + ' ' + u.lv +
+        ' (you are ' + (sk ? sk.lvl : 0) + ')');
+    });
+    if (act.mod_seclu && act.mod_seclu.have !== true) {
+      locked.push('Closed Door Training at your first cultivation bottleneck');
+    }
+    if (locked.length) add('locked', 'Actions', safe(locked.join('; ')) + '.');
+  } catch (e) {}
+
+  /* the dojo */
+  try {
+    if (!global.flags.dj1rw6) {
+      add('working', 'Dojo', 'Finish the instructor\'s Level Advancement rewards, levels 5 to 30.');
+    } else {
+      var rung = null;
+      for (var d = 0; d < MOD_DOJO_RUNGS.length; d++) {
+        if (!global.flags[MOD_DOJO_RUNGS[d].flag]) { rung = MOD_DOJO_RUNGS[d]; break; }
+      }
+      if (rung) {
+        add(you.lvl >= rung.lv ? 'ready' : 'working', 'Dojo',
+          'Level Advancement at level ' + rung.lv + (you.lvl >= rung.lv
+            ? ' is waiting for you in the lobby.' : ' (you are ' + you.lvl + ').') +
+          (rung.realmPill ? ' It pays a realm ' + rung.realmPill + ' breakthrough pill.' : ''));
+      }
+    }
+  } catch (e) {}
+
+  /* the late areas */
+  try {
+    if (!global.flags.trne4e1) {
+      add('locked', 'Late areas', 'The Sunken Hollow, the Ashen Spire and the Long Vigil open ' +
+        'after golem arena IV.');
+    } else if (!MOD_hollowCleared()) {
+      add('working', 'Late areas', 'The Sunken Hollow: ' + MOD_prog('hollow') + '/' + MOD_REQ_HOLLOW +
+        ' kills opens the Ashen Spire.');
+    } else if (!MOD_spireCleared()) {
+      add('working', 'Late areas', 'The Ashen Spire: ' + MOD_prog('spire') + '/' + MOD_REQ_SPIRE +
+        ' kills opens the Long Vigil.');
+    }
+  } catch (e) {}
+
+  /* the rank ladder */
+  try {
+    var heldR = MOD_heldRank(), target = null;
+    MOD_RANK_LADDER.forEach(function (r) {
+      if ((heldR === 0 || r.rank < heldR) && (target === null || r.rank > target.rank)) target = r;
+    });
+    if (target) {
+      add(you.lvl >= target.need ? 'ready' : 'locked', 'Rank ladder',
+        (heldR ? 'You hold rank ' + heldR + '. ' : '') + 'Rank ' + target.rank + ', ' +
+        safe(target.name) + ', in the Hall of the First Gate' +
+        (you.lvl >= target.need ? ' — you can challenge them now.' :
+          ' — needs level ' + target.need + ' (you are ' + you.lvl + ').'));
+    } else {
+      add('ready', 'Rank ladder', 'You hold rank 1. There is no one left to challenge.');
+    }
+  } catch (e) {}
+
+  /* crafting */
+  try {
+    var shut = null;
+    for (var c = 0; c < MOD_CRAFT_TIERS.length; c++) {
+      var T = MOD_CRAFT_TIERS[c], open = false;
+      try { open = !!T.gate(); } catch (e2) {}
+      if (!open) { shut = T; break; }
+    }
+    if (shut) {
+      add('locked', 'Crafting', shut.star + '★ gear (' + safe(shut.prefix) + ') opens with ' +
+        safe(shut.need) + ', at ' + safe(shut.node) + ' in the Diggings.');
+    }
+  } catch (e) {}
+
+  /* convergence */
+  try {
+    var best = null;
+    for (var sec = 1; sec <= 10; sec++) {
+      var f = MOD_sectionFold(sec);
+      if (f.left > 0 && (best === null || f.left < best.f.left)) best = { sec: sec, f: f };
+    }
+    if (!global.flags.dj1rw6) {
+      /* the Archive is on the dojo lobby behind the same flag as Level Advancement */
+      add('locked', 'Convergence', 'The Slip Archive opens on the dojo lobby once the ' +
+        'instructor\'s Level Advancement rewards, levels 5 to 30, are done.');
+    } else if (best) {
+      var slips = MOD_slipsHeld();
+      add(slips >= best.f.left ? 'ready' : 'working', 'Convergence',
+        MOD_SECTIONS[best.sec] + ' is closest to becoming ' + safe(MOD_CONVERGED[best.sec].name) +
+        ': ' + best.f.left + ' left to fold. You hold ' + slips + ' Jade Slip' +
+        (slips === 1 ? '' : 's') + '; the next costs ' + MOD_slipPrice() + ' coin at the Slip Archive.');
+    }
+  } catch (e) {}
+
+  /* the odd job */
+  try {
+    if (global.flags.tr3_win && !global.flags.q1lwn) {
+      add('ready', 'Odd jobs', 'Notice #1 on the Message Board: a damp cellar full of bats, ' +
+        'and someone willing to pay to have it emptied.');
+    }
+  } catch (e) {}
+
+  var order = { ready: 0, working: 1, locked: 2 };
+  rows.sort(function (a, b) { return order[a.state] - order[b.state]; });
+  return rows;
+}
+
+MOD_wikiPage('next', 'What next', function () {
+  var rows = MOD_whatNext();
+  var label = { ready: 'READY', working: 'working', locked: 'locked' };
+  var colour = { ready: 'springgreen', working: '#9bd', locked: 'grey' };
+  var h = '<h1>What next <span class="tag mod">mod</span></h1>' +
+    '<p class="lede">Read from your save when this page was opened. Ready means you can ' +
+    'do it right now.</p>' +
+    '<table class="wk-tbl"><thead><tr><th></th><th>Track</th><th>Where you are, and what opens ' +
+    'the next step</th></tr></thead><tbody>';
+  rows.forEach(function (r) {
+    h += '<tr class="wk-e"><td><small style="color:' + colour[r.state] + '">' + label[r.state] +
+      '</small></td><td>' + r.track + '</td><td>' + r.text + '</td></tr>';
+  });
+  h += '</tbody></table>' +
+    '<p class="note">Every line calls the same check the game gates on, so it cannot say a ' +
+    'door is open when the door disagrees.</p>';
+  return h;
+});
+
+/* Straight after "Start here" in the nav — it is the page a returning player
+   wants first. */
+(function () {
+  try {
+    var at = -1, me = -1, i;
+    for (i = 0; i < MOD_WIKI_PAGES.length; i++) {
+      if (MOD_WIKI_PAGES[i].id === 'start') at = i;
+      if (MOD_WIKI_PAGES[i].id === 'next') me = i;
+    }
+    if (at < 0 || me < 0 || me === at + 1) return;
+    var page = MOD_WIKI_PAGES.splice(me, 1)[0];
+    for (i = 0; i < MOD_WIKI_PAGES.length; i++) {
+      if (MOD_WIKI_PAGES[i].id === 'start') { MOD_WIKI_PAGES.splice(i + 1, 0, page); break; }
+    }
+  } catch (e) { /* order is cosmetic */ }
+})();
+
+function modNext() {
+  var out = MOD_whatNext().map(function (r) {
+    return ('[' + r.state + ']        ').slice(0, 10) + (r.track + '              ').slice(0, 13) +
+      r.text.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&');
+  }).join('\n');
+  console.log(out);
+  return out;
+}
+
+
+/* ===========================================================================
+   LAST. THE SKILL CURVE, ON EVERY SKILL THAT NOW EXISTS
+   ---------------------------------------------------------------------------
+   Section 19 installs the curve on the skills that exist when it runs. Skills
+   made after it — section 29's masteries shipped this way — would otherwise keep
+   the author's super-exponential curve and never climb past twenty. Keep this
+   at the very end of the file.
+   =========================================================================== */
+
+console.log('[mod] xp curve re-installed on ' + MOD_installXpCurve() + ' skills');

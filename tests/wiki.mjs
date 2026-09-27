@@ -151,19 +151,28 @@ const spawns = await p.evaluate(() => {
     differ: raw.join() !== real.join(),
     showsReal: real.every(v => block.indexOf(v + '% of spawns') >= 0),
     showsRaw: raw.some(v => real.indexOf(v) < 0 && block.indexOf(v + '% of spawns') >= 0),
-    // clg's entries have no weight at all, so its bands are NaN and mon_gen's
-    // comparisons can never be true: nothing spawns there, ever
-    clgBroken: area.clg.popc.some(b => !isFinite(b[1] - b[0])),
+    // clg shipped with no weights at all -- NaN bands, nothing could spawn.
+    // Section 41 gave it weights. The flagging is derived from popc, so the
+    // test now checks both halves: clg is fixed and untagged, and an area
+    // broken the same way would still be caught.
+    clgFixed: area.clg.popc.every(b => isFinite(b[1] - b[0]) && b[1] - b[0] > 0),
     clgFlagged: /Damp cellar[\s\S]{0,300}nothing spawns/.test(page),
-    clgExplained: /Damp cellar[\s\S]{0,2000}Nothing spawns here/.test(page)
+    stillCatches: (() => {
+      const keep = area.clg.pop.map(e => e.c);
+      area.clg.pop.forEach(e => { delete e.c; }); z_bake(area.clg);
+      const html = MOD_wikiBuild();
+      const caught = /Damp cellar[\s\S]{0,300}nothing spawns/.test(html);
+      area.clg.pop.forEach((e, i) => { e.c = keep[i]; }); z_bake(area.clg);
+      return caught;
+    })()
   };
 });
 check(spawns.differ, `trn3's weights and its real bands differ (${spawns.raw} vs ${spawns.real})`);
 check(spawns.showsReal, 'the wiki prints the real bands');
 check(!spawns.showsRaw, 'and does not print the raw weights');
-check(spawns.clgBroken, 'the Damp cellar really does have NaN spawn bands (a base-game bug)');
-check(spawns.clgFlagged, 'it is tagged "nothing spawns"');
-check(spawns.clgExplained, 'and the page explains why rather than hiding it');
+check(spawns.clgFixed, 'the Damp cellar has real spawn bands now (it shipped with NaN ones)');
+check(!spawns.clgFlagged, 'so it is no longer tagged "nothing spawns"');
+check(spawns.stillCatches, 'and an area broken the same way would still be tagged');
 
 console.log('\n--- perk ladders are in it too, not just skill names');
 const perks = await p.evaluate(() => {

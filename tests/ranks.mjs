@@ -249,18 +249,23 @@ const R = await p.evaluate(() => {
     giveSkExp = function () {};
     try { return fn(); } finally { giveSkExp = g; global.flags.crti = c; } };
 
+  // Tops up until both strata show -- a zero-crit sample used to fall back to a
+  // plain mean that DROPS the crits (~30% of damage), reading a fight ~40% long.
+  // Same fix as mod.js MOD_meanDamage and allareas.mjs.
   const meanDamage = (att, def, n) => {
-    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0;
-    for (let i = 0; i < n; i++) {
+    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0, i = 0;
+    const rate = MOD_critRate(att);
+    for (; i < n * 8; i++) {
+      if (i >= n && (critN >= 2 || rate <= 0) && plainN >= 2) break;
       global.flags.crti = false;
       const d = Math.max(0, Math.round(abl.default.f(att, def)));
       if (d <= 0) zeros++;
       if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
     }
     return { mean: (critN && plainN)
-      ? (1 - MOD_critRate(att)) * (plainSum / plainN) + MOD_critRate(att) * (critSum / critN)
-      : (critSum + plainSum) / n,
-      zeroPct: zeros / n * 100 };
+      ? (1 - rate) * (plainSum / plainN) + rate * (critSum / critN)
+      : (critSum + plainSum) / i,
+      zeroPct: zeros / i * 100 };
   };
 
   const rows = [];

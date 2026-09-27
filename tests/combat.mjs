@@ -83,18 +83,26 @@ const R = await p.evaluate(() => {
   // two strata separately and recombining with the crit rate the game will
   // actually roll against removes that. Written out here rather than calling the
   // mod's MOD_meanDamage, so the test is not just agreeing with itself.
+  // Tops up until both strata have shown. Falling back to a plain mean when n
+  // swings roll no crit DROPS the crits rather than averaging them -- they are
+  // ~30% of all damage at cap 30 -- so a zero-crit sample (0.3% at a 9% crit
+  // rate and 60 swings) read a fight ~40% long. Across 2,790 matchups that was
+  // often enough to fail a thin-margin rank duel on a coin flip: the
+  // intermittent allareas failure. Extra swings only when needed.
   const meanDamage = (att, def, n) => {
-    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0;
-    for (let i = 0; i < n; i++) {
+    let critN = 0, critSum = 0, plainN = 0, plainSum = 0, zeros = 0, i = 0;
+    const rate = MOD_critRate(att);
+    for (; i < n * 8; i++) {
+      if (i >= n && (critN >= 2 || rate <= 0) && plainN >= 2) break;
       global.flags.crti = false;
       const d = Math.max(0, Math.round(abl.default.f(att, def)));
       if (d <= 0) zeros++;
       if (global.flags.crti) { critN++; critSum += d; } else { plainN++; plainSum += d; }
     }
     const mean = (critN && plainN)
-      ? (1 - MOD_critRate(att)) * (plainSum / plainN) + MOD_critRate(att) * (critSum / critN)
-      : (critSum + plainSum) / n;
-    return { mean, zeroPct: zeros / n * 100 };
+      ? (1 - rate) * (plainSum / plainN) + rate * (critSum / critN)
+      : (critSum + plainSum) / i;
+    return { mean, zeroPct: zeros / i * 100 };
   };
 
   const matchup = (z, crt, lvl) => {
