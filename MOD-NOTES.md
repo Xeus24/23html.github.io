@@ -1,34 +1,190 @@
-# Proto23 local mod
+# Proto23 local mod — design record
 
-Set up 2026-09-04. All mod code lives in `mod.js`. The only change to the
+**Version 4.3.** All mod code lives in `mod.js` — about 12,550 lines in 43
+numbered sections plus a final one that must stay last. The only change to the
 game itself is one `<script src="mod.js">` line at the bottom of `index.html`.
+Set up 2026-09-04.
+
+## How to read this file
+
+The first part, down to the end of **"What the mod does now"**, describes the
+mod as it stands. Everything after it is the **design record, in the order it
+was built**: what was found, what was measured, and why each change has the
+shape it has.
+
+Those sections describe the mod *as it was when they were written*. Where a
+later version changed something, a note beside the statement says so and
+points to where it lives now, in this form:
+
+> **Since v4.2:** what changed, and where to read about it.
+
+History is kept rather than rewritten because the reasoning is the point — most
+of the mod's constraints exist because something broke once, and the section
+that broke is where the explanation lives. `CLAUDE.md` is the short list of
+those constraints; this is the long form.
 
 ## Run it
 
-Just open `index.html` — double-click it, no server needed. It's a single
+Open `index.html` — double-click it, no server needed. It is a single
 self-contained file with no ES modules, and the mod loads fine over `file://`
-(verified).
+(verified). To serve it instead, `npx http-server -p 8080 -c-1 .` — the `-c-1`
+stops the browser caching an old `mod.js`.
 
 ## Console commands
 
-Open DevTools (Cmd+Option+I) and use:
+Open DevTools (Cmd+Option+I). `modHelp()` prints only the basics; this is the
+full set.
 
 ```js
-modHelp()        // list everything below
-setSpeed(3)      // game speed: ticks, skill xp and combat all scale
-getSpeed()       // current speed
-resetSpeed()     // back to 1x
-setSkillXp(3)    // skill xp multiplier (starts at 2x)
-modActions()     // the four added actions and what unlocks each
-modUnlockAll()   // grant them all now, skipping the requirements
+// where you stand
+modNext()                 // what is ready now, what you are working on, what is locked
+modCaps()  modClears()    // story cap, and the clears that raise it
+modRealm() modRoad()      // cultivation realm, and the whole price of the next one
+modRoots() modMastery()   // spiritual roots; the six elemental masteries
+modDojo()  modRankLadder()// Level Advancement rungs; the Hall of the First Gate
+modConverge() modRarity() // folding progress and slip prices; skill rarity
+modTitles() modRenown() modPerks() modParents() modDiscoveries() modActions()
+
+// economy and items
+modEconomy()  modItemValue(item)  modItems()  modCrafting()  modMeat()  modLooseEnds()
+
+// settings (each also has a box in the game's settings window)
+setSpeed(3)  getSpeed()  resetSpeed()   // game speed, persisted
+setSkillXp(1)  getSkillXp()             // skill exp multiplier, persisted; the original is 1
+setMoneyDrops(0.15)  modResetMoneyDrops() // enemy coin drop chance; the original is 0
+setNumberFormat('short')  modNumbers()  // 'game' | 'short' | 'sci' | 'myriad'
+setFreeActions(true)  getFreeActions()  // run several actions at once
+setXpCurve({vanillaTo: 10})  modXpCurve() // how many of the author's own skill levels to keep
+
+// balance, for measuring
+modBalance()  setEnemyScale({kill: 8, die: 20})  getEnemyScale()  setHpTrack(0.92)
+
+// folding, saves, documents
+modFold(section)  modUnfold(section)
+modSaves()  modSwitchSave(n)  modNewSave(n)  modDeleteSave(n)
+modWiki()  modChangelog()  modGameChangelog()
+modUnlockAll()   // grant every added action now, skipping its requirement
 ```
 
-Speed persists across reloads (stored under its own localStorage key, not in
-your save file). Skill xp resets to 2x each load — change the
-`skill_xp_mult` value near the top of `mod.js` to make a different default
-stick.
+## What the mod does now
 
-## What the mod does
+### Pacing, measured against the original
+
+`tests/vanilla.mjs` loads the game twice — once with `mod.js` blocked, which is
+the author's game exactly — and runs the same measurements on both.
+
+- **Skill exp costs exactly what the original charges below level 10**, checked
+  against the author's own `expnext` rather than a copy of it. His 22 perk
+  ladders all end between level 1 and 15, so that is the range he designed.
+  From level 10 the cost rises about 2.9% a level, at a ratio solved so that
+  0 → 110 takes the same time it always has. His own curve cannot be kept past
+  that: 109 → 110 costs ~1.2 × 10¹⁴ xp.
+- **Skill exp multiplier 1 and enemy coin drops off by default** — the
+  original's values. Both are settings boxes, and a value set there persists.
+- **Character level** uses the game's own curve, untouched.
+- **Story caps** 10 / 15 / 20 / 30 / 40 / 50 / 60 / 75 / 90 / 110, each opened
+  by a story beat.
+- **Fights are the one deliberate difference**: see Combat.
+
+### Combat
+
+- **Every spawn is solved against the player's measured power** — about 8
+  swings to kill and 20 to die, with spread from the area's level band and the
+  creature's own shape, and a margin that guarantees `kill < die`. Measured
+  through the real `dmg_calc`, stratified on the crit roll, and topped up when a
+  sample happens to roll no crit. Across the three matchups measured at 1,000
+  spawns each, 98% landed within 4% of their target.
+- That is longer than the original's early game, where you out-level fixed
+  creatures and most forest fights take one swing. The mod's model exists to
+  remove out-levelling; `tests/vanilla.mjs` prints the gap.
+- **Elemental techniques** proc on your swings once your channels are open.
+
+### Places
+
+- **The Sunken Hollow, the Ashen Spire and the Long Vigil**, past the base
+  game's last area, opening in order after golem arena IV.
+- **The catacombs** (the author's 26 rooms, given an entrance), **the Pill
+  Tower**, **the Hall of the First Gate** (the rank ladder), **the Diggings**
+  (four crafting nodes), **the Slip Archive** (on the dojo lobby) and **the Damp
+  cellar** (Notice #1 on the Message Board — the author's area, given weights,
+  a way in and a way out).
+
+### Skills
+
+- Around a hundred skills: the base game's, plus the mod's — Qi Circulation,
+  Wildcraft, Calligraphy and Conditioning; the discovered skills; ten section
+  parents; six elemental masteries; Renown; and ten converged skills.
+- **Perks at 10/25/50/60/75/90/110 on every skill**, and a live tooltip on each
+  saying what it currently does.
+- **Rarity** — ten grades, Novice to Transcendent — derived from the level you
+  have taken a skill to. Coloured in the list, named in the tooltip, sortable
+  and filterable.
+- **Folding**: a Jade Slip folds a skill into its section. Fold a whole section
+  and it is one line. Folded skills keep every level, perk and buff; a fully
+  folded section is worth ×1.03 on every stat, ×1.34 with all ten.
+- **Five added actions**, each earned: Endurance Drill (Toughness 4), Forage
+  (Harvesting 4), Practice Calligraphy (Literacy 8), Circulate Qi (the dojo's
+  three tutorial fights) and Closed Door Training (your first bottleneck).
+  Running several at once is an opt-in setting.
+
+### Cultivation
+
+- **Ten realms above Mortal**, Qi Refining to Tribulation Transcendence, on the
+  same level thresholds as title ranks. Up to ×6 on every stat and ×8.5 on the
+  body.
+- **The road between them**: a Spiritual Root rolled once; nine layers to every
+  realm; insight earned by meditating, by fights you nearly lost and by going
+  somewhere new; Closed Door Training, which consolidates and shelters a
+  breakthrough; Qi Deviation for failing in the open; a Heavenly Tribulation
+  for the top three realms. Modelled on Wuxiaworld's general glossary of the
+  genre's terms.
+- Every breakthrough pill has a source: the instructor, the Herbalist, the
+  dojo's Level Advancement rungs to 110, the Pill Tower.
+- **Your realm is on the rank line**, and at a bottleneck it is the
+  breakthrough button.
+
+### Titles and rank
+
+- Title ranks 1–10 derived from the level that earns them; five titles per
+  skill; the worn title applies, and Renown makes lower ranks passive. The
+  picker and the wiki group titles by skill and into ladders.
+- Four of the author's unfinished titles finished from the intent in his code.
+- **The rank ladder**: ten challengers, beaten in order; the rank you hold
+  floors the Power rank under your portrait without capping it.
+
+### Crafting and money
+
+- **Crafting to five stars**: twenty items and twelve materials on four rungs,
+  each consuming the one below.
+- **Selling** at 25% of value, with key items — anything that is the only way
+  to unlock something — protected. The marketplace cannot be locked out.
+- Raw meat drops at 18%, so the hunter's quest is feasible in every season.
+
+### On the screen
+
+- **Number formats**: Short (4.56M), Scientific, Myriads (5.6亿) or as the
+  original. Up to 9,999 every format prints exactly what the original prints.
+- **A wiki** of fifteen pages, generated from the live game data every time it
+  opens and reading your save — including a Skill handbook and a What next page.
+- The skill panel groups, collapses, hides maxed skills, and no longer rebuilds
+  itself every second.
+- Three save slots, a labelled changelog button, and settings boxes for skill
+  exp, game speed, coin drops and number format.
+
+### Tests
+
+Thirty-one Playwright scripts drive a real browser at a real copy of the game.
+The broadest, `allareas`, fights every creature in every area at both ends of
+its level band, at ten story tiers, in four skill builds — 3,720 matchups, all
+of which must be winnable. See `tests/README.md`.
+
+---
+
+# The design record
+
+What follows is in the order it was built.
+
+## The first version
 
 **Game speed** — a toggle rather than a fixed change; default stays 1x.
 `global.fps` drives the main loop (`setTimeout(..., 1000/global.fps)`) and
@@ -42,6 +198,10 @@ everything else.
 constructor change would be silently overwritten on load. Wrapping is
 save-independent and stacks multiplicatively with the in-game "+x% EXP Gain"
 perks.
+
+> **Since v4.2:** the multiplier ships at **1**, the original's value. The
+> wrapper and the settings box are unchanged. See "Measured against the
+> original game".
 
 **Extended milestones** — the original perks stop around lv 10-15. Added tiers
 at **20/25/30/40/50** to: Fighting, all ten weapon masteries, Sleep, Walking,
@@ -60,6 +220,11 @@ gathering skills.
 Each has nine milestones (lv 2 → 50). New skills only appear in the UI once
 they first level up — that's the game's own behaviour, not a bug. Foraging
 grants existing items only; no new items were added.
+
+> **Since v3.x:** the mod's "Foraging" (`skl.frg`) is named **Wildcraft** — the
+> base game already had a Foraging. See "Two names for one skill". The actions
+> are now earned rather than granted; see "The added actions are earned now"
+> and "Circulate Qi comes from the dojo".
 
 ## Live skill tooltips
 
@@ -2931,6 +3096,280 @@ was already sizing against the buffed number — so fights stop being roughly
 eighteen times deadlier than the model intended, worst at the cap. All 2,790
 `allareas` matchups still pass, because they were measuring the right number
 all along; it was play that had the wrong one.
+
+> **Since v4.0:** the realm code had the same bug, and fixing both led to
+> `MOD_BODY` — see "A realm's body multiplier did nothing". hpTrack no longer
+> writes `hpm` itself; it publishes a factor there.
+
+
+## The cultivator's road (v4.0)
+
+Section 38. Asked for: use sources such as Wuxiaworld for where the story should
+go and how it should progress.
+
+### What the sources say
+
+Two kinds of source were read, and they answer different questions.
+
+**Wuxiaworld's "General Glossary of Terms"** is the genre's own reference for
+its vocabulary, and it describes, by name, the machinery the mod was missing.
+Its entry on bottlenecks says a cultivator may need new insight, a medicinal
+pill, or harsher training to break one. The mod had exactly one of those three
+— the pill — which is why a bottleneck was a shopping trip rather than a wall.
+The glossary also covers the Spiritual Root (innate talent, tested, sometimes
+rare), the nine layers of a stage and the words Early, Middle, Late and Peak,
+seclusion as the way to push through a bottleneck without being disturbed at the
+crucial moment, the internal demons waiting there, Qi Deviation as what failing
+does to you, the impurities a body expels on the way up, and the Heavenly
+Tribulation that answers a cultivator's progress.
+
+The notes here and the comments in section 38 paraphrase and cite it. The
+first version of section 38's comments quoted several of its entries at length;
+those passages should be paraphrased too.
+
+**The book structure of two long works on the same site** — *I Shall Seal the
+Heavens* and *A Will Eternal*, both by Er Gen — answers the other question,
+where a story goes. Read off their book titles, both follow the same shape: one
+sect, then a wider region, then the world, then a domain of your own, then
+above it. proto23 already owns the first and the last of those — the dojo is a
+sect in all but name, and the Hall of the First Gate is the regional ranking
+tournament the middle books turn on. The rungs still missing (disciple grades,
+a sect contribution currency, a secret realm) are recorded here as where the
+story goes next, not built.
+
+### What was built
+
+Each is a mechanic on objects that already existed; no new areas.
+
+| Piece | What it does |
+|---|---|
+| Spiritual Root | Five grades by purity, rolled once when the dojo finishes with you. The worst costs 15% cultivation speed, not access; a Root Cleansing Pill moves you up a grade. |
+| Nine layers | Derived from Qi Circulation between this realm's threshold and the next, so breaking through lands you at layer 1 on its own. "Half a step to" is the genre's name for what the mod called a bottleneck. |
+| Insight | From meditating, from a kill made under 20% health, and from the first visit to an area — the three sources the glossary names, and no fourth. Spent whether or not the attempt works. |
+| Closed Door Training | A fifth action, which only starts at a wall. Fifteen minutes is worth +30% on the attempt, and a failure from inside it cannot cause Qi Deviation. |
+| Qi Deviation | Failing in the open: half an in-game day at ×0.55 stats and ×0.70 body, no second attempt, cleared by time or a Qi Settling Pill. Never kills. |
+| Heavenly Tribulation | Realms 8-10 answer a successful breakthrough with 3/5/7 bolts costing 55/70/85% of max HP. Realm 10 had been named Tribulation Transcendence with no tribulation in it. |
+
+The root's speed bonus goes through `skl.qic.p`, which is saved and restored
+after milestones, so it is reconciled on the tick against `global.flags.mod_rootxp`
+rather than set once. Qi Deviation is timed on `time.minute`, the game's own
+saved clock, so it expires on schedule across reloads.
+
+**Not covered by a dedicated test.** The root, layers, insight, deviation and
+tribulation were verified by hand in the browser. `tests/cultivation.mjs` covers
+the realms themselves, and `tests/polish.mjs` covers breaking through from the
+rank line, but nothing asserts the road's own rules. That is the gap to close
+first if this section is touched again.
+
+
+## A realm's body multiplier did nothing (v4.0)
+
+Found while extending section 28. The realm wrapper raised max HP and max energy
+by assigning `you.hpmax` and `you.satmax` — the same mistake v3.9 fixed for
+hpTrack — and `stat_r` recomputes **both** from their inputs. Measured on a
+realm-10 character: max HP 332 after `allbuff` and 39 after one `stat_r`; max
+energy 1,700, then 200. The ×8.5 the top realm advertised lasted one call.
+
+Two contributors now wanted the same two inputs, `hpm` and `satm`, and a second
+delta tracker beside hpTrack's cannot work: each recovers its base by dividing
+out its own factor, and each would find the other's factor sitting inside that
+base. So **nothing writes `hpm` or `satm` any more**. Contributors publish a
+factor to `MOD_BODY`, and `MOD_applyBody()` writes the product once, with one
+delta flag per axis (`mod_hpm`, `mod_satm`). It is idempotent, which is what
+lets more than one wrapper call it.
+
+Verified: max HP and energy survive `stat_r`, 200 further calls move nothing,
+and a Mortal character is untouched. `satmax` does not compound either — the
+worry that it would turned out wrong, because `stat_r` rebuilds it too.
+
+One more thing found on the way: a third hpTrack site at the old section 9 still
+assigned `hpmax`, but it was in a wrapper that never ran — sections 6, 7 and 9
+each re-anchored on the game's own `allbuff`. Measured, the game's `allbuff` ran
+once per call. Those dead wrappers were removed in v4.3.
+
+
+## Skill rarity, and folding a section into one skill (v4.1)
+
+Section 39. Asked for: items that merge skills to clean up the list, ending in
+one skill per section that does everything its section did; rarities for
+skills; and a skill handbook in the wiki.
+
+### Rarity
+
+The rank of the level you have taken a skill to — `MOD_rankForLevel(sk.lvl)`,
+the same thresholds and ten colours titles use — named Novice through
+Transcendent. Derived rather than assigned, because a hand-picked rarity per
+skill would be a hundred more numbers to keep in step with a ladder that moves,
+and would say nothing about your character.
+
+The colour goes on the row's name element's *style*. The game's per-second
+updater rewrites that element's `innerHTML` every second, which would wipe any
+markup in the name, but it never touches the element's own style.
+
+### Folding hides; it never removes
+
+A Jade Slip — the glossary's object for storing knowledge and handing it on —
+folds one skill into its section, lowest level first. The obvious
+implementation, taking the skill out of `you.skls`, breaks three things at once:
+
+- the game's panel only redraws when the list **grows**, so a removed row stays
+  on screen;
+- `giveSkExp` pushes a skill back onto the list at its next level-up, banner and
+  all, so the fold undoes itself;
+- `you.skls` is saved by id.
+
+So folding marks the skill in `global.flags.mod_folded` and the panel hides the
+row, through the same branch that already hides collapsed groups and maxed
+skills. This works because `you.skls` was only ever the display list: the mod's
+buffs are applied from `skl` by key, and most base-game skills pay out through
+milestones already written into stats. **"All of the buffs" is therefore
+literally true rather than re-implemented.** `tests/convergence.mjs` proves it:
+every stat after folding all hundred skills is exactly its unfolded value times
+the convergence bonus.
+
+The ten converged skills (ids 2201-2210) are created at load whether or not
+anything is folded, because skill exp is saved positionally over `skl` — one
+that appeared only when first needed would shift every slot after it. They are
+aggregates: no perks, never trained, showing the best level in their section.
+The bonus is ×1.03 per fully folded section, compounding, with a proportional
+share for a partial one.
+
+Two bugs caught before shipping: `removeItem(obj, flag)` takes a flag, not an
+amount, so passing a count dropped the whole stack of slips; and there is no
+`you.inv` — a stackable item sits in `inv` once and carries its own `amount`.
+
+The **Skill handbook** is a wiki page beside the skills list: the rarity scale,
+what folds into what, and what the slips cost.
+
+
+## Measured against the original game (v4.2)
+
+Asked for: check everything is exactly as balanced as the original game, and
+perhaps new ways of writing huge numbers so it looks balanced.
+
+### How
+
+`tests/vanilla.mjs` loads the game twice. In one page the single script tag
+resolves to an empty file, which *is* the author's game; the same measurement
+code runs in both, and none of it may call anything the mod defines. (The older
+`BASELINE=1` switch in `earlybal` only turns off enemy scaling — the player
+still has every mod perk — so it was never a real baseline.)
+
+### What matched, what did not, and what changed
+
+| | Before | Now |
+|---|---|---|
+| Character level curve | identical | identical |
+| Skill cost below level 10 | 12× faster at level 5, 364× at 10 | exactly the author's |
+| Skill exp multiplier | 2 | 1, the original's |
+| Enemy coin drops | 15% | off, the original's |
+| Time to skill 110 | ~six months for a steady skill | unchanged |
+
+The author designed skills up to level 15 — every one of his 22 perk ladders
+ends between level 1 and 15, median 10 — and inside that range the mod's old
+geometric curve was 100 to 1,000 times faster. The curve is now his exact
+formula below level 10, then rises at a ratio solved by bisection so the whole
+climb to 110 costs the same wall-clock time as before. Level 15 could not be
+matched: his level 15 alone costs 823,099 xp, and 95 more levels even at that
+flat price would be two and a half times the budget.
+
+The coin drop is the author's own mechanism, switched on only by the Coin Ring
+(+1%) and the Ring of Greed (+3%); under a 15% base both rings were rounding
+errors.
+
+**Fights were measured and deliberately not matched.** At equal skill levels
+the original's opening route is almost free — median 1.2 swings to kill and
+about 25,000 to die — because you out-level its fixed creatures. The mod's
+enemy model exists to remove that. An earlier comparison in the same pass showed
+the original as a wall of unwinnable fights; that was the old skill curve
+handing the original's player far lower skills for the same xp, and it inverted
+once the curves matched. The test prints the gap and asserts only what must hold
+either way: winnable wherever the original is, and never deadlier than the
+deadliest fight the original lets you win.
+
+### Bugs found on the way
+
+- **The six masteries were on the author's curve.** Section 19 installed the
+  curve over the skills that existed when it ran, and section 29 creates the
+  masteries later — so their level 20 cost 7,474,050 xp instead of 375, and
+  their perks to 110 were unreachable. The curve is now installed again at the
+  very end of `mod.js`.
+- **A damage sample with no crit dropped the crits.** Every stratified estimator
+  fell back to a plain mean when its sample rolled no crit — not averaging the
+  crits badly but leaving them out, and at cap 30 they are 30% of all damage. In
+  the mod about one spawn in twenty came out ~20% weak; in the tests a fight read
+  ~40% long 0.15% of the time, which across thousands of matchups is what had
+  been intermittently failing the thinnest-margin rank duels. Empty strata are
+  now topped up, in the mod and in all five test copies. On the Tallyman duel the
+  1st percentile of kill/target went from 0.775 to 0.959.
+
+### How big numbers are written
+
+Section 40. The mod's numbers are enormous next to the original's, and that
+reads like a balance problem without being one — enemies scale to the player,
+so a fight is the same length at STR 50 or 5,000,000. A setting picks Short,
+Scientific, Myriads or "as the original".
+
+Two things set its shape, both from the author's own code. His damage log calls
+his compactor for anything over 9,999 and then discards the result, so no damage
+number was ever compacted — that is where he wanted compaction to start, and in
+every format a number up to 9,999 prints exactly as the original prints it. And
+his wallet already counts in 10⁸ coins over groups of 10⁴, which is the myriad
+system (万, 亿), so Myriads is his notation carried to the rest of the screen.
+"As the original" is his output byte for byte, including his formatter putting
+commas inside exponential notation past 10²¹.
+
+
+## Small fixes, and two that were not needed (v4.3)
+
+Chosen from a list of improvements.
+
+- **The realm on the rank line.** The player panel is a fixed 310px box with
+  307px already used, so nothing gets a new line; the realm shares the rank line
+  and is the breakthrough button at a bottleneck. It has to be plain ASCII: the
+  game's font is MS Gothic, and where it is missing a ▲ fell back to a font 1px
+  taller and a ⚠ to one 6px taller, each pushing the panel past its box.
+- **A What next page in the wiki**, reading the save and built on each system's
+  own gate, so it cannot call a locked door open.
+- **Rarity you can read**: named in the skill tooltip, with a sort and a filter.
+- **The skill panel rebuilt every row every second**, forever, once the list had
+  grown with the panel open — the game stores the list's size once and never
+  updates it. 265 redraws in five seconds at 53 rows. The mod's own updater
+  replaces it, redraws once per change, and notices a shrink too.
+- **The Damp cellar** had no spawn weights, no way in, and an exit into two
+  screens that were never written (`chss.q1lwn`, `chss.q1l`). It is Notice #1 on
+  the Message Board now — an inference from those names ("quest 1"); the rest is
+  the author's.
+- **Four unfinished titles finished**: the shopper ladder at the 5,000 and 10,000
+  purchases his commented-out code names, and the money ladder at 10 and 100
+  gold. The fifth, `ttl.ddcd`, is named "null" with nothing to say what it was
+  for, and is left alone.
+- Rank-duel margin 1.25 → 1.4; `allareas` gains a fully folded build (3,720
+  matchups); three dead `allbuff` wrappers removed.
+
+Two items on that list turned out to be wrong. **Tutorial fight 1** loses only in
+the original's raw numbers; in the modded game it was already winnable. And the
+**marketplace lockout** had already been fixed in section 32 — every link in the
+chain was audited again (the dojo, the Paper Boy, the Pamphlet, reading it, the
+door, the Herbalist behind it) and none can be lost for good.
+
+
+## Repository housekeeping: which remote is which
+
+Not gameplay. The checkout's remotes were renamed so the desktop app's move to
+the cloud could push somewhere writable:
+
+```
+origin     https://github.com/Xeus24/23html.github.io.git   the fork — pushes go here
+upstream   https://github.com/23html/23html.github.io.git   the author's game
+```
+
+`main` tracks `origin/main`. The author's changelog check therefore compares
+against **`upstream/main`** now:
+
+```
+git diff upstream/main -- changelog/changelog.html    # must be empty
+```
 
 
 ## A changelog you can actually reach
