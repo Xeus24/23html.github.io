@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // The title picker, grouped by skill.
 //
@@ -14,7 +14,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/titlepicker.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });

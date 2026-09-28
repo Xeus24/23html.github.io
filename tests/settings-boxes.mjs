@@ -1,9 +1,9 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // point at any local server: PORT=9000 node tests/settings-boxes.mjs
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
 // Playwright finds its own Chromium locally; set CHROMIUM=/path/to/chrome to override
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const ctx = await b.newContext();
 const p = await ctx.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 220)));

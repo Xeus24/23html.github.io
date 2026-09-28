@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // The three added areas must not exist until the base game's last normal area
 // (golem arena IV, flag trne4e1) is cleared, and then must open in order on the
@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/areagate.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });

@@ -122,21 +122,44 @@ pre-4.2 pacing exactly — `MOD_XP.fixedRatio` 1.106 with `vanillaTo` 0 makes ev
 level cost `50 * 1.106^lvl`, plus 2x exp and a 15% coin drop. The curve is not
 persisted on its own, so the chosen preset is stored (`p23_mod_pacing`) and its
 curve re-applied at load; the exp and coin boxes persist on their own keys.
-Anything else reads `custom`. `tests/pacing.mjs` checks each preset is exact.
+Since v4.6 each preset also sets Fights (`original` / `scaled`), which persists on
+`p23_mod_fights`. Anything else reads `custom`. `tests/pacing.mjs` checks each
+preset is exact.
 
 The full ladder 10/15/20/30/40/50/60/75/90/110 is genuinely reachable, so
 **model the player AT the cap** — that is what the tests do.
 
-### Fights are the one axis that deliberately does NOT match the original
+### Fights: Original by default, Scaled on request (section 47, v4.6)
 
-At equal progression the original's opening route is nearly free: median 1.2
-swings to kill and ~25,000 to die, because its creatures are fixed and you
-out-level them. The mod's enemy model exists to remove out-levelling and holds
-every fight near 8.8 / 22. `tests/vanilla.mjs` prints that gap and asserts only
-what must hold either way — winnable wherever the original is, never deadlier
-than the deadliest fight the original lets you win. Matching it would mean
-switching the scaling off in the author's areas, and the meat drop (section 36)
-is tuned to the mod's kill times; treat it as a design decision, not a dial.
+At equal progression the original's opening route is nearly free: median 1.3
+swings to kill and ~20,000 to die, because its creatures are fixed and you
+out-level them. The mod's enemy model (section 8) exists to remove that and
+holds every fight near 8.8 / 22.
+
+**`MOD_FIGHTS.mode` chooses.** On `original`, the default, `MOD_scaleEnemy`
+returns at once for any spawn whose `global.current_z` is one of the author's
+areas, and `MOD_applyAreaLevels()` puts his level ranges back (section 8 keeps
+both: `pop[i]._modLv0` his, `_modLvS` the x1.4). On `scaled` it is section 8
+everywhere, as before 4.6.
+
+- **"The author's areas" is `area[k]._modAuthor`**, set on every area that exists
+  when section 8 starts, before the mod adds any. Areas are not saved, so marking
+  the object is safe. The mod's own — Hollow, Spire, Vigil, the ten rank duels —
+  are always scaled: there is no original to match, and the rank ladder needs
+  `_modKillT`.
+- **The value model reads `_modLvS` whatever the mode**, so an item's price does
+  not change when the setting does.
+- **Raw Meat follows the mode**: his 6% on Original (`_modChance0`), 18% on
+  Scaled. The raise only ever made up for the scaled kill times, and
+  `MOD_MEAT.killSecOriginal` (5s) is the matching assumption.
+- **Balance scripts measure section 8, so they call `setFights('scaled')` first**
+  — allareas, earlybal, combat, fightsmoke, fullbal, targets, baseline and
+  vanilla's gap table. A new script that measures the model must too, or on the
+  default it measures the author's creatures and reports nonsense.
+- `tests/fights.mjs` holds Original against his page: all 70 spawns in his areas
+  identical stat for stat (random() seeded the same on both sides), and every
+  step of his route past the tutorial winnable at arrival. His own game loses
+  Tutorial fight 1 at skill 0, and so does Original — that is his design.
 
 An earlier comparison showed the original as a wall of unwinnable fights. That
 was the old skill curve: it handed the original's player far lower skills for
@@ -177,9 +200,27 @@ plain sample mean — the variance of a plain mean is almost entirely "how many
 crits landed", and enemy HP comes straight off that number. `fightsmoke` fights
 nine times per area and reports a median for the same reason.
 
+**Section 46 corrects three lines of the author's combat and death code, and
+the luck fix lives INSIDE `MOD_dmg_calc_original`.** That variable is rebound to a
+version that applies his luck crit multiplier (capped at 50% from luck,
+`MOD_LUCK_CAP`) and floors the Shield Mastery defence bracket at zero. Section 8's
+probe and its incoming-damage wrapper both call through the variable, so enemies
+are sized against the fixed player. **Anything that samples your damage must go
+through `dmg_calc` or `MOD_dmg_calc_original`, never a reference captured before
+section 46**, or it measures a player without luck. `MOD_critRate(att, stt)`
+includes the luck bonus. The bonus rides on `you.mods.crflt` for one call and is
+restored to its exact prior value — `crflt` is saved, and add-then-subtract
+would leave float residue. `tests/basefixes.mjs` holds all three.
+
 **Any script that samples `dmg_calc` must park `giveSkExp` first** (`quiet()` in
 the test scripts, `MOD_probe` in the mod). `dmg_calc` grants skill exp, so
 sampling it levels the player mid-measurement.
+
+**`tests/baselines/balance.json` is committed on purpose.** `tests/baseline.mjs`
+records the curve, the dials, realm and tribulation costs, prices and every
+area's per-spawn fight targets, and fails on any difference. When a change is
+MEANT to move balance, run `UPDATE=1 PORT=8080 node tests/baseline.mjs` and
+commit the file with the change — the diff is the review.
 
 Run `./tests/run.sh earlybal combat fightsmoke` after any balance change,
 `allareas` (all 3,720 matchups: every area x every creature x every tier x
@@ -331,6 +372,11 @@ the same length at STR 50 or 5,000,000. A `Number format` settings row (and
   a symbol like ▲ or ⚠ falls back to a font with a taller line box — measured,
   ▲ grew the line 1px and ⚠ 6px, pushing the panel past 310px. `½` is safe.
   `tests/polish.mjs` asserts the longest possible line keeps panel height.
+- **The skill panel's per-second updater writes only what changed** (v4.6),
+  through `MOD_setIfChanged`, and skips hidden rows. An innerHTML write
+  re-parses and dirties layout even with identical text; the game's version
+  wrote three cells on every row every second (329 DOM changes a pass at 110
+  rows, 3.8ms on WebKit; now 2 changes and 0.3ms).
 - **The skill panel's per-second updater is the mod's now.** The game's captures
   `sklsize` once and never updates it, so after the list first grows it rebuilt
   every row every second forever (265 redraws in 5s at 53 rows), and it never
@@ -385,6 +431,21 @@ Realms live in `global.flags.mod_realm` and the bonus is applied **in
 `allbuff`** — never written into `you.stra`/`strm`, or it would compound on
 every load. Reaching a Qi Circulation level does not advance the realm; it opens
 a bottleneck that costs a breakthrough pill and can fail.
+
+**The wall is sized to the climb (v4.6).** `MOD_realmClimbSec(n)` is the
+Circulate Qi time from realm n−1's threshold to n's on the live curve.
+`MOD_insightNeed(n)` is `wallShare` (5%) of that at the meditation rate —
+never below the old 1, 3, 5 … floor or the wall below it. `MOD_secludeFull(n)` is
+the seclusion that earns that insight on average (floor 900s), and
+`MOD_devMinutes(n)` equals it (floor 720). Never restate these as numbers: they
+move with the curve and the ladder. Meditation grants insight **only at a wall**
+— on the way up the same Circulate Qi that climbed the level used to pay for
+every wall long before it. `tests/road.mjs` prints the table.
+
+**Every price the ladder requires is held by `tests/econ.mjs`** to 10% of the
+climb it gates, in hours of the best income open at that tier (fighting each
+area through `dmg_calc`, gathering each node), on the Original preset. The Pill
+Tower's realm 8-10 pills were cut to pass it when the coin drop went to 0.
 
 Elemental techniques are a **proc inside a wrapped `you.battle_ai`**, because
 combat is automatic and there is no ability picker. They use `stt: 2` so they
@@ -497,6 +558,7 @@ the only change the mod makes to anything of his. Verify before committing:
 
 ```
 git diff upstream/main -- changelog/changelog.html    # must be empty
+./tests/authorfiles.sh                                # both rules, and CI runs it
 ```
 
 **Remotes:** `origin` is the fork (`Xeus24/23html.github.io`) and is where pushes
@@ -723,7 +785,9 @@ from 93 HP to 3,574), and ten times less meat an hour against an unchanged rot
 clock dropped the summer steady state to **4 against the 10 required**. Feasible
 in three seasons and impossible in the fourth is a bug, not a difficulty choice.
 
-Section 36 raises the drop 6% → 18%, solved backwards from a steady state of 25
+On Fights: Original (the default since v4.6) his fights are back, so is his 6%,
+and `MOD_MEAT.killSecOriginal` (5s) replaces the 15s — see section 47. On Scaled,
+section 36 raises the drop 6% → 18%, solved backwards from a steady state of 25
 in the worst season and the first hunting area, and applies it to **every**
 creature carrying `rwmt1` found by scanning the drop tables rather than by
 naming the rabbit and the wolf. `MOD_meatSteadyState()` is the shared formula;
@@ -847,6 +911,9 @@ before the game reads anything.
   one being restored), and reloads. It restores saves, not code.
 - **Bump `MOD.version` for any change a save could notice**, or the backup that
   protects it is never made.
+- Number 4 is the **daily** backup and only the daily replaces it; 1-3 rotate.
+  `MOD_putBackup` stores any record; downloads are the record as JSON, and a
+  file loads back through the same function after a shape check.
 
 ## Testing
 
@@ -859,6 +926,29 @@ npm test                                          # everything
 `tests/README.md` explains what each script covers. Note that several of them
 **write to the save** — export one first, or run against a copy.
 
-Always finish a change with `node --check mod.js` (`npm run check`) plus the
-relevant test script. The mod is ~12,550 lines of wrappers around a codebase
-with no types and no module boundaries; the tests are the only safety net.
+Always finish a change with `npm run check` (mod.js parses, and the userscript
+was rebuilt from it) plus the relevant test script. The mod is ~13,500 lines of
+wrappers around a codebase with no types and no module boundaries; the tests
+are the only safety net.
+
+- **`BROWSER=webkit`** runs any script, or the suite, on Safari's engine, and CI
+  runs both. Layout is where the engines differ: WebKit (like any browser set to
+  always show scrollbars) takes ~8px for the skill panel's scrollbar, which
+  headless Chromium does not, so a width that fits "with a pixel to spare"
+  only fails there. Size things to share the space (`flex:1 1 0`), not to add up
+  to the panel exactly. For CSS, write the `-webkit-` form beside
+  `user-select`, and give a `<select>` `MOD_styleSelect()` — Safari draws it as a
+  native macOS button and ignores its background otherwise.
+- `run.sh` runs four scripts at once (`JOBS=1` for one at a time, output live).
+  Every script launches its own browser, so their saves cannot collide. The
+  whole suite is about a minute and a half; it prints seconds per script.
+- **GitHub runs everything on every push and pull request**
+  (`.github/workflows/tests.yml`): `npm run check`, `tests/authorfiles.sh`, then
+  `npm test`.
+- **The userscript is generated.** `userscript/proto23-mod.user.js` embeds
+  mod.js and the mod's changelog; after changing either, `npm run build:userscript`
+  and commit it. `tests/userscript.mjs` and `npm run check` fail when it is stale.
+  It appends mod.js as an inline `<script data-p23-mod>` at DOMContentLoaded — a
+  userscript manager's own wrapper function would make every `var` local. So
+  anything that reads the game's source from `document.scripts` must go through
+  `MOD_gameSource()`, which skips that tag.

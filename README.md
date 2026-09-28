@@ -15,6 +15,27 @@ to the bottom of `index.html`:
 Delete that line and the game is stock again. `git checkout index.html` also
 works, and is the only reason it is the sole change to that file.
 
+## Playing it on the author's site, with nothing to download
+
+Install [Tampermonkey](https://www.tampermonkey.net/) or
+[Violentmonkey](https://violentmonkey.github.io/) in your browser — on Safari,
+Tampermonkey or the free [Userscripts](https://github.com/quoid/userscripts)
+extension — then open
+[`userscript/proto23-mod.user.js`](https://raw.githubusercontent.com/Xeus24/23html.github.io/main/userscript/proto23-mod.user.js)
+and accept the install. The next time you open
+[23html.github.io](https://23html.github.io/), the whole mod runs on it, and your
+save there is backed up before the mod first touches it (`modBackups()` in the
+console lists the backups). The manager checks the same address for updates.
+
+Turning the userscript off gives you the author's game back, but a save the mod
+has written to keeps the mod's extra fields. Download a backup from the saves
+panel first if you want to go back and forth.
+
+**On Safari, download a backup now and then.** Safari can clear a site's stored
+data when you have not visited it for a while (seven days of browsing, under its
+tracking prevention), and the saves and the automatic backups both live there.
+A downloaded backup file is the copy that survives it.
+
 ## Running it
 
 Open `index.html` in a browser, or serve the folder:
@@ -28,9 +49,9 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Forty-five sections, roughly in the order they were built. The design record
+Forty-seven sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
-[MOD-NOTES.md](MOD-NOTES.md). Version 4.4.
+[MOD-NOTES.md](MOD-NOTES.md). Version 4.6.
 
 **Measured against the original**
 
@@ -44,9 +65,11 @@ once with `mod.js` blocked, and runs the same measurements on both.
   that: 109→110 alone costs about 10¹⁴ xp.
 - Skill exp multiplier 1 and enemy coin drops off, the original's defaults —
   both adjustable in settings.
-- Fights are the one deliberate difference. The original's early fights are
-  nearly free once you out-level its fixed creatures; the mod's enemy model
-  exists to remove that.
+- **Fights in the author's areas are his**, creature for creature, so you
+  out-grow them the way you do in his game. A *Fights* setting switches to
+  *Scaled*, where every fight is sized to you.
+- Every price the progression asks for is checked against what you can earn
+  at that point with no coin drop.
 
 **Progression**
 
@@ -57,9 +80,10 @@ once with `mod.js` blocked, and runs the same measurements on both.
 
 **Combat and places**
 
-- Enemy scaling rewritten. It is solved per spawn against your measured power —
-  about 8 swings to kill, 20 to die — rather than fitted to a level. See the
-  note below on why the obvious approach does not work here.
+- An enemy model for everything the mod adds, and for the whole game on the
+  *Scaled* setting. It is solved per spawn against your measured power — about
+  8 swings to kill, 20 to die — rather than fitted to a level. See the note
+  below on why the obvious approach does not work here.
 - Three areas past the base game's last — the Sunken Hollow, the Ashen Spire and
   the Long Vigil — opening in order once the golem arena is cleared. An entrance
   to the author's catacombs, the Pill Tower, and the Damp cellar, which he wrote
@@ -82,7 +106,8 @@ once with `mod.js` blocked, and runs the same measurements on both.
   Root rolled once, nine layers to every realm, insight earned by meditating,
   by fights you nearly lost and by going somewhere new, Closed Door Training to
   consolidate and shelter an attempt, Qi Deviation for failing in the open, and
-  a Heavenly Tribulation at the top.
+  a Heavenly Tribulation at the top. Each wall is sized to the climb to it:
+  about 5% of the time it took.
 - Six elemental mastery skills whose techniques fire during combat.
 - Your realm sits on the rank line, and at a bottleneck it is the breakthrough
   button.
@@ -99,14 +124,18 @@ once with `mod.js` blocked, and runs the same measurements on both.
   assigned by feel; five titles per skill; titles that do something, worn or
   made passive by Renown; and four of the author's unfinished titles finished.
 - Selling, with anything that is the only way to unlock something protected.
+- Three bugs in the author's own code fixed: the Death skill made dying cost
+  *more* energy as it levelled, Shield Mastery could turn your defence into
+  extra damage taken, and luck never reached the crit roll.
 
 **Quality of life**
 
 - Three save slots, with a "start new save" button, and **automatic backups**:
-  before a new version of the mod loads, every slot is copied first. Three are
-  kept, and the saves panel restores any of them.
+  before a new version of the mod loads, every slot is copied first, and again
+  once a day. The saves panel restores any of them, or downloads it as a file.
 - A **Pacing** setting — *Original* (the default) or *Mod before 4.2*, the
-  faster pacing the mod had before it was matched to the original.
+  faster pacing and scaled fights the mod had before it was matched to the
+  original.
 - Settings boxes for game speed, skill exp, coin drops and **number format** —
   short (4.56M), scientific, myriads (5.6亿) or as the original. Up to 9,999
   every format prints exactly what the original prints.
@@ -141,8 +170,10 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 33 scripts
+npm test                                          # all 38 scripts, four at a time
 ./tests/run.sh audit combat                       # a subset
+JOBS=1 npm test                                   # one at a time, output live
+BROWSER=webkit npm test                           # on Safari's engine (npx playwright install webkit)
 ```
 
 They drive a real browser against a served copy of the game, so they test the
@@ -150,7 +181,14 @@ actual thing rather than a model of it. [tests/README.md](tests/README.md)
 explains what each one covers. The broadest is `allareas.mjs`: every area, every
 creature, both ends of every level band, ten story tiers, four skill builds —
 3,720 matchups, all of which must be winnable. `vanilla.mjs` holds the mod to
-the original game wherever it claims to match it.
+the original game wherever it claims to match it, and `baseline.mjs` keeps the
+numbers that define the balance in a committed file, so any change to them shows
+up as a diff. `fights.mjs` holds the author's areas to his page spawn for spawn,
+and `econ.mjs` holds every required price to what that stage pays.
+
+The same suite runs on GitHub for every push and pull request, on Chromium and on
+WebKit (the engine Safari is built on), along with a check that the author's
+files are untouched (`tests/authorfiles.sh`).
 
 **Several tests write to the save.** Export one first, or run them against a
 copy of the folder.
@@ -159,10 +197,13 @@ copy of the folder.
 
 | | |
 |---|---|
-| `mod.js` | the entire mod, ~12,900 lines |
+| `mod.js` | the entire mod, ~13,500 lines |
+| `userscript/` | the mod as a userscript for the hosted game — generated, `npm run build:userscript` |
+| `tools/` | the userscript build |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 33 Playwright scripts, plus `lib/stats.mjs` |
+| `tests/` | 38 Playwright scripts, `lib/stats.mjs`, the balance baseline, `authorfiles.sh` |
+| `.github/workflows/` | the suite on every push and pull request |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 
@@ -170,5 +211,7 @@ The checkout's `origin` is this fork; the author's repository is `upstream`.
 
 ## Credit
 
-The game is truezhangwei's. Everything in `mod.js`, `tests/`, `MOD-NOTES.md` and
-this file is a modification of it, and none of it is endorsed by the author.
+The game is truezhangwei's. Everything in `mod.js`, `userscript/`, `tools/`,
+`tests/`, `MOD-NOTES.md` and this file is a modification of it, and none of it
+is endorsed by the author. The userscript runs on the author's site in your own
+browser; it changes nothing on the site itself.

@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 import { readFileSync } from 'fs';
 
 // Loads a real save captured from the PRE-consolidation build (100 discovered
@@ -11,7 +11,7 @@ const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
 const save = readFileSync(new URL('./fixtures/v1-save.txt', import.meta.url), 'utf8').trim();
 const want = JSON.parse(readFileSync(new URL('./fixtures/v1-save.meta.json', import.meta.url), 'utf8'));
 
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = [];
 p.on('pageerror', e => errs.push(String(e).slice(0, 300)));

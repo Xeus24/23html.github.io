@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // Can a skill actually REACH the story cap? Measures the game's own exp curve
 // against the xp a skill really receives per tick through the mod's grant path
@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/capreach.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });

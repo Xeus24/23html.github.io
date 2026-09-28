@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '4.4',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '4.6',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -83,7 +83,10 @@ var MOD = {
                      // v3.9: hpTrack wrote you.hpmax, which stat_r recomputes —
                      // so the player never held the max HP every fight was
                      // sized against. It writes you.hpm now.
-                     // Changes are listed in changelog/changelog.html.
+                     // v4.6: Fights (section 47) — the author's areas as he
+                     // wrote them, by default; realm walls sized to the climb;
+                     // the Pill Tower's top pills priced for no coin drop.
+                     // Changes are listed in changelog/mod-changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 1,     // the original's; change with setSkillXp(n). Was 2 before v4.2
   max_speed: 20
@@ -117,7 +120,8 @@ var MOD = {
 
 MOD.backup_key   = 'p23_backup_';
 MOD.backup_ver   = 'p23_mod_lastver';
-MOD.backup_count = 3;
+MOD.backup_count = 3;        // 1..3 rotate: version changes, by hand, from a file
+MOD.backup_daily = 4;        // 4 is the daily one, and only the daily one replaces it
 
 function MOD_backupRead(n) {
   try {
@@ -130,7 +134,7 @@ function MOD_backupRead(n) {
 /* Newest first. */
 function MOD_backupList() {
   var out = [];
-  for (var n = 1; n <= MOD.backup_count; n++) {
+  for (var n = 1; n <= MOD.backup_daily; n++) {
     var r = MOD_backupRead(n);
     if (r) out.push({ n: n, rec: r });
   }
@@ -138,41 +142,31 @@ function MOD_backupList() {
   return out;
 }
 
-/* Copy the live save and every slot into a backup. `keep` is a backup number
-   not to overwrite — the one being restored, when restoring backs up first.
-   Returns the backup number, or 0 if there was nothing to copy or no room. */
-function MOD_makeBackup(reason, keep) {
+/* Store a backup record. `force` writes that number (the daily one); otherwise
+   an empty rotating number, then the oldest by sequence. `keep` is never
+   overwritten — the backup being restored, when restoring backs up first.
+   Returns the number written, or 0. */
+function MOD_putBackup(obj, keep, force) {
   try {
-    var ls = localStorage, slots = {}, any = false, i;
-    var live = ls.getItem('v0.3');
-    if (live) any = true;
-    for (i = 1; i <= 3; i++) {
-      var blob = ls.getItem('p23_slot_' + i);
-      if (blob) { slots[i] = { blob: blob, meta: ls.getItem('p23_slotmeta_' + i) }; any = true; }
-    }
-    if (!any) return 0;
-    var seq = 0;
-    for (i = 1; i <= MOD.backup_count; i++) {
+    var ls = localStorage, i, seq = 0;
+    for (i = 1; i <= MOD.backup_daily; i++) {
       var had = MOD_backupRead(i);
       if (had && (had.seq || 0) > seq) seq = had.seq;
     }
-    var rec = JSON.stringify({
-      v: 1, seq: seq + 1, t: Date.now(), at: new Date().toLocaleString(),
-      reason: reason || 'by hand', ver: MOD.version,
-      live: live, active: ls.getItem('p23_slot_active'), slots: slots
-    });
-
-    /* an empty backup number first, then the oldest one that is not `keep` */
-    var target = 0, oldest = 0, oldestSeq = Infinity;
-    for (i = 1; i <= MOD.backup_count; i++) {
-      if (i === keep) continue;
-      var r = MOD_backupRead(i);
-      if (!r) { target = i; break; }
-      if ((r.seq || 0) < oldestSeq) { oldestSeq = r.seq || 0; oldest = i; }
+    obj.v = 1; obj.seq = seq + 1;
+    var target = force || 0;
+    if (!target) {
+      var oldest = 0, oldestSeq = Infinity;
+      for (i = 1; i <= MOD.backup_count; i++) {
+        if (i === keep) continue;
+        var r = MOD_backupRead(i);
+        if (!r) { target = i; break; }
+        if ((r.seq || 0) < oldestSeq) { oldestSeq = r.seq || 0; oldest = i; }
+      }
+      if (!target) target = oldest;
     }
-    if (!target) target = oldest;
     if (!target) return 0;
-
+    var rec = JSON.stringify(obj);
     try { ls.setItem(MOD.backup_key + target, rec); }
     catch (full) {
       /* Out of room. Free only the space of the backup this one replaces — it
@@ -188,6 +182,29 @@ function MOD_makeBackup(reason, keep) {
   }
 }
 
+/* Copy the live save and every slot into a backup. Returns its number, or 0 if
+   there was nothing to copy or no room. */
+function MOD_makeBackup(reason, keep, force) {
+  try {
+    var ls = localStorage, slots = {}, any = false, i;
+    var live = ls.getItem('v0.3');
+    if (live) any = true;
+    for (i = 1; i <= 3; i++) {
+      var blob = ls.getItem('p23_slot_' + i);
+      if (blob) { slots[i] = { blob: blob, meta: ls.getItem('p23_slotmeta_' + i) }; any = true; }
+    }
+    if (!any) return 0;
+    return MOD_putBackup({
+      t: Date.now(), at: new Date().toLocaleString(),
+      reason: reason || 'by hand', ver: MOD.version,
+      live: live, active: ls.getItem('p23_slot_active'), slots: slots
+    }, keep, force);
+  } catch (e) {
+    try { console.warn('[mod] save backup skipped: ' + e.message); } catch (e2) {}
+    return 0;
+  }
+}
+
 (function () {
   try {
     var prev = localStorage.getItem(MOD.backup_ver);
@@ -196,6 +213,12 @@ function MOD_makeBackup(reason, keep) {
                                   : 'before v' + MOD.version);
       if (n) console.log('[mod] a new version: your save was backed up first (backup ' + n + ')');
       localStorage.setItem(MOD.backup_ver, MOD.version);
+    }
+    /* And once a real-world day, into its own number, for anyone who plays a
+       long time between updates. It cannot push out a version backup. */
+    var daily = MOD_backupRead(MOD.backup_daily);
+    if (!daily || Date.now() - daily.t > 24 * 3600 * 1000) {
+      MOD_makeBackup('daily', undefined, MOD.backup_daily);
     }
   } catch (e) { /* never stop the game loading over a backup */ }
 })();
@@ -933,7 +956,7 @@ function modHelp() {
     '',
     ' Economy and items',
     '  modEconomy()  modItemValue(item)  modItems()  modCrafting()  modMeat()',
-    '  modLooseEnds()  modResetMoneyDrops()  modResetAffinities()',
+    '  modLooseEnds()  modBaseFixes()  modResetMoneyDrops()  modResetAffinities()',
     '',
     ' Settings (each persists; most have a box in the settings window)',
     '  setSpeed(n)  getSpeed()  resetSpeed()         now ' + getSpeed() + 'x',
@@ -943,13 +966,14 @@ function modHelp() {
     '  setFreeActions(on)  getFreeActions()',
     '  setXpCurve({vanillaTo: n})  modXpCurve()       until the next reload',
     '  setPacing(name)  getPacing()  modPacing()      now ' + (typeof getPacing === 'function' ? getPacing() : '?'),
+    "  setFights(mode)  getFights()  modFights()      now " + (typeof getFights === 'function' ? getFights() : '?') + " ('original' or 'scaled')",
     '',
     ' Balance, for measuring',
     '  modBalance()  setEnemyScale({...})  getEnemyScale()  setHpTrack(n)',
     '',
     ' Saves and documents',
     '  modSaves()  modSwitchSave(n)  modNewSave(n)  modDeleteSave(n)',
-    '  modBackups()  modBackupNow()  modRestoreBackup(n)',
+    '  modBackups()  modBackupNow()  modRestoreBackup(n)  modDownloadBackup(n)',
     '  modWiki()  modChangelog()  modGameChangelog()  modHelp()'
   ].join('\n');
   console.log(lines);
@@ -1026,9 +1050,9 @@ var MOD_EFFECTS = {
   // Base-game formula is `sat *= 0.55*(1 - lvl*0.1)`, which DROPS as the skill
   // levels and hits zero at lvl 10. Reported as computed rather than dressed up.
   dth:   function (s) {
-    var m = 0.55 * (1 - s.lvl * 0.1);
-    return 'Energy kept on death ' + MOD_x(Math.max(m, 0)) +
-           (s.lvl >= 10 ? ' <span style="color:tomato">(base-game formula bottoms out at lvl 10)</span>' : '');
+    /* Section 46 fixes the base-game formula, which fell to nothing at level
+       10 and below zero after it. */
+    return 'Energy kept on death ' + MOD_x(MOD_deathKeep(s.lvl * 0.1));
   },
 
   // --- skills added by this mod (see section 6 for the use() formulas) ------
@@ -1429,6 +1453,29 @@ var MOD_ENEMY = {
 
 var MOD_ENEMY_MAX = 1e12;   // sanity clamp, so one odd spawn cannot make Infinity
 
+/* Which fights are scaled at all. 'original' (the default since v4.6) leaves
+   every area the author wrote exactly as he wrote it — his creatures, his
+   level ranges — and scales only the mod's own areas; 'scaled' is the model
+   below everywhere, as it was before. Section 47 holds the setting and its
+   reasoning; it is read here because a spawn needs it. */
+var MOD_FIGHTS = { mode: 'original', key: 'p23_mod_fights' };
+(function () {
+  try {
+    var saved = localStorage.getItem(MOD_FIGHTS.key);
+    if (saved === 'original' || saved === 'scaled') MOD_FIGHTS.mode = saved;
+  } catch (e) { /* a private window keeps the default */ }
+})();
+
+/* Every area that exists before this section runs is the author's. Marked on
+   the object, like `_modMeanLvl`: areas are not part of the save. */
+Object.keys(area).forEach(function (k) {
+  if (area[k] && typeof area[k] === 'object') area[k]._modAuthor = true;
+});
+
+function MOD_fightsOriginalIn(z) {
+  return MOD_FIGHTS.mode === 'original' && !!(z && z._modAuthor === true);
+}
+
 function MOD_fin(v, d) { v = Number(v); return isFinite(v) ? v : d; }
 function MOD_clampMul(v) {
   if (!isFinite(v) || v < 1) return 1;
@@ -1482,12 +1529,18 @@ function MOD_probe(fn) {
 /* The crit chance dmg_calc rolls against, reproduced exactly. Note that the
    `b` multiplier (you.luck/25+1) never reaches ctr_r: both branches that set it
    declare it with `let` inside their own block, so the outer b stays 1. */
-function MOD_critRate(att) {
+function MOD_critRate(att, stt) {
   var sat = you.satmax > 0 ? you.sat / you.satmax : 1;
   var k = 2 - (sat + MOD_fin(you.mods.sbonus, 0)) * 2;
   var crt = MOD_fin(att.crt, 0);
   var eye = (att.id === you.id && skl.seye) ? MOD_fin(skl.seye.use(), 0) : 0;
-  return Math.min(Math.max(crt * k + crt + eye + MOD_fin(you.mods.crflt, 0), 0), 1);
+  var base = crt * k + crt + eye + MOD_fin(you.mods.crflt, 0);
+  /* Section 46 wires the author's luck multiplier back in, for the player,
+     capped so luck alone cannot push crit past MOD_LUCK_CAP. */
+  if (att.id === you.id && typeof MOD_luckCritBonus === 'function') {
+    base += MOD_luckCritBonus(crt * k + crt, base, stt || 1);
+  }
+  return Math.min(Math.max(base, 0), 1);
 }
 
 /* Mean damage per landed hit — stratified on the crit roll.
@@ -1569,6 +1622,13 @@ function MOD_creatureShape(p, i, lo, hi) {
 function MOD_scaleEnemy(p) {
   if (!p || typeof you === 'undefined') return;
   if (p.id === you.id || p.id === 0) return;      // skip the player and creature.default
+  /* Section 47: with Fights on Original, a creature in one of the author's own
+     areas is left exactly as mon_gen and lvlup made it. The mod's own areas have
+     no original to match and are always scaled. */
+  if (MOD_fightsOriginalIn(typeof global !== 'undefined' ? global.current_z : null)) {
+    p._modDmg = 0;
+    return;
+  }
 
   var E = MOD_ENEMY;
 
@@ -1769,13 +1829,32 @@ var MOD_AREA_EXEMPT = { nwh: 1, trn: 1, trnf: 1, trn1: 1, trn2: 1, trn3: 1, tst:
     var a = area[key];
     if (!a || !a.pop || !a.pop.length) return;
     a.pop.forEach(function (e) {
+      /* Both ranges are kept, so Fights: Original can put the author's back. */
+      e._modLv0 = [e.lvlmin, e.lvlmax];
       if (typeof e.lvlmin === 'number') e.lvlmin = Math.max(1, Math.ceil(e.lvlmin * MOD_ENEMY.areaScale));
       if (typeof e.lvlmax === 'number') e.lvlmax = Math.max(e.lvlmin, Math.ceil(e.lvlmax * MOD_ENEMY.areaScale));
+      e._modLvS = [e.lvlmin, e.lvlmax];
     });
     touched++;
   });
   console.log('[mod] level ranges raised in ' + touched + ' existing areas (x' + MOD_ENEMY.areaScale + ')');
 })();
+
+/* The raised ranges belong to the scaled model; Original uses the author's.
+   Idempotent, and clears the mean-level cache the band is measured against. */
+function MOD_applyAreaLevels() {
+  Object.keys(area).forEach(function (key) {
+    var a = area[key];
+    if (!a || !a.pop || !a.pop.length) return;
+    a.pop.forEach(function (e) {
+      var r = MOD_FIGHTS.mode === 'original' ? e._modLv0 : e._modLvS;
+      if (!r) return;
+      e.lvlmin = r[0]; e.lvlmax = r[1];
+    });
+    a._modMeanLvl = 0;
+  });
+}
+MOD_applyAreaLevels();
 
 
 /* --- New high-level areas --------------------------------------------------
@@ -1923,6 +2002,10 @@ MOD_makeFightLocation('mod_vigil', 978, 'The Long Vigil',
 
 function modBalance() {
   var rows = [
+    'Fights: ' + (MOD_FIGHTS.mode === 'original'
+      ? "Original — the author's areas are unscaled; this applies to the mod's own"
+      : 'Scaled — this applies everywhere') + '. modFights() for more.',
+    '',
     'Enemy scaling is solved per spawn against your current power, not fitted',
     'to a level, and nothing is ever scaled below what the base game made it.',
     '  kill an average enemy of your area in ~' + MOD_ENEMY.kill + ' landed swings',
@@ -1930,7 +2013,7 @@ function modBalance() {
     '  the high end of an area\'s level band is harder than the low end',
     '  (HP ^' + MOD_ENEMY.hpSpread + ', attack ^' + MOD_ENEMY.atkSpread + ' of lvl / area mean lvl)',
     '',
-    'Existing area level ranges raised x' + MOD_ENEMY.areaScale + ' (tutorial exempt)',
+    'Existing area level ranges raised x' + MOD_ENEMY.areaScale + ' on Scaled (tutorial exempt)',
     'New areas: The Sunken Hollow (30-40), The Ashen Spire (45-58), The Long Vigil (55-68)',
     'Locked until golem arena IV is cleared, then from the Western Woods gate:',
     '  "Follow the old path deeper" -> Hollow -> (10 kills) Spire -> (15 kills) Vigil',
@@ -3078,7 +3161,7 @@ function MOD_skillControls() {
     var btn = document.createElement('div');
     btn.innerHTML = 'Recheck clears';
     btn.style.cssText = 'cursor:pointer;border:1px solid #46a;padding:0 6px;border-radius:2px;' +
-                        'color:#cfe;user-select:none;';
+                        'color:#cfe;-webkit-user-select:none;user-select:none;';
     btn.addEventListener('mouseenter', function () { btn.style.background = '#0b1040'; });
     btn.addEventListener('mouseleave', function () { btn.style.background = 'transparent'; });
     btn.addEventListener('click', function () { modClears(); modResetCap(); });
@@ -3087,7 +3170,7 @@ function MOD_skillControls() {
     var rbtn = document.createElement('div');
     rbtn.innerHTML = 'Renown';
     rbtn.style.cssText = 'cursor:pointer;border:1px solid #46a;padding:0 6px;border-radius:2px;' +
-                         'color:#cfe;user-select:none;';
+                         'color:#cfe;-webkit-user-select:none;user-select:none;';
     rbtn.addEventListener('mouseenter', function () { rbtn.style.background = '#0b1040'; });
     rbtn.addEventListener('mouseleave', function () { rbtn.style.background = 'transparent'; });
     rbtn.addEventListener('click', function () { modRenown(); modTitles(); MOD_redrawSkills(); });
@@ -3140,6 +3223,11 @@ function MOD_skillControls() {
    line for line; only the bookkeeping changes: remember the length actually
    drawn, and redraw through MOD_redrawSkills (sections, sort, fit) on ANY
    change of it. */
+/* Assign only when the value differs from what the element holds now. */
+function MOD_setIfChanged(obj, prop, v) {
+  if (obj[prop] !== v) obj[prop] = v;
+}
+
 function MOD_skillUpdater() {
   try {
     if (global.lw_op !== 2 || !dom.skcon) return;
@@ -3150,11 +3238,19 @@ function MOD_skillUpdater() {
         if (you.skls.length !== drawn) { MOD_redrawSkills(); drawn = you.skls.length; }
         var rows = dom.skcon.children, n = Math.min(rows.length, you.skls.length);
         for (var i = 0; i < n; i++) {
-          var sk = you.skls[i], row = rows[i];
-          row.children[0].innerHTML = sk.name + ' lvl: ' + sk.lvl;
-          row.children[0].style.fontSize = sk.sp;
-          row.children[1].innerHTML = '　exp: ' + formatw(Math.floor(sk.exp)) + '/' + formatw(sk.expnext_t);
-          row.children[2].children[0].style.width = sk.exp / sk.expnext_t * 100 + '%';
+          var sk = you.skls[i], row = rows[i], c = row.children;
+          /* Only what changed (v4.6). An innerHTML write re-parses and dirties
+             layout even when the text is identical, and the game wrote three
+             cells on every row every second, hidden rows included — hundreds
+             of writes a second on a late character, and WebKit (Safari) pays
+             more per write than Chromium. Hidden rows only change through
+             MOD_redrawSkills, which rebuilds them, so they are skipped. The
+             width is rounded so it compares equal to what the style reads back. */
+          if (row.style.display === 'none' || c[0].style.display === 'none') continue;
+          MOD_setIfChanged(c[0], 'innerHTML', sk.name + ' lvl: ' + sk.lvl);
+          MOD_setIfChanged(c[0].style, 'fontSize', sk.sp || '');   // most skills have none
+          MOD_setIfChanged(c[1], 'innerHTML', '　exp: ' + formatw(Math.floor(sk.exp)) + '/' + formatw(sk.expnext_t));
+          MOD_setIfChanged(c[2].children[0].style, 'width', (sk.exp / sk.expnext_t * 100).toFixed(2) + '%');
         }
       } catch (e) { /* one bad row must not stop the rest updating next second */ }
     }, 1000);
@@ -3455,10 +3551,11 @@ function MOD_sectionHeader(sec) {
   // game's per-second updater reads children[0], children[1] and
   // children[2].children[0] of each row, so nothing may be inserted before
   // them. Prepending the header shifted all three and threw on every tick.
-  h.style.cssText = 'order:-1;flex:0 0 100%;padding:3px 6px;margin:2px 0 1px 0;' +
+  // border-box: 100% plus its 12px of padding overflowed the row sideways
+  h.style.cssText = 'order:-1;flex:0 0 100%;box-sizing:border-box;padding:3px 6px;margin:2px 0 1px 0;' +
                     'font-size:.85em;letter-spacing:1px;' +
                     'color:#8cf;background:#050730;border-top:1px solid #46a;text-align:left;' +
-                    'cursor:pointer;user-select:none;';
+                    'cursor:pointer;-webkit-user-select:none;user-select:none;';
   h.innerHTML =
     '<span style="display:inline-block;width:12px;color:#7cf">' + (collapsed ? '&#9656;' : '&#9662;') + '</span>' +
     MOD_SECTIONS[sec] +
@@ -3482,6 +3579,14 @@ renderSkl = function (sk) {
     var el = dom.skcon && dom.skcon.lastElementChild;
     if (!el) return r;
     el.style.display = '';
+
+    /* The row's cells are 32% + 170px + 197px, which fit the panel's 550px with
+       under a pixel to spare. A classic scrollbar — Safari's, or any browser
+       set to always show them — takes ~8px, and a header row (flex-wrap, below)
+       then wraps the exp bar onto a second line: rows 78px tall instead of 30.
+       The bar column takes what is left instead of a fixed 197px; everything
+       inside it is sized in percent of it, so nothing else moves. */
+    if (el.children[2]) { el.children[2].style.flex = '1 1 0px'; el.children[2].style.minWidth = '0'; }
 
     var sec = MOD_sectionOf(sk);
     var header = null;
@@ -3670,16 +3775,22 @@ function MOD_dropValue(id) {
      flagged rarity 1 exactly like a mushroom, so rules 1-4 priced every drop in
      The Long Vigil at 16. What DOES separate them is the level of the creature
      that drops it, and how often. Both are real data in the area tables. */
+  /* Read the raised level ranges (`_modLvS`) whichever Fights setting is on,
+     so an item's price does not change when the setting does. */
+  var lvlOf = function (pop) {
+    var v = pop._modLvS ? pop._modLvS[0] : pop.lvlmin;
+    return typeof v === 'number' ? v : null;
+  };
   for (var a in area) {
     var ar = area[a];
     if (!ar || !ar.pop) continue;
     var areaMin = Infinity;
     for (var q = 0; q < ar.pop.length; q++) {
-      if (typeof ar.pop[q].lvlmin === 'number') areaMin = Math.min(areaMin, ar.pop[q].lvlmin);
+      if (lvlOf(ar.pop[q]) !== null) areaMin = Math.min(areaMin, lvlOf(ar.pop[q]));
     }
     for (var q2 = 0; q2 < ar.pop.length; q2++) {
       var pop = ar.pop[q2];
-      var lvl = typeof pop.lvlmin === 'number' ? pop.lvlmin : 1;
+      var lvl = lvlOf(pop) !== null ? lvlOf(pop) : 1;
       var drops = pop.crt && pop.crt.drop;
       for (var d = 0; drops && d < drops.length; d++) {
         var dr = drops[d];
@@ -3840,7 +3951,7 @@ function MOD_renderSell(vnd) {
 
       var right = addElement(row, 'div');
       right.style.cssText = 'width:30%;text-align:right;padding-right:6px;color:gold;';
-      right.innerHTML = price;
+      right.innerHTML = (typeof MOD_fmtNum === 'function') ? MOD_fmtNum(price) : price;
 
       row.addEventListener('mouseenter', function () { row.style.background = 'rgb(20,50,84)'; });
       row.addEventListener('mouseleave', function () { row.style.background = 'rgb(10,30,54)'; });
@@ -3868,7 +3979,7 @@ function MOD_shopUI() {
     function tab(label, key) {
       var t = document.createElement('div');
       t.innerHTML = label;
-      t.style.cssText = 'flex:1;text-align:center;padding:2px;cursor:pointer;user-select:none;';
+      t.style.cssText = 'flex:1;text-align:center;padding:2px;cursor:pointer;-webkit-user-select:none;user-select:none;';
       var paint = function () {
         t.style.background = MOD_SHOP.tab === key ? 'rgb(20,50,84)' : 'transparent';
         t.style.color = MOD_SHOP.tab === key ? '#cfe' : '#89a';
@@ -4353,6 +4464,20 @@ setMoneyDrops = function (n) {
 };
 
 var MOD_SETTINGS = { inputs: [] };
+
+/* Safari draws a <select> as a native macOS popup button and ignores its
+   background, so on the dark settings panel the mod's dropdowns came out as
+   grey system buttons. Turning the native look off makes every engine use the
+   styles given, and the caret is drawn back in as a small inline SVG. */
+var MOD_SELECT_CSS = '-webkit-appearance:none;-moz-appearance:none;appearance:none;' +
+  'border-radius:2px;padding:0 16px 0 5px;background-repeat:no-repeat;' +
+  'background-position:right 5px center;background-image:url("data:image/svg+xml,' +
+  '%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%278%27 height=%275%27%3E' +
+  '%3Cpath d=%27M0 0h8L4 5z%27 fill=%27%238cf%27/%3E%3C/svg%3E");';
+function MOD_styleSelect(sel) {
+  try { sel.style.cssText += MOD_SELECT_CSS; } catch (e) {}
+  return sel;
+}
 
 function MOD_settingsRow(label, get, set, hint, step) {
   try {
@@ -5452,6 +5577,16 @@ function MOD_url(rel) {
 }
 
 function modChangelog() {
+  /* Under the userscript there is no changelog file beside the page: the
+     author's site does not have it. The build embeds it instead. */
+  if (typeof window.MOD_CHANGELOG_HTML === 'string') {
+    try {
+      var blob = URL.createObjectURL(new Blob([window.MOD_CHANGELOG_HTML], { type: 'text/html' }));
+      window.open(blob, '_blank');
+      console.log('[mod] mod changelog: embedded by the userscript');
+      return blob;
+    } catch (e) { /* fall through to the file */ }
+  }
   var url = MOD_url(MOD.changelog);
   try { window.open(url, '_blank'); } catch (e) {}
   console.log('[mod] mod changelog: ' + url);
@@ -7111,9 +7246,15 @@ vendor.mod_pltwr.data = { time: 3, rep: 0 };
 vendor.mod_pltwr.items = [
   { item: item.mod_bp6,  p: 120000,  c: 0.45, min: 1, max: 1 },
   { item: item.mod_bp7,  p: 340000,  c: 0.30, min: 1, max: 1 },
-  { item: item.mod_bp8,  p: 900000,  c: 0.20, min: 1, max: 1 },
-  { item: item.mod_bp9,  p: 2400000, c: 0.12, min: 1, max: 1 },
-  { item: item.mod_bp10, p: 7000000, c: 0.06, min: 1, max: 1 },
+  /* Realms 8-10 were 900K, 2.4M and 7M, sized when the author's coin drop was
+     on at 15% and paid about lvl^3 a drop at the top. With it off (v4.2), the
+     best income at those tiers is gathering, and tests/econ.mjs holds every
+     realm pill to 10% of the Circulate Qi climb it gates, in hours of that
+     income. 540K and 560K sit just under realm 8's and 9's budgets (657K and
+     583K) and keep the ladder rising; 6.5M is under realm 10's 6.97M. */
+  { item: item.mod_bp8,  p: 540000,  c: 0.20, min: 1, max: 1 },
+  { item: item.mod_bp9,  p: 560000,  c: 0.12, min: 1, max: 1 },
+  { item: item.mod_bp10, p: 6500000, c: 0.06, min: 1, max: 1 },
   { item: item.sp6,      p: 90000,   c: 0.5,  min: 1, max: 2 },
   { item: item.sp7,      p: 480000,  c: 0.3,  min: 1, max: 1 }
 ].filter(function (e) { return !!e.item; });
@@ -7540,7 +7681,7 @@ MOD_wikiPage('cultivation', 'Cultivation', function () {
     'three places, and they are the three the genre names: meditating, fights you ' +
     'nearly lost, and going somewhere you have not been.</p>' +
     '<table class="wk-tbl"><thead><tr><th>Source</th><th>Rate</th></tr></thead><tbody>' +
-    '<tr class="wk-e"><td>Circulate Qi</td><td>' +
+    '<tr class="wk-e"><td>Circulate Qi, at a wall</td><td>' +
       (MOD_CULT.meditateChance * 100).toFixed(1) + '% a second</td></tr>' +
     '<tr class="wk-e"><td>Closed Door Training</td><td>' +
       (MOD_CULT.secludeChance * 100).toFixed(1) + '% a second</td></tr>' +
@@ -7549,13 +7690,24 @@ MOD_wikiPage('cultivation', 'Cultivation', function () {
       Math.round(MOD_CULT.brinkChance * 100) + '% a kill</td></tr>' +
     '<tr class="wk-e"><td>Entering an area for the first time</td><td>always</td></tr>' +
     '</tbody></table>' +
-    '<table class="wk-tbl"><thead><tr><th>Realm</th><th>Insight to enter</th>' +
+    '<p>The insight a realm asks for is sized to the climb to it: about ' +
+    Math.round(MOD_CULT.wallShare * 100) + '% of the Circulate Qi time the climb took, ' +
+    'spent at the wall. Seclusion earns it three times as fast, and full ' +
+    'consolidation takes as long as that on average.</p>' +
+    '<table class="wk-tbl"><thead><tr><th>Realm</th><th>Climb (Circulate Qi, 1x)</th>' +
+    '<th>Insight to enter</th><th>Full seclusion</th><th>Qi Deviation (in-game)</th>' +
     '</tr></thead><tbody>';
+  var wkHours = function (sec) {
+    return sec >= 7200 ? (sec / 3600).toFixed(sec >= 36000 ? 0 : 1) + ' h' : Math.round(sec / 60) + ' min';
+  };
   MOD_REALMS.forEach(function (r) {
     if (!r.n) return;
     h += '<tr class="wk-e' + (r.n <= now.n ? ' done' : '') + '">' +
       '<td>' + MOD_WIKI.safe(r.name) + '</td>' +
-      '<td class="num">' + MOD_insightNeed(r.n) + '</td></tr>';
+      '<td class="num">' + wkHours(MOD_realmClimbSec(r.n)) + '</td>' +
+      '<td class="num">' + MOD_insightNeed(r.n) + '</td>' +
+      '<td class="num">' + wkHours(MOD_secludeFull(r.n)) + '</td>' +
+      '<td class="num">' + (MOD_devMinutes(r.n) / 1440).toFixed(1) + ' days</td></tr>';
   });
   h += '</tbody></table>' +
 
@@ -7579,15 +7731,16 @@ MOD_wikiPage('cultivation', 'Cultivation', function () {
     'state this mod calls a bottleneck.</p>' +
 
     '<h2>Closed Door Training</h2>' +
-    '<p>Seclusion does two things. It <b>consolidates</b> — ' + MOD_CULT.secludeFull +
-    ' seconds of it is worth +' + Math.round(MOD_CULT.secludeOdds * 100) +
+    '<p>Seclusion does two things. It <b>consolidates</b> — a full sitting ' +
+    '(the table above) is worth +' + Math.round(MOD_CULT.secludeOdds * 100) +
     '% on the attempt — and it <b>shelters</b>: a breakthrough attempted while ' +
     'you are still sitting in it cannot end in Qi Deviation, only in a lost ' +
     'pill. It will not start unless you are actually at a wall.</p>' +
 
     '<h2>Qi Deviation</h2>' +
     '<p>Failing a breakthrough out in the open leaves your cultivation base ' +
-    'unstable for ' + MOD_CULT.devMinutes + ' in-game minutes: stats at &times;' +
+    'unstable for as long as the seclusion you skipped (the table above, never ' +
+    'under ' + MOD_CULT.devMinutes + ' in-game minutes): stats at &times;' +
     MOD_CULT.devStat + ', body at &times;' + MOD_CULT.devBody + ', and no second ' +
     'attempt until it passes. It clears on its own, or at once with a ' +
     '<b>Qi Settling Pill</b>. It never kills — the death system stays out of it.</p>' +
@@ -7892,8 +8045,15 @@ MOD_wikiPage('areas', 'Areas & enemies', function () {
     h += '</div>';
   });
 
+  var fightsOrig = MOD_FIGHTS.mode === 'original';
   h += '<h2>How hard an enemy is</h2>' +
-    '<p>Enemies are not fitted to a level. Each spawn is solved against your ' +
+    '<p>It depends on the <b>Fights</b> setting, which is <b>' +
+    (fightsOrig ? 'Original' : 'Scaled') + '</b> now. On Original (the default) ' +
+    'every area the author wrote is exactly as he wrote it: his creatures, his ' +
+    'level ranges, and you out-grow them as you do in his game. On Scaled every ' +
+    'area is sized to you. The three areas past the golem arena and the rank ' +
+    'duels are sized to you either way.</p>' +
+    '<p>Sizing to you works like this. Enemies are not fitted to a level. Each spawn is solved against your ' +
     'actual power at the moment it appears, aiming at roughly ' + MOD_ENEMY.kill +
     ' swings to kill it and ' + MOD_ENEMY.die + ' before it kills you, with a ' +
     'guaranteed margin between the two so a fight is never a coin flip. Variety ' +
@@ -8155,7 +8315,7 @@ function MOD_wikiCss() {
     'nav .srch{margin:0 10px 12px;width:calc(100% - 20px);background:#050a20;' +
       'color:#dfe6f5;border:1px solid #46a;padding:5px;font:inherit}',
     'nav .xall{display:block;margin:12px 10px 0;color:#8296b8;font-size:12px;' +
-      'cursor:pointer;user-select:none}',
+      'cursor:pointer;-webkit-user-select:none;user-select:none}',
     'nav .xall input{vertical-align:-1px;margin-right:4px}',
     'details.wk-g{border:1px solid #17224a;background:#0a1130;margin:8px 0}',
     'details.wk-g>summary{cursor:pointer;padding:7px 12px;list-style:none;' +
@@ -8426,12 +8586,24 @@ function modWiki() {
 
 var MOD_KEY_ITEMS = {};        // "group.key" -> [flags it alone can set]
 
+/* The game's own source, from the page's inline scripts. Under the userscript
+   (tools/build-userscript.mjs) the mod is itself an inline script, marked
+   `data-p23-mod`, and must not be read as part of the game. */
+function MOD_gameSource() {
+  var src = '';
+  try {
+    for (var i = 0; i < document.scripts.length; i++) {
+      var sc = document.scripts[i];
+      if (sc.src || (sc.hasAttribute && sc.hasAttribute('data-p23-mod'))) continue;
+      src += sc.textContent || '';
+    }
+  } catch (e) {}
+  return src;
+}
+
 (function () {
   try {
-    var src = '';
-    for (var i = 0; i < document.scripts.length; i++) {
-      src += document.scripts[i].textContent || '';
-    }
+    var src = MOD_gameSource();
     if (src.length < 100000) {          // not the game's source; do not guess
       console.warn('[mod] key items: game source not readable, none protected');
       return;
@@ -9827,9 +9999,7 @@ MOD_wikiPage('crafting', 'Crafting', function () {
   /* The audit that prompted the ladder, recomputed live rather than quoted —
      if the author ever wires one of these up, this page stops claiming he did
      not. */
-  var src = '';
-  try { for (var i = 0; i < document.scripts.length; i++) {
-    if (!document.scripts[i].src) src += document.scripts[i].textContent; } } catch (e) {}
+  var src = MOD_gameSource();
   var byStar = {}, orphans = [];
   for (var k in rcp) {
     var r = rcp[k];
@@ -10014,22 +10184,29 @@ var MOD_MEAT = {
   need: 10,           // what quest.hnt1 asks for, held at once
   target: 25,         // steady state to aim for, in the worst season
   killSec: 15,        // conservative end-to-end seconds per kill
-  chance: 0.18        // see the arithmetic above
+  chance: 0.18,       // see the arithmetic above
+  /* With Fights on Original (section 47) a rabbit dies to one swing, as the
+     author made it, and the drop goes back to his 6%. Five seconds a kill is
+     still conservative: tests/fights.mjs measures the rabbit at the quest. */
+  killSecOriginal: 5
 };
 
 /* Solved, not asserted: the same formula the header works through, exposed so
    modMeat() and tests/meat.mjs can both report against it rather than against
    a number typed twice. `season` is the rot divisor — 1 normal, 0.5 summer
    (twice as fast), 2.5 winter. */
-function MOD_meatSteadyState(share, chance, season) {
+function MOD_meatSteadyState(share, chance, season, killSec) {
   var it = item.rwmt1;
   if (!it || !it.rot) return 0;
-  var perDay = (1440 / MOD_MEAT.killSec) * share * chance;
+  var sec = killSec || (MOD_FIGHTS.mode === 'original' ? MOD_MEAT.killSecOriginal : MOD_MEAT.killSec);
+  var perDay = (1440 / sec) * share * chance;
   var rotPerDay = ((it.rot[0] / (season || 1)) + (it.rot[1] / (season || 1))) / 2;
   var cycle = 1 / rotPerDay;
   var lossFrac = (it.rot[2] + it.rot[3]) / 2;
   return Math.max(0, (perDay * cycle - 1) / lossFrac);
 }
+
+var MOD_MEAT_DROPS = [];     // every Raw Meat drop entry, for section 47
 
 /* Every creature carrying Raw Meat, found by scanning the drop tables rather
    than by naming the rabbit and the wolf — a third one added later should move
@@ -10043,6 +10220,8 @@ function MOD_meatSteadyState(share, chance, season) {
     for (var i = 0; i < c.drop.length; i++) {
       var d = c.drop[i];
       if (!d || d.item !== item.rwmt1) continue;
+      d._modChance0 = d.chance;          // the author's, for Fights: Original
+      MOD_MEAT_DROPS.push(d);
       if (d.chance >= MOD_MEAT.chance) continue;
       touched.push(c.name + ' ' + Math.round(d.chance * 100) + '% -> ' +
                    Math.round(MOD_MEAT.chance * 100) + '%');
@@ -10061,25 +10240,29 @@ function modMeat() {
   for (var k in area) {
     var z = area[k];
     if (!z || !z.pop || !z.popc) continue;
-    var share = 0;
+    var share = 0, perSpawn = 0;
     z.pop.forEach(function (e, i) {
-      var has = (e.crt && e.crt.drop || []).some(function (d) { return d.item === item.rwmt1; });
-      if (!has) return;
       var band = z.popc[i];
-      if (band) share += band[1] - band[0];
+      (e.crt && e.crt.drop || []).forEach(function (d) {
+        if (d.item !== item.rwmt1 || !band) return;
+        share += band[1] - band[0];
+        perSpawn += (band[1] - band[0]) * d.chance;      // the live chance
+      });
     });
     if (share <= 0) continue;
     var line = '  ' + (z.name + '                            ').slice(0, 30) +
       (Math.round(share * 100) + '% meat spawns   ').slice(0, 18);
     seasons.forEach(function (s) {
-      var a = MOD_meatSteadyState(share, MOD_MEAT.chance, s[1]);
+      var a = MOD_meatSteadyState(perSpawn, 1, s[1]);
       line += s[0] + ' ' + (a >= MOD_MEAT.need ? Math.round(a) : Math.round(a) + '!') + '  ';
     });
     rows.push(line);
   }
   rows.push('', 'A "!" is a steady state below the ten the quest wants.');
-  rows.push('Drop chance ' + Math.round(MOD_MEAT.chance * 100) +
-            '%, assuming ' + MOD_MEAT.killSec + 's an end-to-end kill.');
+  var orig = MOD_FIGHTS.mode === 'original';
+  rows.push('Drop chance ' + (orig ? "the author's own (6% on the rabbit)" : Math.round(MOD_MEAT.chance * 100) + '%') +
+            ', assuming ' + (orig ? MOD_MEAT.killSecOriginal : MOD_MEAT.killSec) +
+            's an end-to-end kill (Fights: ' + (orig ? 'Original' : 'Scaled') + ').');
   var out = rows.join('\n');
   console.log(out);
   return out;
@@ -10275,27 +10458,35 @@ var MOD_CULT = {
   layerMult: 0.02,       // stats, per layer above the first  -> x1.16 at peak
   layerBody: 0.03,       // body,  per layer above the first  -> x1.24 at peak
 
-  /* Insight. Realm 1 opens straight out of the tutorial, so it is nearly free;
-     the cost climbs so the late wall is understanding rather than money.
-     1, 3, 5 ... 19 — a hundred across the whole ladder. */
+  /* Insight. Realm 1 opens straight out of the tutorial, so it is nearly free.
+     Above that the need is SIZED TO THE CLIMB (v4.6): the wall is worth
+     wallShare of the Circulate Qi time it took to reach it, so a realm three
+     days away asks for hours at the wall and one three months away for a day
+     and a half. The old flat 1, 3, 5 ... 19 was sized for a skill curve on
+     which realms 3-6 took minutes; on the matched curve they take days, and
+     19 insights were earned by accident long before any wall. That is also
+     why meditation only counts AT a wall now — see MOD_insightNeed. */
   insightBase: 1,
-  insightStep: 2,
-  meditateChance: 0.004, // a second of Circulate Qi
+  insightStep: 2,        // the floor: 1, 3, 5 ... still applies where larger
+  wallShare: 0.05,       // the wall, as a share of the climb to it
+  meditateChance: 0.004, // a second of Circulate Qi, at a wall
   secludeChance: 0.012,  // a second of seclusion is worth three of that
   brinkFrac: 0.20,       // "life-or-death battle": won it from under this much HP
   brinkChance: 0.25,
   worldAlways: true,     // somewhere genuinely new always teaches you something
 
-  /* Closed Door Training. Fifteen minutes of real seclusion is worth thirty
-     points of breakthrough odds, which is more than nine levels of
-     over-training — the genre's advice that you consolidate before you push,
-     made mechanical. */
-  secludeFull: 900,      // seconds for the full benefit
+  /* Closed Door Training. Full consolidation is worth thirty points of
+     breakthrough odds, six levels of over-training — the genre's advice that
+     you consolidate before you push, made mechanical. It takes as long as
+     seclusion takes to earn the wall's insight on average (MOD_secludeFull),
+     so sitting it out finishes both together; never less than this floor. */
+  secludeFull: 900,      // seconds: the floor under MOD_secludeFull
   secludeOdds: 0.30,
 
-  /* Qi Deviation. Half an in-game day, and it is meant to be felt: this is the
-     cost of pushing a breakthrough in the open instead of in seclusion. */
-  devMinutes: 720,
+  /* Qi Deviation. As long as the seclusion you skipped (MOD_devMinutes), and
+     never under half an in-game day: pushing in the open costs what doing it
+     properly would have, and it is meant to be felt. */
+  devMinutes: 720,       // in-game minutes: the floor under MOD_devMinutes
   devStat: 0.55,
   devBody: 0.70,
 
@@ -10467,7 +10658,8 @@ function MOD_layerBody() {
    life, and going out to experience new things — and says insight is often what
    advancing a stage requires. This implements those three and no fourth:
 
-       meditating              a second of Circulate Qi, or of seclusion
+       meditating              a second of Circulate Qi, or of seclusion,
+                               while at a wall (since v4.6)
        life-or-death battle    a kill made while under 20% of your own health
        out into the world      the first time you set foot in an area
 
@@ -10481,8 +10673,42 @@ function MOD_insight() {
   return isFinite(n) && n > 0 ? n : 0;
 }
 
+/* Seconds of Circulate Qi (0.9 Qi Circulation exp a second at 1x) from the
+   realm below's threshold to this one's, on the live skill curve — derived, so
+   retuning the curve or the ladder moves every wall with it. */
+function MOD_realmClimbSec(realm) {
+  var r = MOD_REALMS[realm], prev = MOD_REALMS[realm - 1];
+  if (!r || !prev) return 0;
+  return Math.max(MOD_xpToReach(r.qic) - MOD_xpToReach(prev.qic), 0) / 0.9;
+}
+
+/* Never less than the wall below it: realm 9's climb (82 -> 90) is shorter than
+   realm 8's (70 -> 82), and a wall that shrank on the way up would read as a
+   mistake. */
 function MOD_insightNeed(realm) {
-  return MOD_CULT.insightBase + (Math.max(realm, 1) - 1) * MOD_CULT.insightStep;
+  var need = 0;
+  for (var n = 1; n <= Math.max(realm, 1); n++) {
+    var floor = MOD_CULT.insightBase + (n - 1) * MOD_CULT.insightStep;
+    var sized = Math.round(MOD_realmClimbSec(n) * MOD_CULT.wallShare * MOD_CULT.meditateChance);
+    need = Math.max(need, floor, sized);
+  }
+  return need;
+}
+
+/* The realm the wall in front of you leads to (the next one up). */
+function MOD_nextRealmN() { return Math.min(MOD_realm().n + 1, MOD_REALMS.length - 1); }
+
+/* Full consolidation: the seclusion it takes to earn the wall's insight on
+   average, so the two finish together. */
+function MOD_secludeFull(realm) {
+  var n = realm || MOD_nextRealmN();
+  return Math.max(MOD_CULT.secludeFull, Math.round(MOD_insightNeed(n) / MOD_CULT.secludeChance));
+}
+
+/* Qi Deviation lasts as long as the seclusion it skipped, in in-game minutes
+   (one a second while awake). */
+function MOD_devMinutes(realm) {
+  return Math.max(MOD_CULT.devMinutes, MOD_secludeFull(realm));
 }
 
 function MOD_giveInsight(n, why) {
@@ -10501,8 +10727,13 @@ function MOD_giveInsight(n, why) {
   var before = act.mod_qi.use;
   act.mod_qi.use = function () {
     var r = before.apply(this, arguments);
+    /* Only at a wall. Insight is understanding of the realm in front of you,
+       and before v4.6 meditating on the way up paid for every wall long before
+       it was reached — the Circulate Qi that climbs the level also filled the
+       insight, so the wall cost nothing. Fights you nearly lost and new ground
+       still count anywhere. */
     try {
-      if (random() < MOD_CULT.meditateChance) {
+      if (MOD_atBottleneck() && random() < MOD_CULT.meditateChance) {
         MOD_giveInsight(1, 'the channels make more sense than they did');
       }
     } catch (e) {}
@@ -10618,7 +10849,7 @@ act.mod_seclu.deactivate = function () {
 function MOD_consolidation() {
   var s = Number(global.flags.mod_seclu);
   if (!isFinite(s) || s <= 0) return 0;
-  return Math.min(s / MOD_CULT.secludeFull, 1);
+  return Math.min(s / MOD_secludeFull(), 1);
 }
 
 MOD_ACTIONS.push(act.mod_seclu);
@@ -10674,7 +10905,7 @@ function MOD_deviationLeft() {
 
 function MOD_enterDeviation(why) {
   try {
-    global.flags.mod_qidev = time.minute + MOD_CULT.devMinutes;
+    global.flags.mod_qidev = time.minute + MOD_devMinutes();
     msg('— Qi Deviation —', 'crimson');
     msg(why || 'The qi turns back on you and goes where it likes.', 'crimson');
     msg('Your cultivation base is unstable. Sit it out, or find something that ' +
@@ -10859,8 +11090,8 @@ MOD_breakthrough = function (realm, pill) {
   if (MOD_insight() < need) {
     msg('You have the pill and not the understanding — ' + MOD_insight() +
         ' of ' + need + ' insights', 'red');
-    msg('Insight comes from meditating, from fights you nearly lost, and from ' +
-        'going somewhere new.', 'grey');
+    msg('Insight comes from meditating or sitting in seclusion at the wall, from ' +
+        'fights you nearly lost, and from going somewhere new.', 'grey');
     return false;
   }
 
@@ -10880,7 +11111,10 @@ MOD_breakthrough = function (realm, pill) {
                       consol * MOD_CULT.secludeOdds +
                       MOD_root().odds, 0.95);
 
+  var logged = { t: (typeof time !== 'undefined' ? time.minute : 0), to: realm,
+                 odds: Math.round(odds * 100), sheltered: sheltered };
   if (random() > odds) {
+    MOD_logBreakthrough(logged, sheltered ? 'failed' : 'deviated');
     msg('The qi turns back on you. ' + want.name + ' does not open.', 'crimson');
     if (sheltered) {
       /* The whole point of the closed door. */
@@ -10894,7 +11128,11 @@ MOD_breakthrough = function (realm, pill) {
   }
 
   /* The Heavens, at the top of the ladder, and they can still take it off you. */
-  if (realm >= MOD_CULT.tribFrom && !MOD_tribulation(realm)) return false;
+  if (realm >= MOD_CULT.tribFrom && !MOD_tribulation(realm)) {
+    MOD_logBreakthrough(logged, 'tribulation');
+    return false;
+  }
+  MOD_logBreakthrough(logged, 'success');
 
   global.flags[MOD.realm_flag] = realm;
   you.stat_r();
@@ -10908,6 +11146,33 @@ MOD_breakthrough = function (realm, pill) {
   return true;
 };
 
+
+/* --- the history -------------------------------------------------------------
+   Every attempt, with its odds and how it ended — the numbers a player could
+   not otherwise see after the fact. In global.flags so it is saved; the last
+   twenty only, so it cannot grow a save without limit. Refusals (no pill, not
+   enough insight) are not attempts and are not logged.
+   -------------------------------------------------------------------------- */
+
+var MOD_BTHIST_MAX = 20;
+
+function MOD_logBreakthrough(entry, outcome) {
+  try {
+    if (!Array.isArray(global.flags.mod_bthist)) global.flags.mod_bthist = [];
+    entry.outcome = outcome;
+    global.flags.mod_bthist.push(entry);
+    while (global.flags.mod_bthist.length > MOD_BTHIST_MAX) global.flags.mod_bthist.shift();
+  } catch (e) { /* a log must never break the attempt */ }
+}
+
+function MOD_breakthroughHistory() {
+  return Array.isArray(global.flags.mod_bthist) ? global.flags.mod_bthist.slice() : [];
+}
+
+var MOD_BTHIST_WORDS = {
+  success: 'broke through', failed: 'failed, sheltered', deviated: 'failed — Qi Deviation',
+  tribulation: 'fell to the tribulation'
+};
 
 /* --- the layer bonus, and what deviation takes back ------------------------
    Its own wrapper rather than an edit to section 28's, because these are this
@@ -10980,7 +11245,7 @@ function modRoad() {
     '  Insight          ' + MOD_insight() +
       (next ? '  (' + MOD_insightNeed(next.n) + ' to reach ' + next.name + ')' : ''),
     '  Consolidation    ' + Math.round(MOD_consolidation() * 100) + '%' +
-      '  (' + (Number(global.flags.mod_seclu) || 0) + 's of ' + MOD_CULT.secludeFull + ')',
+      '  (' + (Number(global.flags.mod_seclu) || 0) + 's of ' + MOD_secludeFull() + ')',
     '  Qi Deviation     ' + (MOD_deviated()
       ? 'YES — ' + MOD_deviationLeft() + ' in-game minutes left' : 'no'),
     ''
@@ -10999,7 +11264,7 @@ function modRoad() {
     lines.push('  pill       ' + item['mod_bp' + next.n].name);
     lines.push('  insight    ' + MOD_insight() + ' of ' + MOD_insightNeed(next.n));
     lines.push('  odds       ' + Math.round(base * 100) + '% now, ' +
-      Math.round(full * 100) + '% after a full ' + MOD_CULT.secludeFull +
+      Math.round(full * 100) + '% after a full ' + MOD_secludeFull() +
       's of Closed Door Training');
     if (next.n >= MOD_CULT.tribFrom) {
       lines.push('  and then   Heavenly Tribulation — ' +
@@ -11007,13 +11272,21 @@ function modRoad() {
         Math.round(MOD_tribulationCost(next.n) * 100) + '% of your max HP');
     }
     lines.push('');
-    lines.push('Failing in the open costs you the pill and ' + MOD_CULT.devMinutes +
+    lines.push('Failing in the open costs you the pill and ' + MOD_devMinutes() +
       ' in-game minutes of Qi Deviation.');
     lines.push('Failing from inside seclusion costs you the pill.');
   }
 
+  var hist = MOD_breakthroughHistory().slice(-5);
+  if (hist.length) {
+    lines.push('', 'Last attempts:');
+    hist.forEach(function (e) {
+      lines.push('  ' + ((MOD_REALMS[e.to] || {}).name || '?') + ' at ' + e.odds + '% ' +
+        (e.sheltered ? 'in seclusion' : 'in the open') + ' — ' + (MOD_BTHIST_WORDS[e.outcome] || e.outcome));
+    });
+  }
   lines.push('');
-  lines.push('Insight comes from meditating (Circulate Qi, seclusion), from a kill ' +
+  lines.push('Insight comes from meditating at a wall (Circulate Qi, seclusion), from a kill ' +
     'made under ' + Math.round(MOD_CULT.brinkFrac * 100) + '% health, and from ' +
     'the first time you enter an area.');
 
@@ -12019,8 +12292,9 @@ printDamageNumber = function (ddmg) {
     var lab = addElement(row, 'div', null, 'opt_t');
     lab.innerHTML = 'Number format';
     var sel = addElement(row, 'select', null, 'opt_v mod_optn');
-    sel.style.cssText = 'background:transparent;color:inherit;border:1px solid #46a;' +
+    sel.style.cssText = 'background-color:transparent;color:inherit;border:1px solid #46a;' +
                         'font-family:inherit;';
+    MOD_styleSelect(sel);
     MOD_NUM_MODES.forEach(function (m) {
       var o = document.createElement('option');
       o.value = m[0]; o.textContent = m[1];
@@ -12037,6 +12311,41 @@ printDamageNumber = function (ddmg) {
     } catch (e) {}
     MOD_SETTINGS.inputs.push({ el: sel, get: function () { return MOD_NUM.mode; } });
   } catch (e) { console.warn('[mod] number format row failed: ' + e.message); }
+})();
+
+/* --- shop prices ------------------------------------------------------------
+   The game draws a stock line as `name <small>38000●</small> x2`, once through
+   chs() and again, after every purchase, by writing that line's innerHTML from
+   inside the shop's own closures — which cannot be wrapped. The base game's own
+   prices never pass 9,999 (median 31, max 690), so none of them change; it is
+   the mod's stock that prints raw — breakthrough pills to 38,000 at the
+   Herbalist, pills to seven million in the Pill Tower.
+
+   So one observer on the choices panel reformats exactly one thing: a number of
+   five or more digits directly followed by the coin mark. It skips in `game`
+   mode, and it settles after one pass — once formatted, nothing it matches is
+   left for its own change to trigger on.
+   -------------------------------------------------------------------------- */
+
+var MOD_PRICE_RE = /(\d{5,})●/g;
+
+function MOD_formatPrices(root) {
+  if (MOD_NUM.mode === 'game' || !root) return 0;
+  var n = 0, walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), node;
+  while ((node = walker.nextNode())) {
+    var t = node.data;
+    if (t.indexOf('●') < 0 || !/\d{5,}●/.test(t)) continue;
+    node.data = t.replace(MOD_PRICE_RE, function (m, d) { n++; return MOD_fmtNum(Number(d)) + '●'; });
+  }
+  return n;
+}
+
+(function () {
+  try {
+    if (!dom.ctr_2 || typeof MutationObserver === 'undefined') return;
+    new MutationObserver(function () { MOD_formatPrices(dom.ctr_2); })
+      .observe(dom.ctr_2, { childList: true, subtree: true, characterData: true });
+  } catch (e) { /* prices print raw; nothing else is affected */ }
 })();
 
 MOD_refreshNumbers();
@@ -12323,7 +12632,10 @@ function MOD_hudSpan() {
   if (MOD_HUD.span) return MOD_HUD.span;
   var sp = document.createElement('span');
   sp.addEventListener('click', function () { if (MOD_atBottleneck()) MOD_hudBreakthrough(); });
-  try { addDesc(sp, null, 2, 'Cultivation', MOD_hudTooltip); } catch (e) {}
+  /* The sixth argument is what makes addDesc CALL the text on each hover:
+     `f===true?(dsc)():dsc`. Without it the game printed the function's own
+     source code in the tooltip. */
+  try { addDesc(sp, null, 2, 'Cultivation', MOD_hudTooltip, true); } catch (e) {}
   MOD_HUD.span = sp;
   return sp;
 }
@@ -12409,7 +12721,7 @@ function MOD_rarityControls() {
   var sort = document.createElement('div');
   sort.innerHTML = 'Sort by rarity' + (MOD_UI.sort === 'rarity' ? (MOD_UI.sortDesc ? ' ▲' : ' ▼') : '');
   sort.style.cssText = 'cursor:pointer;border:1px solid #46a;padding:0 6px;border-radius:2px;' +
-                       'color:#cfe;user-select:none;';
+                       'color:#cfe;-webkit-user-select:none;user-select:none;';
   sort.addEventListener('mouseenter', function () { sort.style.background = '#0b1040'; });
   sort.addEventListener('mouseleave', function () { sort.style.background = 'transparent'; });
   sort.addEventListener('click', function () {
@@ -12424,8 +12736,9 @@ function MOD_rarityControls() {
   lab.style.cssText = 'display:flex;align-items:center;gap:4px;';
   lab.appendChild(document.createTextNode('Show'));
   var sel = document.createElement('select');
-  sel.style.cssText = 'background:#050730;color:inherit;border:1px solid #46a;font-family:inherit;' +
+  sel.style.cssText = 'background-color:#050730;color:inherit;border:1px solid #46a;font-family:inherit;' +
                       'font-size:inherit;';
+  MOD_styleSelect(sel);
   MOD_SKILL_RAR.forEach(function (name, i) {
     var o = document.createElement('option');
     o.value = String(i + 1);
@@ -12642,6 +12955,21 @@ MOD_wikiPage('next', 'What next', function () {
   h += '</tbody></table>' +
     '<p class="note">Every line calls the same check the game gates on, so it cannot say a ' +
     'door is open when the door disagrees.</p>';
+
+  var hist = MOD_breakthroughHistory().slice(-10).reverse();
+  if (hist.length) {
+    h += '<h2>Breakthrough history</h2><p>Your last ' + hist.length + ' attempts, newest first.</p>' +
+      '<table class="wk-tbl"><thead><tr><th>Day</th><th>Realm</th><th>Chance</th>' +
+      '<th>Where</th><th>Outcome</th></tr></thead><tbody>';
+    hist.forEach(function (e) {
+      var r = MOD_REALMS[e.to];
+      h += '<tr class="wk-e' + (e.outcome === 'success' ? ' done' : '') + '"><td class="num">' +
+        Math.floor((e.t || 0) / 1440) + '</td><td>' + MOD_WIKI.safe(r ? r.name : '?') +
+        '</td><td class="num">' + e.odds + '%</td><td>' + (e.sheltered ? 'in seclusion' : 'in the open') +
+        '</td><td>' + (MOD_BTHIST_WORDS[e.outcome] || e.outcome) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
   return h;
 });
 
@@ -12721,6 +13049,56 @@ function MOD_restoreBackup(n) {
   return true;
 }
 
+/* A backup as a file, so a save survives the browser's storage being cleared —
+   which takes the backups with it, since they live in the same place. */
+function MOD_downloadBackup(n) {
+  try {
+    var rec = MOD_backupRead(n);
+    if (!rec) return false;
+    var a = document.createElement('a');
+    var day = new Date(rec.t).toISOString().slice(0, 10);
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(rec)], { type: 'application/json' }));
+    a.download = 'proto23-backup-' + day + '-v' + (rec.ver || MOD.version) + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    return true;
+  } catch (e) { console.warn('[mod] download failed: ' + e.message); return false; }
+}
+
+/* A downloaded backup back into the list, from where it restores like any
+   other. Checked before it is stored: it must be one of ours and hold a save. */
+function MOD_loadBackupText(text) {
+  var rec;
+  try { rec = JSON.parse(text); } catch (e) { rec = null; }
+  if (!rec || rec.v !== 1 || !(rec.live || (rec.slots && Object.keys(rec.slots).length))) {
+    if (typeof msg === 'function') msg('That file is not a proto23 backup', 'red');
+    return 0;
+  }
+  rec.reason = 'from a file (' + (rec.reason || 'backup') + ')';
+  var n = MOD_putBackup(rec);
+  if (typeof msg === 'function') msg(n ? 'Backup loaded — restore it from the saves panel' : 'No room for it', n ? 'lime' : 'red');
+  try { MOD_renderSlots(); } catch (e) {}
+  return n;
+}
+
+function MOD_pickBackupFile() {
+  var inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.id = 'mod_backup_file';
+  inp.style.display = 'none';
+  inp.addEventListener('change', function () {
+    var f = inp.files && inp.files[0];
+    if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () { MOD_loadBackupText(String(rd.result)); };
+    rd.readAsText(f);
+    setTimeout(function () { if (inp.parentNode) inp.parentNode.removeChild(inp); }, 0);
+  });
+  document.body.appendChild(inp);
+  inp.click();
+  return inp;
+}
+
 /* By hand: save the current slot first, so the backup holds what is on screen. */
 function MOD_backupNow() {
   MOD_parkCurrent();
@@ -12742,7 +13120,7 @@ MOD_renderSlots = function () {
     var head = addElement(p, 'div');
     head.style.cssText = 'padding:6px 4px 3px;font-size:.95em;border-top:2px solid #999;margin-top:4px;';
     head.innerHTML = '<b>Backups</b> &nbsp;<span style="opacity:.7">made automatically before ' +
-      'a new version of the mod loads. Restoring puts every slot back.</span>';
+      'a new version of the mod loads, and once a day. Restoring puts every slot back.</span>';
     var list = MOD_backupList();
     if (!list.length) {
       var none = addElement(p, 'div');
@@ -12761,9 +13139,13 @@ MOD_renderSlots = function () {
       MOD_slotButton(acts, 'restore', 'Put every save slot back to this backup', function () {
         MOD_restoreBackup(b.n);
       });
+      MOD_slotButton(acts, 'download', 'Save this backup as a file', function () {
+        MOD_downloadBackup(b.n);
+      });
     });
     var foot = addElement(p, 'div');
     foot.style.cssText = 'padding:4px;text-align:right;';
+    MOD_slotButton(foot, 'load a file', 'Add a downloaded backup to this list', function () { MOD_pickBackupFile(); });
     MOD_slotButton(foot, 'back up now', 'Copy every save slot into a backup', function () { MOD_backupNow(); });
   } catch (e) { /* the slots are drawn; only the backups are missing */ }
   return r;
@@ -12777,12 +13159,14 @@ function modBackups() {
     lines.push('  ' + b.n + '  ' + b.rec.at + '  ' + MOD_backupWho(b.rec) + '  — ' + b.rec.reason +
       '  (' + Math.round(JSON.stringify(b.rec).length / 1024) + ' KB)');
   });
-  lines.push('', 'modBackupNow() to make one, modRestoreBackup(n) to put every slot back.');
+  lines.push('', 'modBackupNow() to make one, modRestoreBackup(n) to put every slot back,',
+             'modDownloadBackup(n) to save one as a file.');
   var out = lines.join('\n');
   console.log(out);
   return out;
 }
 function modBackupNow() { return MOD_backupNow(); }
+function modDownloadBackup(n) { return MOD_downloadBackup(n); }
 function modRestoreBackup(n) { return MOD_restoreBackup(n); }
 
 
@@ -12797,7 +13181,8 @@ function modRestoreBackup(n) { return MOD_restoreBackup(n); }
        Mod before 4.2  50 x 1.106^level exactly, skill exp 2x, 15% coin drop
        Custom          shown when you have changed one of those boxes yourself
 
-   Fights are the same in both: the enemy model never changed between them.
+   Since v4.6 each preset also sets Fights (section 47): Original leaves the
+   author's areas as he wrote them, Mod before 4.2 scales them as it always did.
 
    The skill exp and coin boxes already persist on their own keys, so choosing a
    preset simply sets them. The curve had no persistence, so the chosen preset is
@@ -12808,8 +13193,8 @@ function modRestoreBackup(n) { return MOD_restoreBackup(n); }
 var MOD_PACING = {
   key: 'p23_mod_pacing',
   presets: {
-    original: { label: 'Original',       vanillaTo: 10, fixedRatio: 0,     xp: 1, coin: 0 },
-    fast:     { label: 'Mod before 4.2', vanillaTo: 0,  fixedRatio: 1.106, xp: 2, coin: 0.15 }
+    original: { label: 'Original',       vanillaTo: 10, fixedRatio: 0,     xp: 1, coin: 0,    fights: 'original' },
+    fast:     { label: 'Mod before 4.2', vanillaTo: 0,  fixedRatio: 1.106, xp: 2, coin: 0.15, fights: 'scaled' }
   }
 };
 
@@ -12818,7 +13203,8 @@ function getPacing() {
   for (var k in P) {
     var p = P[k];
     if (MOD_XP.vanillaTo === p.vanillaTo && (MOD_XP.fixedRatio || 0) === p.fixedRatio &&
-        MOD.skill_xp_mult === p.xp && MOD_MONEY.chance === p.coin) return k;
+        MOD.skill_xp_mult === p.xp && MOD_MONEY.chance === p.coin &&
+        MOD_FIGHTS.mode === p.fights) return k;
   }
   return 'custom';
 }
@@ -12839,6 +13225,7 @@ function setPacing(name) {
   MOD_applyPacingCurve(p);
   setSkillXp(p.xp);
   setMoneyDrops(p.coin);
+  if (typeof setFights === 'function') setFights(p.fights);
   try { localStorage.setItem(MOD_PACING.key, name); } catch (e) {}
   if (typeof msg === 'function') msg('Pacing: ' + p.label, 'gold');
   return name;
@@ -12850,10 +13237,10 @@ function modPacing() {
   Object.keys(MOD_PACING.presets).forEach(function (k) {
     var p = MOD_PACING.presets[k];
     lines.push('  ' + (k === now ? '-> ' : '   ') + (k + '        ').slice(0, 9) + p.label +
-      ' — skill exp ' + p.xp + 'x, coin drop ' + Math.round(p.coin * 100) + '%, ' +
+      ' — skill exp ' + p.xp + 'x, coin drop ' + Math.round(p.coin * 100) + '%, fights ' + p.fights + ', ' +
       (p.fixedRatio ? '50 x ' + p.fixedRatio + '^level' : "the author's cost below level " + p.vanillaTo));
   });
-  lines.push('', 'Fights are the same in both. setPacing(name) to switch.');
+  lines.push('', 'setPacing(name) to switch; setFights() changes fights on their own.');
   var out = lines.join('\n');
   console.log(out);
   return out;
@@ -12875,7 +13262,8 @@ function modPacing() {
     var lab = addElement(row, 'div', null, 'opt_t');
     lab.innerHTML = 'Pacing';
     var sel = addElement(row, 'select', null, 'opt_v mod_optn');
-    sel.style.cssText = 'background:transparent;color:inherit;border:1px solid #46a;font-family:inherit;';
+    sel.style.cssText = 'background-color:transparent;color:inherit;border:1px solid #46a;font-family:inherit;';
+    MOD_styleSelect(sel);
     [['original', 'Original'], ['fast', 'Mod before 4.2'], ['custom', 'Custom']].forEach(function (o) {
       var op = document.createElement('option');
       op.value = o[0]; op.textContent = o[1]; op.style.background = '#050730';
@@ -12888,14 +13276,289 @@ function modPacing() {
       addDesc(row, null, 2, 'Pacing',
         'How fast skills level and whether enemies drop coin.<br>' +
         '<b>Original</b>: the author\'s cost for skill levels below 10, skill exp 1x,<br>' +
-        'no coin drop — the default since v4.2.<br>' +
-        '<b>Mod before 4.2</b>: skills much faster early, skill exp 2x, 15% coin drop.<br>' +
-        'Level 110 is the same distance away in both, and fights are the same.<br>' +
+        'no coin drop, his fights in his areas — the default.<br>' +
+        '<b>Mod before 4.2</b>: skills much faster early, skill exp 2x, 15% coin drop,<br>' +
+        'every fight scaled to you.<br>' +
+        'Level 110 is the same distance away in both.<br>' +
         '<b>Custom</b> means you have changed one of the boxes yourself.');
     } catch (e) {}
     MOD_SETTINGS.inputs.push({ el: sel, get: getPacing });
   } catch (e) { console.warn('[mod] pacing row failed: ' + e.message); }
 })();
+
+
+/* ===========================================================================
+   46. THREE BUGS IN THE AUTHOR'S COMBAT AND DEATH CODE
+   ---------------------------------------------------------------------------
+   All three were found and written down long before they were fixed. Each is a
+   single line inside a long function, so each is corrected from outside it —
+   wrapping, never editing — and each is corrected where the enemy model's probe
+   will see it too (see Luck).
+
+   --- Death: the skill that made dying worse --------------------------------
+
+   On death the game does
+
+       this.sat *= (.55 * (1 - skl.dth.use()))        // use() = level * 0.1
+
+   right after the Death skill has gained exp. Its description says it "reduces
+   energy loss on death"; the formula does the opposite. At level 0 you keep
+   55% of your energy, at level 10 you keep none, and from level 11 your energy
+   goes NEGATIVE. The mod's own tooltip has said so since v1.
+
+   Replaced with keep = 1 - 0.45 / (1 + use): 55% at level 0, exactly as before,
+   rising to 78% at 10 and 96% at 110 — always improving, never reaching 100%.
+   The death itself is detected by `global.stat.deadt` going up, because the
+   "You avoid death..." branch runs the same function without dying.
+
+   --- Shield Mastery: defence that became damage ----------------------------
+
+   The last bracket of the enemy's damage line multiplies your whole defence by
+
+       (100 - (shieldAff + targetCls * ta) * 5 * (1 + shdc / 20)) / 100
+
+   and at Shield Mastery 110 that `(1 + shdc/20)` is 6.5. With ordinary
+   affinities the bracket goes below zero, the defence term flips sign, and your
+   defence is ADDED to the damage you take. Every other bracket in that line is
+   `100 + ...`, so this may be a sign typo — but that is a guess about intent, so
+   the fix is the conservative one: the bracket is floored at zero. Defence can
+   fall to nothing; it can no longer hurt you.
+
+   Done by holding `skl.shdc.lvl`, for the length of one call, at the level
+   where the bracket is exactly zero. With the bracket at zero the whole defence
+   product is zero, so the shield-strength term that also reads the level does
+   not matter at that point.
+
+   --- Luck: a multiplier that never reached the roll ------------------------
+
+   dmg_calc declares `let b = you.luck/25 + 1` (physical) and `/20 + 1` (magic)
+   inside the player's own block, so the crit line — outside it — reads the
+   outer `b`, which is always 1. Luck has never touched damage.
+
+   The author's range is small: luck moves by 1-4 on a handful of events, so his
+   multiplier tops out around x1.4. This mod's perks grant luck on every social
+   skill, and at cap 110 a character holds 132-223 of it — which through his
+   formula is a 100% crit chance on every swing. So his formula is applied
+   exactly, but luck may only raise crit chance up to MOD_LUCK_CAP (50%). In his
+   range the cap never binds; at the top it keeps a crit a roll, not a certainty.
+
+   It goes in by rebinding MOD_dmg_calc_original, not by wrapping dmg_calc.
+   Section 8's probe and incoming-damage wrapper both call through that variable,
+   so enemies are sized against the player WITH luck — a wrapper outside it would
+   have let the player out-damage every target. The bonus rides on
+   `you.mods.crflt` for the one call, restored to its exact prior value
+   afterwards: `crflt` is saved, and add-then-subtract would leave float residue
+   on it a million swings later.
+   =========================================================================== */
+
+var MOD_LUCK_CAP = 0.5;
+
+function MOD_deathKeep(use) {
+  var u = Math.max(Number(use) || 0, 0);
+  return 1 - 0.45 / (1 + u);
+}
+
+/* How much the author's luck multiplier adds to the crit chance, given the
+   part of the chance it multiplies and the total without it. */
+function MOD_luckCritBonus(multiplied, total, stt) {
+  try {
+    var luck = MOD_fin(you.luck, 0);
+    if (!(luck > 0) || !(multiplied > 0)) return 0;
+    var b = luck / (stt === 2 ? 20 : 25) + 1;
+    var want = total + multiplied * (b - 1);
+    var ceiling = Math.max(MOD_LUCK_CAP, total);        // never lower than without luck
+    return Math.max(Math.min(want, ceiling) - total, 0);
+  } catch (e) { return 0; }
+}
+
+/* the level at which the shield bracket is exactly zero, or null if it is not
+   negative for this hit */
+function MOD_shieldFloorLevel(att) {
+  try {
+    var ta = effect.tarnish.active === true ? .7 : (effect.prostasia.active === true ? 1.3 : 1);
+    var A = MOD_fin(you.eqp[1] && you.eqp[1].aff ? you.eqp[1].aff[att.atype] : 0, 0);
+    var C = MOD_fin(global.target && global.target.cls ? global.target.cls[att.ctype] : 0, 0);
+    var S = (A + C * ta) * 5;
+    if (!(S > 0)) return null;
+    var L = skl.shdc.lvl;
+    if (100 - S * (1 + L / 20) >= 0) return null;
+    return 20 * (100 / S - 1);
+  } catch (e) { return null; }
+}
+
+var MOD_dmg_calc_before_fixes = MOD_dmg_calc_original;
+
+MOD_dmg_calc_original = function (att, def, atk) {
+  var stt = atk && atk.stt;
+  var isYou = att && typeof you !== 'undefined' && att.id === you.id;
+  var hitsYou = def && typeof you !== 'undefined' && def.id === you.id && !isYou;
+
+  var keepCrflt, keepShdc, floorL = null;
+  try {
+    if (isYou && (stt === 1 || stt === 2)) {
+      var sat = you.satmax > 0 ? you.sat / you.satmax : 1;
+      var k = 2 - (sat + MOD_fin(you.mods.sbonus, 0)) * 2;
+      var crt = MOD_fin(att.crt, 0);
+      var c = skl.seye ? MOD_fin(skl.seye.use(), 0) : 0;
+      var total = (crt * k + crt) + c + MOD_fin(you.mods.crflt, 0);
+      var bonus = MOD_luckCritBonus(crt * k + crt, total, stt);
+      if (bonus > 0) { keepCrflt = you.mods.crflt; you.mods.crflt = keepCrflt + bonus; }
+    }
+    if (hitsYou && (stt === 1 || stt === 2) && skl.shdc) {
+      floorL = MOD_shieldFloorLevel(att);
+      if (floorL !== null) { keepShdc = skl.shdc.lvl; skl.shdc.lvl = floorL; }
+    }
+  } catch (e) { /* set up nothing rather than something half-set */ }
+
+  try { return MOD_dmg_calc_before_fixes(att, def, atk); }
+  finally {
+    if (keepCrflt !== undefined) you.mods.crflt = keepCrflt;
+    if (keepShdc !== undefined) skl.shdc.lvl = keepShdc;
+  }
+};
+
+/* Death. `you` is built once at startup and load() restores into it, so
+   wrapping the instance's own method survives a load. */
+(function () {
+  try {
+    var before = you.onDeath;
+    you.onDeath = function () {
+      var sat = this.sat, deaths = global.stat.deadt;
+      var r = before.apply(this, arguments);
+      try {
+        if (global.stat.deadt > deaths && sat > 0) {
+          this.sat = sat * MOD_deathKeep(skl.dth.use());
+          try { dom.d5_3_1.update(); } catch (e) {}
+        }
+      } catch (e) { /* the death has happened; only the energy is off */ }
+      return r;
+    };
+  } catch (e) { console.warn('[mod] death fix not installed: ' + e.message); }
+})();
+
+function modBaseFixes() {
+  var out = [
+    'Death: energy kept on death at your level ' + skl.dth.lvl + ': ' +
+      Math.round(MOD_deathKeep(skl.dth.use()) * 100) + '% (the original formula: ' +
+      Math.round(0.55 * (1 - skl.dth.use()) * 100) + '%)',
+    'Shield Mastery ' + skl.shdc.lvl + ': the defence bracket is floored at zero',
+    'Luck ' + you.luck + ': crit chance ' + Math.round(MOD_critRate(you) * 100) + '% with it (cap ' +
+      Math.round(MOD_LUCK_CAP * 100) + '% from luck)'
+  ].join('\n');
+  console.log(out);
+  return out;
+}
+
+
+/* ===========================================================================
+   47. FIGHTS AS THE AUTHOR WROTE THEM
+   ---------------------------------------------------------------------------
+   Section 8 exists to remove out-levelling: every spawn is solved against the
+   player so a fight takes ~8 swings to win and ~20 to lose, at any level. The
+   original has no such model. Its creatures are fixed, and at equal
+   progression its opening route is nearly free — `tests/vanilla.mjs` measures
+   a median of 1.3 swings to kill and ~18,700 to die. That is how he designed
+   it: you get stronger and the forest stops being dangerous.
+
+   Since v4.6 that is the default. With Fights on Original:
+
+     * a creature in one of the author's own areas is exactly the one mon_gen
+       and lvlup made — no HP, accuracy or damage scaling, his exp;
+     * his areas use his level ranges, not section 8's x1.4;
+     * Raw Meat drops at his 6%, because the 18% of section 36 only existed to
+       make up for the scaled kill times;
+     * the mod's own areas — the three past the golem arena and the ten rank
+       duels — are scaled exactly as before. There is no original of them to
+       match, and the ranks ladder depends on the model.
+
+   Scaled is section 8 everywhere, as every version before 4.6 played. The
+   "Mod before 4.2" pacing preset selects it.
+
+   The setting lives in localStorage, like the other settings boxes, and
+   applies from the next spawn. What the Original setting guarantees is
+   asserted by `tests/fights.mjs`: every spawn in the author's areas matches
+   the author's page stat for stat, and every area is winnable at the point
+   in the story you first reach it.
+   =========================================================================== */
+
+function MOD_applyMeatDrops() {
+  try {
+    MOD_MEAT_DROPS.forEach(function (d) {
+      var mine = Math.max(d._modChance0 || 0, MOD_MEAT.chance);
+      d.chance = MOD_FIGHTS.mode === 'original' ? d._modChance0 : mine;
+    });
+  } catch (e) { /* never break a drop table */ }
+}
+
+function getFights() { return MOD_FIGHTS.mode; }
+
+function setFights(mode) {
+  if (mode !== 'original' && mode !== 'scaled') {
+    console.warn("[mod] setFights: 'original' or 'scaled'");
+    return MOD_FIGHTS.mode;
+  }
+  MOD_FIGHTS.mode = mode;
+  MOD_applyAreaLevels();
+  MOD_applyMeatDrops();
+  try { localStorage.setItem(MOD_FIGHTS.key, mode); } catch (e) {}
+  if (typeof msg === 'function') {
+    msg('Fights: ' + (mode === 'original' ? "the author's, in his areas" : 'scaled to you everywhere') +
+        ' — from the next spawn', 'gold');
+  }
+  return mode;
+}
+
+function modFights() {
+  var orig = MOD_FIGHTS.mode === 'original';
+  var own = Object.keys(area).filter(function (k) {
+    return area[k] && area[k].pop && area[k].pop.length && !area[k]._modAuthor;
+  }).length;
+  var lines = [
+    'Fights: ' + (orig ? 'Original' : 'Scaled'),
+    '',
+    orig ? "  The author's areas are his: his creatures, his level ranges, his 6% Raw Meat."
+         : "  Every fight is solved against you: ~" + MOD_ENEMY.kill + ' swings to win, ~' + MOD_ENEMY.die + ' to lose.',
+    '  The mod\'s own ' + own + ' fight areas are always scaled.',
+    '',
+    "setFights('original') or setFights('scaled'). modBalance() for the scaled model."
+  ];
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+MOD_applyMeatDrops();
+
+/* the settings row */
+(function () {
+  try {
+    var row = addElement(dom.ctrwin4, 'div', null, 'opt_c');
+    var lab = addElement(row, 'div', null, 'opt_t');
+    lab.innerHTML = 'Fights';
+    var sel = addElement(row, 'select', null, 'opt_v mod_optn');
+    sel.style.cssText = 'background-color:transparent;color:inherit;border:1px solid #46a;font-family:inherit;';
+    MOD_styleSelect(sel);
+    [['original', 'Original'], ['scaled', 'Scaled']].forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o[0]; op.textContent = o[1]; op.style.background = '#050730';
+      sel.appendChild(op);
+    });
+    sel.value = getFights();
+    sel.addEventListener('change', function () { setFights(sel.value); sel.value = getFights(); });
+    try {
+      addDesc(row, null, 2, 'Fights',
+        '<b>Original</b>: the author\'s areas are exactly as he wrote them. You<br>' +
+        'out-grow them, as you do in his game — the default.<br>' +
+        '<b>Scaled</b>: every fight is sized to you, about 8 swings to win<br>' +
+        'and 20 to lose, wherever you are.<br>' +
+        'The three areas past the golem arena and the rank duels are<br>' +
+        'always scaled. Applies from the next spawn.');
+    } catch (e) {}
+    MOD_SETTINGS.inputs.push({ el: sel, get: getFights });
+  } catch (e) { console.warn('[mod] fights row failed: ' + e.message); }
+})();
+
+console.log('[mod] fights: ' + MOD_FIGHTS.mode + '. modFights() for details.');
 
 
 /* ===========================================================================

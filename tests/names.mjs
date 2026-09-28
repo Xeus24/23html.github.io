@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // Two things the mod can break quietly:
 //
@@ -16,7 +16,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/names.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
@@ -126,7 +126,11 @@ console.log('\n--- the hunter\'s quest is completable, in every season');
 // quest.hnt1 wants ten Raw Meat HELD AT ONCE, and it rots, so the stock
 // converges rather than accumulating. Read the requirement and the rot row off
 // the game rather than restating either.
-const meat = await p.evaluate(() => {
+// Both fight settings (section 47): on Scaled the drop is raised to make up
+// for the mod's kill times; on Original the fights and the drop are his.
+for (const mode of ['scaled', 'original']) {
+const meat = await p.evaluate((mode) => {
+  setFights(mode);
   const need = (() => {
     const src = String(quest.hnt1.info || quest.hnt1.desc || '');
     const m = src.match(/(\d+)/);
@@ -149,26 +153,34 @@ const meat = await p.evaluate(() => {
       summer: MOD_meatSteadyState(share, chance, 0.5),
       winter: MOD_meatSteadyState(share, chance, 2.5) });
   }
-  return { need, rows, rot: item.rwmt1.rot, killSec: MOD_MEAT.killSec,
+  return { need, rows, rot: item.rwmt1.rot,
+           killSec: mode === 'original' ? MOD_MEAT.killSecOriginal : MOD_MEAT.killSec,
            chance: MOD_MEAT.chance,
            // the sources are found by scanning, not named
            carriers: Object.keys(creature)
              .filter(k => (creature[k].drop || []).some(d => d.item === item.rwmt1))
-             .map(k => ({ k, c: creature[k].drop.find(d => d.item === item.rwmt1).chance })) };
-});
-console.log(`     ${meat.need} needed at once; rot ${JSON.stringify(meat.rot)}; ` +
-  `${meat.killSec}s a kill assumed; drop ${Math.round(meat.chance * 100)}%`);
+             .map(k => { const d = creature[k].drop.find(d => d.item === item.rwmt1);
+               return { k, c: d.chance, author: d._modChance0 }; }) };
+}, mode);
+console.log(`     Fights: ${mode}. ${meat.need} needed at once; rot ${JSON.stringify(meat.rot)}; ` +
+  `${meat.killSec}s a kill assumed; drop ${meat.carriers.map(c => Math.round(c.c * 100) + '%').join('/')}`);
 meat.rows.forEach(r => console.log(
   `     ${r.name.padEnd(30)} ${(r.share * 100).toFixed(0).padStart(3)}% meat spawns  ` +
   `normal ${Math.round(r.normal).toString().padStart(4)}  summer ${Math.round(r.summer).toString().padStart(4)}  winter ${Math.round(r.winter).toString().padStart(4)}`));
-check(meat.rows.length > 0, `${meat.rows.length} areas can yield Raw Meat`);
+check(meat.rows.length > 0, `[${mode}] ${meat.rows.length} areas can yield Raw Meat`);
 const worstArea = meat.rows.reduce((a, r) => r.summer < a.summer ? r : a);
 check(worstArea.summer >= meat.need,
-  `the worst case — ${worstArea.name}, in summer — holds ${Math.round(worstArea.summer)} against ${meat.need} needed`);
+  `[${mode}] the worst case — ${worstArea.name}, in summer — holds ${Math.round(worstArea.summer)} against ${meat.need} needed`);
 check(meat.rows.every(r => r.normal >= meat.need && r.summer >= meat.need && r.winter >= meat.need),
-  'every meat area clears the requirement in every season');
-check(meat.carriers.length >= 2 && meat.carriers.every(c => c.c >= meat.chance),
-  `every creature that drops it was raised together (${meat.carriers.map(c => c.k).join(', ')})`);
+  `[${mode}] every meat area clears the requirement in every season`);
+if (mode === 'scaled') {
+  check(meat.carriers.length >= 2 && meat.carriers.every(c => c.c >= meat.chance),
+    `[${mode}] every creature that drops it was raised together (${meat.carriers.map(c => c.k).join(', ')})`);
+} else {
+  check(meat.carriers.length >= 2 && meat.carriers.every(c => c.c === c.author),
+    `[${mode}] every creature that drops it is back at the author's chance (${meat.carriers.map(c => c.k).join(', ')})`);
+}
+}
 
 console.log('\n--- and the raise did not turn meat into an income');
 const income = await p.evaluate(() => {

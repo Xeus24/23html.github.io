@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // The mod against the original game, measured.
 //
@@ -15,7 +15,8 @@ import { chromium } from 'playwright';
 //   * skill costs below vanillaTo  identical to the author's own expnext --
 //                                  read from HIS page, not re-derived here
 //   * skill multiplier, coin drop  the original's defaults
-//   * fights on the opening route  MEASURED, NOT MATCHED. The original has no
+//   * fights, Original (default)   MATCHED, spawn for spawn: tests/fights.mjs
+//   * fights, Scaled               MEASURED, NOT MATCHED. The original has no
 //                                  fixed pacing: its creatures are fixed and
 //                                  you out-level them, so at equal progression
 //                                  its forest takes one or two swings and
@@ -37,7 +38,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/vanilla.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const errs = [];
 async function boot(vanilla) {
   const p = await b.newPage();
@@ -102,7 +103,10 @@ check(dm.xp === 1, `skill exp multiplier 1, as in the original (${dm.xp})`);
 check(dm.coin === 0 && dm.enmondren === dv.enmondren,
   `enemy coin drop off, as in the original (${dm.enmondren} vs ${dv.enmondren})`);
 
-console.log('\n--- fights on the opening route, the original beside the mod');
+console.log('\n--- fights on the opening route, the original beside the mod on Scaled');
+// Fights: Original is the author's spawns exactly, and fights.mjs holds that.
+// What is left to measure here is how far the scaled model sits from him.
+await M.evaluate(() => setFights('scaled'));
 const measure = (p, ROUTE, isMod) => p.evaluate(({ ROUTE, isMod }) => {
   const N = 500;
   const quiet = fn => { const g = giveSkExp, c = global.flags.crti; giveSkExp = function () {};
@@ -203,4 +207,4 @@ console.log('\nerrors:', errs.length ? errs : 'none');
 if (errs.length) fail.push('page errors: ' + JSON.stringify(errs));
 await b.close();
 if (fail.length) { console.error('\nFAIL:\n - ' + fail.join('\n - ')); process.exit(1); }
-console.log('\nPASS — skills and settings match the original; fights differ by design, and the gap is printed above.');
+console.log('\nPASS — skills and settings match the original; Scaled fights differ by design, and the gap is printed above.');

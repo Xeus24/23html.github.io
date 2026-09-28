@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // Three save slots, driven through the real UI and the real save()/load().
 //
@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/saveslots.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const ctx = await b.newContext();
 const p = await ctx.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));

@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 import { summarize, withinBand, ciLine, tCrit95 } from './lib/stats.mjs';
 
 // Does the enemy model deliver the targets it is built to?
@@ -30,11 +30,14 @@ import { summarize, withinBand, ciLine, tCrit95 } from './lib/stats.mjs';
 //   PORT=8080 node tests/targets.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
 await p.waitForTimeout(4500);
+// section 8's model is what this measures, so measure it everywhere: the
+// default (Fights: Original) leaves the author's areas unscaled -- fights.mjs
+await p.evaluate(() => setFights('scaled'));
 
 const fail = [];
 const check = (c, what) => { if (!c) fail.push(what); console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${what}`); };

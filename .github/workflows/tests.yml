@@ -1,0 +1,51 @@
+# Every push and pull request runs the whole suite in a real browser -- Chromium
+# and WebKit (Safari's engine) -- the same ./tests/run.sh as a local `npm test`,
+# so a PR shows green or red.
+#
+# Also checked: mod.js parses, the committed userscript was rebuilt from it, and
+# the author's two files are untouched (his changelog byte for byte, index.html
+# his plus the one script tag) against his repository, fetched read-only.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # WebKit is the engine Safari is built on: it is what caught the skill rows
+    # wrapping under a classic scrollbar, which Chromium alone never showed.
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    name: tests (${{ matrix.browser }})
+    env:
+      BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: |
+          npm ci
+          npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: mod.js parses, userscript current
+        run: npm run check
+
+      - name: The author's files are his
+        run: ./tests/authorfiles.sh
+
+      - name: Test suite
+        run: npm test

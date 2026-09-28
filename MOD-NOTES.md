@@ -1,6 +1,6 @@
 # Proto23 local mod — design record
 
-**Version 4.4.** All mod code lives in `mod.js` — about 12,900 lines in 45
+**Version 4.6.** All mod code lives in `mod.js` — about 13,500 lines in 47
 numbered sections, plus section 0, which must stay first, and a final one that
 must stay last. The only change to the
 game itself is one `<script src="mod.js">` line at the bottom of `index.html`.
@@ -57,6 +57,7 @@ setNumberFormat('short')  modNumbers()  // 'game' | 'short' | 'sci' | 'myriad'
 setFreeActions(true)  getFreeActions()  // run several actions at once
 setXpCurve({vanillaTo: 10})  modXpCurve() // how many of the author's own skill levels to keep
 setPacing('original')  getPacing()  modPacing() // 'original' or 'fast' (the pre-4.2 pacing)
+setFights('original')  getFights()  modFights() // his areas as he wrote them, or 'scaled'
 
 // balance, for measuring
 modBalance()  setEnemyScale({kill: 8, die: 20})  getEnemyScale()  setHpTrack(0.92)
@@ -64,7 +65,8 @@ modBalance()  setEnemyScale({kill: 8, die: 20})  getEnemyScale()  setHpTrack(0.9
 // folding, saves, documents
 modFold(section)  modUnfold(section)
 modSaves()  modSwitchSave(n)  modNewSave(n)  modDeleteSave(n)
-modBackups()  modBackupNow()  modRestoreBackup(n)
+modBackups()  modBackupNow()  modRestoreBackup(n)  modDownloadBackup(n)
+modBaseFixes()   // the three corrections to the author's code, at your levels
 modWiki()  modChangelog()  modGameChangelog()
 modUnlockAll()   // grant every added action now, skipping its requirement
 ```
@@ -88,20 +90,26 @@ the author's game exactly — and runs the same measurements on both.
 - **Story caps** 10 / 15 / 20 / 30 / 40 / 50 / 60 / 75 / 90 / 110, each opened
   by a story beat.
 - A **Pacing** setting puts back the pre-4.2 pacing exactly, for anyone who
-  preferred it: `50 × 1.106^level`, skill exp 2×, a 15% coin drop.
-- **Fights are the one deliberate difference**: see Combat.
+  preferred it: `50 × 1.106^level`, skill exp 2×, a 15% coin drop, scaled fights.
+- **Fights in the author's areas are his**, spawn for spawn, by default (v4.6):
+  see Combat.
 
 ### Combat
 
-- **Every spawn is solved against the player's measured power** — about 8
+- **A Fights setting (v4.6).** On *Original*, the default, every area the author
+  wrote spawns his creatures exactly as his page does — `tests/fights.mjs`
+  compares all 70 — with his level ranges and his 6% Raw Meat, so you out-grow
+  them as in his game. On *Scaled*, and always in the mod's own areas and rank
+  duels, the model below applies.
+- **Scaled: every spawn is solved against the player's measured power** — about 8
   swings to kill and 20 to die, with spread from the area's level band and the
   creature's own shape, and a margin that guarantees `kill < die`. Measured
   through the real `dmg_calc`, stratified on the crit roll, and topped up when a
   sample happens to roll no crit. Across the three matchups measured at 1,000
   spawns each, 98% landed within 4% of their target.
 - That is longer than the original's early game, where you out-level fixed
-  creatures and most forest fights take one swing. The mod's model exists to
-  remove out-levelling; `tests/vanilla.mjs` prints the gap.
+  creatures and most forest fights take one swing. The model exists to remove
+  out-levelling; `tests/vanilla.mjs` prints the gap.
 - **Elemental techniques** proc on your swings once your channels are open.
 
 ### Places
@@ -143,6 +151,9 @@ the author's game exactly — and runs the same measurements on both.
   breakthrough; Qi Deviation for failing in the open; a Heavenly Tribulation
   for the top three realms. Modelled on Wuxiaworld's general glossary of the
   genre's terms.
+- **Each wall is sized to the climb to it** (v4.6): about 5% of the Circulate Qi
+  time it took — 60 insight at realm 3, 1,580 at realm 10 — earned only at the
+  wall, three times faster in seclusion.
 - Every breakthrough pill has a source: the instructor, the Herbalist, the
   dojo's Level Advancement rungs to 110, the Pill Tower.
 - **Your realm is on the rank line**, and at a bottleneck it is the
@@ -163,7 +174,18 @@ the author's game exactly — and runs the same measurements on both.
   each consuming the one below.
 - **Selling** at 25% of value, with key items — anything that is the only way
   to unlock something — protected. The marketplace cannot be locked out.
-- Raw meat drops at 18%, so the hunter's quest is feasible in every season.
+- Raw meat drops at the author's 6% on Original fights and 18% on Scaled, so
+  the hunter's quest is feasible in every season either way.
+- **Every price the ladder requires is checked against income** (v4.6): no more
+  than 10% of the climb it gates, in hours of the best income open at that point
+  with no coin drop. The Pill Tower's top three pills were cut to pass.
+
+### Three corrections to the author's code
+
+- **Death** now reduces energy lost on death, as its text says — it used to
+  take all of it by level 10 and go negative after.
+- **Shield Mastery** can no longer turn your defence into extra damage taken.
+- **Luck** reaches the crit roll, as the author wrote it to, up to 50% from luck.
 
 ### On the screen
 
@@ -173,14 +195,21 @@ the author's game exactly — and runs the same measurements on both.
   opens and reading your save — including a Skill handbook and a What next page.
 - The skill panel groups, collapses, hides maxed skills, and no longer rebuilds
   itself every second.
-- Three save slots, **backed up automatically before a new version loads** —
-  three backups kept, restorable from the saves panel — a labelled changelog
-  button, and settings for skill exp, game speed, coin drops, number format and
-  pacing.
+- Three save slots, **backed up automatically before a new version loads and
+  once a day** — restorable from the saves panel, and downloadable as a file so a
+  save survives clearing the browser — a labelled changelog
+  button, and settings for skill exp, game speed, coin drops, number format,
+  pacing and fights.
+- **A userscript** (v4.6) runs the whole mod on the author's hosted game, with no
+  local copy.
 
 ### Tests
 
-Thirty-three Playwright scripts drive a real browser at a real copy of the game.
+Thirty-eight Playwright scripts drive a real browser at a real copy of the game,
+four at a time, in about a minute and a half — and on GitHub for every push and
+pull request, beside a check that the author's two files are still his.
+The numbers that define the balance are committed in
+`tests/baselines/balance.json`, so any change to them is a diff.
 The broadest, `allareas`, fights every creature in every area at both ends of
 its level band, at ten story tiers, in four skill builds — 3,720 matchups, all
 of which must be winnable. See `tests/README.md`.
@@ -302,6 +331,9 @@ energy at all. The tooltip reports the real computed value and flags it.
 This is almost certainly what the `proto23bugfix` fork was aiming at; it
 rewrote the line as `0.45*(1 + skl.dth.use())`. Not changed here — say the word
 and I'll fix it.
+
+> **Fixed in v4.5**, and worse than this said: from level 11 the multiplier goes
+> below zero and so does your energy. See "Three bugs in the author's code".
 
 ## Naturally discovered skills
 
@@ -2827,6 +2859,10 @@ added later moves with them. Worst case is now 26 against 10 needed, and a kill
 in the first hunting area yields 0.28 coin of meat, so it is not an income
 either. `tests/names.mjs` fails at the old 6% and passes at 18%.
 
+> **Since v4.6** this holds on Fights: Scaled only. On Original, the default,
+> the fights are the author's again and so is his 6%; at his kill times it gives
+> the same 26 in the worst summer. `names.mjs` checks both.
+
 ## Crafting stopped at two stars
 
 The question was whether anything above one star can be crafted. Measured
@@ -3194,11 +3230,13 @@ after milestones, so it is reconciled on the tick against `global.flags.mod_root
 rather than set once. Qi Deviation is timed on `time.minute`, the game's own
 saved clock, so it expires on schedule across reloads.
 
-**Not covered by a dedicated test.** The root, layers, insight, deviation and
-tribulation were verified by hand in the browser. `tests/cultivation.mjs` covers
-the realms themselves, and `tests/polish.mjs` covers breaking through from the
-rank line, but nothing asserts the road's own rules. That is the gap to close
-first if this section is touched again.
+**Tested since v4.5** by `tests/road.mjs`, rule by rule. Until then the root,
+layers, insight, deviation and tribulation had been verified only by hand.
+
+> **Since v4.6** the insight, the fifteen minutes and the half day are sized to
+> each realm's climb instead, and meditation earns insight only at a wall — they
+> were set when realms 3-6 took minutes, and on the matched curve they take days.
+> See "Fights as he wrote them, walls sized to the climb, prices you can pay".
 
 
 ## A realm's body multiplier did nothing (v4.0)
@@ -3325,6 +3363,10 @@ handing the original's player far lower skills for the same xp, and it inverted
 once the curves matched. The test prints the gap and asserts only what must hold
 either way: winnable wherever the original is, and never deadlier than the
 deadliest fight the original lets you win.
+
+> **Since v4.6** they are matched by default: Fights: Original leaves the
+> author's areas as he wrote them, and this gap is the Scaled setting's. See
+> "Fights as he wrote them, walls sized to the climb, prices you can pay".
 
 ### Bugs found on the way
 
@@ -3466,6 +3508,240 @@ The exp and coin boxes already persisted on their own keys, so a preset simply
 sets them. The curve had no persistence, so the chosen preset is stored and its
 curve re-applied at load. Changing a box afterwards reads as **Custom** rather
 than silently claiming a preset that no longer holds.
+
+
+## Fights as he wrote them, walls sized to the climb, prices you can pay (v4.6)
+
+Five things from the list: match the original's fight pacing in his areas,
+re-check the economy with the coin drop off, re-check cultivation pacing on the
+matched curve, run the tests on GitHub, and play the mod on the hosted game.
+The sixth — a faster `allareas` — turned out not to need doing.
+
+### Fights: Original
+
+The mod's enemy model was built to remove out-levelling, and it does. But the
+original's pacing *is* out-levelling: at equal progression his forest takes a
+swing or so a kill and barely fights back. Since 4.2 the mod's defaults are his
+wherever they can be, and fights were the one place left where they were not.
+
+Section 47 adds a setting, and Original is the default. It is two hooks into
+section 8, not a second model:
+
+- `MOD_scaleEnemy` returns at once when the spawn's area is one of his — marked
+  `_modAuthor` on every area that exists before section 8 adds any.
+- `MOD_applyAreaLevels()` swaps each population's level range between his
+  (`_modLv0`) and section 8's ×1.4 (`_modLvS`). The value model reads `_modLvS`
+  either way, so no price moves when the setting does.
+
+Raw Meat goes back to his 6% on Original. The 18% of section 36 was solved
+backwards from the scaled kill time of fifteen seconds; his is under two, so
+five seconds is still conservative, and 6% at five seconds is the same steady
+state as 18% at fifteen — 26 held in the worst summer against ten needed.
+
+The mod's own areas stay scaled. There is no original of the Hollow, the Spire,
+the Vigil or the rank duels to match, and the ladder needs the targets the
+model leaves on a spawn. *Scaled* is section 8 everywhere, as before, and the
+*Mod before 4.2* pacing preset now selects it.
+
+`tests/fights.mjs` holds it against his page, not against a description of it.
+Every one of the 70 spawns in his areas — level range, level, HP, STR, AGL,
+INT, SPD, exp — comes out identical on both pages with `random()` seeded the
+same way. On his route, at the point you first reach each step, every step past
+the tutorial is winnable spawn by spawn, and the median fight is no longer than
+his. He loses Tutorial fight 1 at skill 0, and so does Original: that is his.
+
+Every balance script measures section 8, so each now switches to Scaled first.
+Without that, on the default, `allareas` would be measuring his creatures
+against a capped player and calling it the model.
+
+### The economy with no coin drop
+
+With the author's coin formula on at 15% — the mod's default until 4.2 — the
+top of the game paid about lvl³ a drop, and the Pill Tower was priced for it.
+With it off, `tests/econ.mjs` measures what each stage actually pays: fighting
+each area open there (the real swings a kill takes through `dmg_calc`, the drop
+table sold at 25%, time to recover the health it cost) and gathering at each
+node, best one taken. From a character at each tier's cap: about 2,000 an hour
+in the forest, 4,000 by the basement, 9,000–10,000 once Ashfall Quarry opens,
+32,000 at the Deep Vein.
+
+The rule it holds every required price to: **no more than 10% of the climb it
+gates, in hours of that income.** A realm pill gates the Circulate Qi climb from
+the realm below. On that rule the Herbalist's four pills cost half an hour to
+nine hours, and all hundred Jade Slips come to about 4% of what the game pays
+after the Archive opens — both already fine. The Pill Tower was not:
+
+| pill | budget | was | hours of income | now |
+|---|---|---|---|---|
+| realm 8 | 657K | 900K | 89 | 540K |
+| realm 9 | 583K | 2.4M | 238 | 560K |
+| realm 10 | 6.97M | 7M | 220 | 6.5M |
+
+Realm 9's budget is below realm 8's because its climb (Qi Circulation 82 → 90)
+is shorter; 540K and 560K both sit under their own and keep the ladder rising.
+The dojo still gives one pill per realm for 6-10; the tower is where a second
+one comes from after a failure.
+
+### Cultivation on the matched curve
+
+`tests/road.mjs` now prints the realms against the climb, on the live curve at
+Circulate Qi's 0.9 a second:
+
+| realm | Qi | climb | from 0 |
+|---|---|---|---|
+| 2 Foundation | 8 | 3 h | 3 h |
+| 3 Core Formation | 18 | 84 h | 87 h |
+| 5 Spirit Severing | 45 | 268 h | 500 h |
+| 8 Body Integration | 82 | 652 h | 1,960 h |
+| 10 Tribulation Transcendence | 110 | 2,195 h | 4,733 h |
+
+The realms themselves were right: they follow the curve, which was matched to
+the author's in 4.2, and the whole ladder is the six months at 1x it always was.
+What was wrong was everything sized in minutes around them. Realm 3's wall
+asked for five insights and fifteen minutes of seclusion at the end of an
+84-hour climb; worse, the Circulate Qi that did the climbing also rolled for
+insight the whole way, so a player arrived with a thousand and the wall cost
+nothing.
+
+- **Meditation only earns insight at a wall.** Fights you nearly lost and new
+  ground still count anywhere.
+- **The wall is 5% of the climb to it** (`wallShare`), at the meditation rate:
+  realm 3 asks for 60, realm 10 for 1,580. The old 1, 3, 5 … stays as a floor,
+  so realms 1 and 2 are unchanged, and no wall is smaller than the one below.
+- **Full consolidation takes as long as seclusion takes to earn that insight**
+  on average — 1.4 hours at realm 3, 37 at realm 10 — so sitting it out
+  finishes both together.
+- **Qi Deviation lasts as long as the seclusion you skipped** — 3.5 in-game
+  days at realm 3, 91 at realm 10 — never under the old half day. Pushing in the
+  open costs what doing it properly would have.
+
+All four are derived from the curve and the realm ladder in code, never
+written as numbers.
+
+### Tests on GitHub, and the author's files
+
+`.github/workflows/tests.yml` runs on every push and pull request: `npm run
+check`, `tests/authorfiles.sh`, then the suite. `authorfiles.sh` is the rule
+that used to be a line in CLAUDE.md, made a check — his changelog byte for byte,
+and `index.html` his plus exactly the three added lines — against his repository,
+fetched read-only when there is no `upstream` remote.
+
+### allareas, and the suite
+
+Listed as the slowest script by far. Timed: seven seconds, four and a half of
+them the page-settling wait every script pays. Whatever made it slow went with
+an earlier fix. The suite as a whole was worth speeding up, so `run.sh` now runs
+four scripts at once — every script launches its own browser, a fresh profile,
+so the ones that write saves cannot collide — and prints seconds per script. All
+38: about 1½ minutes, from 5½.
+
+### The userscript
+
+`tools/build-userscript.mjs` wraps `mod.js` and the mod's changelog into
+`userscript/proto23-mod.user.js`, for Tampermonkey or Violentmonkey, matching
+`https://23html.github.io/`.
+
+A manager runs a script inside a function of its own, which would make every
+`var` in mod.js local — the console commands, and everything the game reaches by
+name, would disappear. So the userscript does not run the mod; at document-end
+(DOMContentLoaded: after the game's inline script, before the `load` listener
+reads the save) it appends mod.js to the page as an inline `<script>`, which runs
+in the page's global scope exactly as the tag does locally. That made one real
+change to mod.js: two places read the game's own source from `document.scripts`,
+and would have read the injected mod as part of it. Both go through
+`MOD_gameSource()` now, which skips the tag the userscript marks.
+
+The changelog is embedded, because the author's site has no
+`changelog/mod-changelog.html`. The file is generated and committed, so it can be
+installed from its raw URL; `tests/userscript.mjs` and `npm run check` fail when
+it is stale.
+
+### Safari
+
+Asked for next: make it work well on Safari. Playwright drives WebKit, the engine
+Safari is built on, so every test script now takes `BROWSER=webkit`, and CI runs
+the whole suite on both engines. All 38 passed on WebKit the first time, and
+`mod.js` has nothing older Safari cannot parse — it is almost entirely ES5. What
+WebKit found was in how the page looks, and none of it could have shown up in
+headless Chromium:
+
+- **Every skill row wrapped.** Its three cells are 32%, 170px and 197px, which
+  fit the panel's 550px with under a pixel to spare. WebKit's scrollbar takes
+  eight, and on a row carrying a section header (flex-wrap, so the header can sit
+  above) the exp bar dropped to a second line: rows 78px tall instead of 30, and
+  a sideways scrollbar, because the header's 100% did not count its padding. The
+  bar column now takes the space left (`flex:1 1 0`) and the header is
+  border-box. Chromium set to always show scrollbars had the same bug.
+- **The mod's dropdowns were grey macOS buttons** on the dark settings panel —
+  Safari ignores a `<select>`'s background unless its native look is turned off.
+  `MOD_styleSelect()` does that for all four and draws the caret back in.
+- **Clicking a section header selected its text**, since Safari still wants
+  `-webkit-user-select`.
+
+And one that is not Safari's alone, found measuring it: the skill panel's
+per-second updater rewrote three cells on every row every second, hidden or
+not, changed or not. 110 rows: 329 DOM changes and 3.8ms a second on WebKit
+(2.3 on Chromium). It writes only what changed now — two changes and 0.3ms when
+one skill moves.
+
+One Safari behaviour the code cannot fix: its tracking prevention can clear a
+site's stored data after seven days of browsing without a visit, which takes the
+saves and the automatic backups together. The README tells Safari players to
+download a backup now and then.
+
+## Three bugs in the author's code, and a second batch of small things (v4.5)
+
+### Death, Shield Mastery and Luck
+
+All three were found long before they were fixed, and each is one line inside a
+long function of the author's, so each is corrected from outside it.
+
+**Death.** The game multiplies your energy on death by `0.55 × (1 − level × 0.1)`.
+That is 55% at level 0, nothing at level 10, and below zero from level 11 — so
+your energy went negative. The replacement is `1 − 0.45 / (1 + level × 0.1)`: 55%
+at level 0, exactly as before, then 78% at 10 and 96% at 110, always improving
+and never reaching 100%. The death is detected by `global.stat.deadt` rising,
+because the "You avoid death" branch runs the same function without dying.
+
+**Shield Mastery.** The last bracket of the enemy's damage multiplies your whole
+defence by `(100 − (shieldAff + targetCls × ta) × 5 × (1 + level/20)) / 100`. At
+level 110 that `(1 + level/20)` is 6.5, the bracket goes negative, and defence is
+added to the hit. Every other bracket in the line is `100 + …`, so a sign typo is
+likely — but that is a guess about intent, so the bracket is only floored at
+zero: defence can fall to nothing, never below. It is done by holding the skill's
+level, for one call, where the bracket is exactly zero. The test checks that a
+hit where the bracket was positive comes out identical to before.
+
+**Luck.** `dmg_calc` declares `let b = you.luck/25 + 1` inside the player's own
+block, so the crit roll outside it reads the outer `b`, always 1. The author's
+range is small — luck moves by one to four on a handful of events, so his
+multiplier tops out near ×1.4 — but this mod's perks grant luck on every social
+skill, and at cap 110 a character holds 132–223 of it. Through his formula that
+is a crit on every swing. So his formula is used exactly, capped at a 50% crit
+chance from luck: in his range the cap never binds, and at the top a crit stays a
+roll. It is applied by rebinding `MOD_dmg_calc_original`, the variable section 8's
+probe and incoming-damage wrapper call through, so enemies are sized against the
+player with luck included; a wrapper outside it would have let the player
+out-damage every target. Measured crit frequency on real swings matches the
+model the probe weights by, at luck 0, 10 and 100.
+
+### The rest
+
+- **Breakthrough history** — the last twenty attempts, their odds, where they
+  were made and how each ended, on the What next page and in `modRoad()`.
+- **Backups once a day** as well as on each update, in a fourth place of their
+  own so a quiet week cannot push out the update backups; and **as a file** —
+  download any backup, load one back — because clearing the browser's storage
+  takes the backups with it.
+- **Shop prices** follow the number format. The game writes a stock line once
+  through `chs()` and again from inside its own closures after every purchase,
+  which cannot be wrapped, so one observer on the choices panel reformats a
+  five-digit-or-more number directly before the coin mark, and nothing else.
+- **`tests/road.mjs`** checks every rule of the cultivation road, with the dice
+  fixed per check. **`tests/basefixes.mjs`** holds the three fixes and the shop
+  prices. **`tests/baseline.mjs`** records the numbers that define the balance in
+  `tests/baselines/balance.json` and fails on any change; a one-point change to
+  the kill dial shows as `enemy.kill: 8 -> 9` and every fight target it moves.
 
 
 ## A changelog you can actually reach

@@ -1,13 +1,16 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // point at any local server: PORT=9000 node tests/fullbal.mjs
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
 // Playwright finds its own Chromium locally; set CHROMIUM=/path/to/chrome to override
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs=[]; p.on('pageerror', e=>errs.push(String(e).slice(0,200)));
 await p.goto(`${HOST}/index.html`, {waitUntil:'load'});
 await p.waitForTimeout(4500);
+// section 8's model is what this measures, so measure it everywhere: the
+// default (Fights: Original) leaves the author's areas unscaled -- fights.mjs
+await p.evaluate(() => setFights('scaled'));
 
 const R = await p.evaluate(()=>{
   // ---------- helpers -------------------------------------------------------

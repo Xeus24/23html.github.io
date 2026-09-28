@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // Pacing presets (section 45): Original, the default since v4.2, and "Mod before
 // 4.2". Each must be EXACT -- the whole point of a preset is that it is not an
@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/pacing.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 const settle = () => p.waitForTimeout(4500);

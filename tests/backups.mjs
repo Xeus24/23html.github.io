@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 import fs from 'node:fs';
 
 // Save backups (sections 0 and 44).
@@ -14,7 +14,7 @@ import fs from 'node:fs';
 //   PORT=8080 node tests/backups.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 p.on('dialog', d => d.accept());
@@ -39,15 +39,28 @@ console.log('\n--- a new version backs up the save it is about to load');
 const blob = await p.evaluate(() => { you.name = 'Alpha'; save(); localStorage.setItem(MOD.backup_ver, '4.2');
   return localStorage.getItem('v0.3'); });
 await p.reload({ waitUntil: 'load' }); await settle();
-const after = await p.evaluate(() => { const l = MOD_backupList();
+const after = await p.evaluate(() => { const l = MOD_backupList().filter(b => b.n <= MOD.backup_count);
+  const daily = MOD_backupRead(MOD.backup_daily);
   return { n: l.length, reason: l[0] && l[0].rec.reason, live: l[0] && l[0].rec.live, num: l[0] && l[0].n,
-           ver: localStorage.getItem(MOD.backup_ver) }; });
-check(after.n === 1, `one backup made (${after.n})`);
+           ver: localStorage.getItem(MOD.backup_ver), daily: daily && daily.reason, dailyLive: daily && daily.live }; });
+check(after.n === 1, `one version backup made (${after.n})`);
 check(after.live === blob, 'holding exactly the save the game was about to read');
 check(/from v4\.2/.test(after.reason || ''), `and saying why (${after.reason})`);
+check(after.daily === 'daily' && after.dailyLive === blob, 'and the first daily backup, in its own place');
 await p.reload({ waitUntil: 'load' }); await settle();
-const again = await p.evaluate(() => MOD_backupList().length);
-check(again === 1, `the same version does not back up again (${again})`);
+const again = await p.evaluate(() => ({ n: MOD_backupList().filter(b => b.n <= MOD.backup_count).length,
+                                        dailyT: MOD_backupRead(MOD.backup_daily).t }));
+check(again.n === 1, `the same version does not back up again (${again.n})`);
+
+console.log('\n--- the daily backup');
+await p.evaluate(() => { const r = MOD_backupRead(MOD.backup_daily); r.t = Date.now() - 2 * 86400000;
+  localStorage.setItem(MOD.backup_key + MOD.backup_daily, JSON.stringify(r)); });
+await p.reload({ waitUntil: 'load' }); await settle();
+const d1 = await p.evaluate(() => MOD_backupRead(MOD.backup_daily).t);
+await p.reload({ waitUntil: 'load' }); await settle();
+const d2 = await p.evaluate(() => MOD_backupRead(MOD.backup_daily).t);
+check(Date.now() - d1 < 60000, 'a day-old daily backup is replaced on the next load');
+check(d2 === d1, 'and not again the same day');
 
 console.log('\n--- restoring puts the character back, and can be undone');
 await p.evaluate(() => { you.name = 'Beta'; save(); });
@@ -62,11 +75,15 @@ check(restored.undo && /Beta/.test(restored.undoWho), `and the one it replaced w
 
 console.log('\n--- three kept, oldest replaced');
 const rot = await p.evaluate(() => {
+  const dailyBefore = MOD_backupRead(MOD.backup_daily).seq;
   for (let i = 0; i < 5; i++) MOD_makeBackup('rotation ' + i);
-  return MOD_backupList().map(b => b.rec.reason);
+  const l = MOD_backupList();
+  return { reasons: l.filter(b => b.n <= MOD.backup_count).map(b => b.rec.reason),
+           dailyKept: MOD_backupRead(MOD.backup_daily).seq === dailyBefore };
 });
-check(rot.length === 3, `${rot.length} backups kept`);
-check(rot.includes('rotation 4') && !rot.includes('rotation 0'), `the newest survive (${rot.join(' / ')})`);
+check(rot.dailyKept, 'rotation never touches the daily backup');
+check(rot.reasons.length === 3, `${rot.reasons.length} backups kept`);
+check(rot.reasons.includes('rotation 4') && !rot.reasons.includes('rotation 0'), `the newest survive (${rot.reasons.join(' / ')})`);
 
 console.log('\n--- no room is not an error');
 const full = await p.evaluate(() => {
@@ -84,6 +101,22 @@ const full = await p.evaluate(() => {
 check(!full.threw && full.n === 0, 'a full localStorage skips the backup quietly');
 check(full.before - 1 <= full.after && full.after >= 2,
   `and costs at most the one it was replacing (${full.before} -> ${full.after}); it once deleted them all`);
+
+console.log('\n--- a backup as a file, and back');
+const dl = p.waitForEvent('download');
+const want = await p.evaluate(() => { const b = MOD_backupList()[0]; MOD_downloadBackup(b.n); return b.rec.live; });
+const file = await dl;
+const text = await (await import('node:fs')).promises.readFile(await file.path(), 'utf8');
+let parsed = null; try { parsed = JSON.parse(text); } catch (e) {}
+check(/^proto23-backup-\d{4}-\d\d-\d\d-v[\d.]+\.json$/.test(file.suggestedFilename()), `downloads as ${file.suggestedFilename()}`);
+check(parsed && parsed.live === want, 'holding the save itself');
+await p.evaluate(() => { MOD_pickBackupFile(); });
+await p.setInputFiles('#mod_backup_file', { name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+await p.waitForTimeout(400);
+const loaded = await p.evaluate(w => MOD_backupList().some(b => /from a file/.test(b.rec.reason) && b.rec.live === w), want);
+check(loaded, 'and a downloaded file loads back into the list, ready to restore');
+const junk = await p.evaluate(() => MOD_loadBackupText('{"hello":1}'));
+check(junk === 0, 'a file that is not a backup is refused');
 
 console.log('\n--- the panel');
 const panel = await p.evaluate(() => { MOD_toggleSlotPanel(true);

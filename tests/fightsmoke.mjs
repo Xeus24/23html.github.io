@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 import { summarize, ciLine } from './lib/stats.mjs';
 
 // End-to-end smoke: run real battles through the game's own attack() rather than
@@ -14,11 +14,14 @@ import { summarize, ciLine } from './lib/stats.mjs';
 //   PORT=8080 node tests/fightsmoke.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
 await p.waitForTimeout(4500);
+// section 8's model is what this measures, so measure it everywhere: the
+// default (Fights: Original) leaves the author's areas unscaled -- fights.mjs
+await p.evaluate(() => setFights('scaled'));
 
 const R = await p.evaluate(() => {
   const setTier = (ti) => {

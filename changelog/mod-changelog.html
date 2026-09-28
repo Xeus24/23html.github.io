@@ -18,6 +18,71 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 4.6:</span><br>
+<span style="color:blue">[2026/09/28]</span><br>
+<b>Fights as the author wrote them.</b> A new <i>Fights</i> setting, and <i>Original</i> is the default: every area the author<br>
+&nbsp;&nbsp;made has his creatures exactly as he made them &mdash; his level ranges, his HP, his exp &mdash; so you out-grow<br>
+&nbsp;&nbsp;them the way you do in his game. The forest goes back to a swing or two a kill<br>
+&nbsp;&nbsp;The mod's own areas (the three past the golem arena, and the rank duels) are still sized to you, since<br>
+&nbsp;&nbsp;there is no original of them. <i>Scaled</i> is the old behaviour everywhere, and the <i>Mod before 4.2</i> preset picks it<br>
+&nbsp;&nbsp;Raw Meat is back to the author's 6% on Original: the raise to 18% only made up for the mod's longer fights<br>
+&nbsp;&nbsp;<span style="color:grey">Checked against the author's own page: all 70 spawns in his areas come out stat for stat the same, and<br>
+&nbsp;&nbsp;every step of his route past the tutorial is winnable at the point you first reach it.</span><br>
+<b>Breakthrough walls sized to the climb.</b> Realms 3 to 10 take days to months of Circulate Qi on the current skill<br>
+&nbsp;&nbsp;curve, but the insight they asked for (5 to 19) and the fifteen minutes of seclusion were sized for when<br>
+&nbsp;&nbsp;they took minutes, and meditating on the way up paid for every wall long before you reached it<br>
+&nbsp;&nbsp;Now a wall asks for about 5% of the climb to it, and meditating only earns insight while you are at one.<br>
+&nbsp;&nbsp;Realm 3's wall is 60 insight, about 1.4 hours in seclusion; realm 10's is 1,580, about 37 hours<br>
+&nbsp;&nbsp;Full consolidation takes as long as seclusion takes to earn that insight, so sitting it out finishes both,<br>
+&nbsp;&nbsp;and failing in the open leaves you deviated for as long as the seclusion you skipped. The wiki's cultivation<br>
+&nbsp;&nbsp;page has the table. Realms 1 and 2 are as they were<br>
+<b>The Pill Tower's top pills cost what you can earn.</b> Realm 8, 9 and 10 were 900K, 2.4M and 7M, priced when<br>
+&nbsp;&nbsp;enemies dropped coin. With the original's no coin drop, they are 540K, 560K and 6.5M<br>
+&nbsp;&nbsp;<span style="color:grey">Measured: the best income at every stage, from fighting in each area and gathering at each node, against<br>
+&nbsp;&nbsp;every price the ladder requires. The rule is that none costs more than 10% of the climb it gates. The<br>
+&nbsp;&nbsp;Herbalist's pills and the Jade Slips already passed; all hundred slips come to about 4% of what the game<br>
+&nbsp;&nbsp;pays after the Slip Archive opens.</span><br>
+<b>Play it on the author's hosted game</b>, with no local copy: userscript/proto23-mod.user.js, for Tampermonkey or<br>
+&nbsp;&nbsp;Violentmonkey. It runs the whole mod on https://23html.github.io/, and your save there is backed up before the<br>
+&nbsp;&nbsp;mod first touches it<br>
+&nbsp;&nbsp;<span style="color:grey">Tooling, not gameplay: the tests run on GitHub for every push and pull request; a check that the author's<br>
+&nbsp;&nbsp;two files are still his (his changelog byte for byte, index.html his plus the one script tag); and the test<br>
+&nbsp;&nbsp;runner reports seconds per script. allareas, listed as the slow one, now takes about seven seconds, so it<br>
+&nbsp;&nbsp;was left as it is. New checks: fights.mjs and userscript.mjs; econ.mjs is now a real check rather than a<br>
+&nbsp;&nbsp;printout. 38 in all.</span><br>
+<b>Safari.</b> The skill list no longer wraps each exp bar onto a second line (Safari's scrollbar left the<br>
+&nbsp;&nbsp;row a few pixels short, which also made the list scroll sideways); the mod's dropdowns in settings match<br>
+&nbsp;&nbsp;the panel instead of showing as grey system buttons; and clicking a section header no longer selects its text<br>
+<b>The realm tooltip</b> on the rank line showed a page of program code instead of your realm, root, insight and<br>
+&nbsp;&nbsp;breakthrough odds. It shows those now<br>
+<b>The skill list does far less work</b> while it is open: it only redraws what changed each second, rather than<br>
+&nbsp;&nbsp;every line &mdash; about ten times cheaper, in every browser<br>
+&nbsp;&nbsp;<span style="color:grey">Tooling: every check can now run on WebKit, the engine Safari is built on, and GitHub runs them on<br>
+&nbsp;&nbsp;both. The Safari problems above were invisible in Chrome's test browser, which has no scrollbar width.<br>
+&nbsp;&nbsp;On Safari, download a backup now and then: it can clear a site's saved data after a week unvisited.</span><br>
+<br>
+<span style="color:gold;background-color:black">----MOD 4.5:</span><br>
+<span style="color:blue">[2026/09/28]</span><br>
+<b>Three bugs in the author's own code, fixed.</b><br>
+&nbsp;&nbsp;<b>Death made dying worse the more you levelled it.</b> You kept 55% of your energy at level 0, none at<br>
+&nbsp;&nbsp;level 10, and went into NEGATIVE energy from level 11 &mdash; the opposite of what the skill says. It now<br>
+&nbsp;&nbsp;keeps 55% at level 0, exactly as before, rising to 78% at 10 and 96% at 110<br>
+&nbsp;&nbsp;<b>Shield Mastery could turn your defence into extra damage.</b> At high levels one bracket in the enemy's<br>
+&nbsp;&nbsp;damage went below zero and your defence was added to the hit instead of taken off it. That bracket<br>
+&nbsp;&nbsp;now stops at zero. Nothing changes where it was already fine<br>
+&nbsp;&nbsp;<b>Luck never touched your crit chance.</b> The author wrote a luck multiplier and then declared it where<br>
+&nbsp;&nbsp;the crit roll could not see it. It works now, up to a 50% crit chance from luck<br>
+&nbsp;&nbsp;<span style="color:grey">Why the cap: the mod's perks grant far more luck than the author's game ever did, and through his<br>
+&nbsp;&nbsp;formula a capped-out character would crit on every swing. Enemies are sized with it included.</span><br>
+<b>Breakthrough history</b> on the What next page: your last attempts, their odds, and how each ended<br>
+<b>Backups: once a day as well</b>, in their own place so they cannot push out an update's backup; and any<br>
+&nbsp;&nbsp;backup can be <b>downloaded as a file</b> and loaded back, so a save survives clearing the browser<br>
+<b>Shop prices read</b>: the mod's own stock (pills to seven million) follows your number format. The base<br>
+&nbsp;&nbsp;game's prices, all under 10,000, are untouched<br>
+&nbsp;&nbsp;<span style="color:grey">Tooling: tests for the cultivation road (every rule, which until now had only been checked by hand),<br>
+&nbsp;&nbsp;for the three fixes, and a balance baseline &mdash; the numbers that define the balance are kept in<br>
+&nbsp;&nbsp;tests/baselines/balance.json, so any change to them shows as a diff. 36 checks, all passing.</span><br>
+<br>
 <span style="color:gold;background-color:black">----MOD 4.4:</span><br>
 <span style="color:blue">[2026/09/27]</span><br>
 <b>Your saves are backed up before a new version of the mod loads.</b> Every slot, copied before the game<br>

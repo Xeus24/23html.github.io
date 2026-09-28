@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { launch } from './lib/browser.mjs';
 
 // The v4.3 batch of small fixes, each held to what it claims.
 //
@@ -15,7 +15,7 @@ import { chromium } from 'playwright';
 //   PORT=8080 node tests/polish.mjs
 
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
-const b = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+const b = await launch();
 const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
@@ -115,9 +115,9 @@ const hud = await p.evaluate(() => {
   const longest = { h: h(), p: panelH() };
   global.flags.mod_qidev = 0; global.flags.mod_realm = 3; skl.qic.lvl = 30; dom.d6.update();
   const wall = dom.d6.textContent;
-  global.flags.mod_insight = 99; global.flags.btl = false; const before = MOD_realm().n; let tries = 0;
+  global.flags.mod_insight = MOD_insightNeed(4); global.flags.btl = false; const before = MOD_realm().n; let tries = 0;
   while (MOD_realm().n === before && tries < 15) { giveItem(item.mod_bp4, 1); global.flags.mod_qidev = 0;
-    global.flags.mod_insight = 99; MOD_HUD.span.click(); tries++; }
+    global.flags.mod_insight = MOD_insightNeed(4); MOD_HUD.span.click(); tries++; }
   const after = MOD_realm().n;
   // with no pill, the click refuses and costs nothing
   global.flags.mod_realm = 4; skl.qic.lvl = 45; item.mod_bp5.amount = 0; item.mod_bp5.have = false;
@@ -187,6 +187,40 @@ console.log('\n--- modHelp() lists every console command');
   check(defined.length > 40 && missing.length === 0,
     `all ${defined.length} commands are in modHelp() (${missing.join(', ') || 'none missing'})`);
 }
+
+console.log('\n--- the realm tooltip is text, not code');
+// addDesc only calls its text when the sixth argument is true; without it the
+// hover printed MOD_hudTooltip's own source.
+const tipH = await p.evaluate(() => {
+  giveAction(act.mod_qi); global.flags.mod_realm = 0; skl.qic.lvl = 1; MOD_hudRefresh(true);
+  MOD_HUD.span.dispatchEvent(new MouseEvent('mouseenter', { clientX: 100, clientY: 100 }));
+  const t = global.dscr.textContent;
+  MOD_HUD.span.dispatchEvent(new MouseEvent('mouseleave'));
+  return t;
+});
+check(!/function|MOD_|lines\.push/.test(tipH) && /Spiritual Root/.test(tipH) && /Insight/.test(tipH),
+  `hovering the realm shows what it says, not its source (${tipH.slice(0, 60).replace(/\s+/g, ' ')}...)`);
+
+console.log('\n--- the skill rows keep one line (run with BROWSER=webkit to see why)');
+// Each row's three cells fit the panel's 550px with under a pixel to spare, so a
+// classic scrollbar (Safari's, or any browser set to always show them) used to
+// wrap the exp bar onto a second line of every header row, and the header's
+// padding pushed the panel sideways. Checked with the list long enough to scroll.
+const lay = await p.evaluate(async () => {
+  for (const k in skl) { const s = skl[k]; if (s && s.id && you.skls.indexOf(s) < 0 && s.lvl >= 0) you.skls.push(s); }
+  global.flags.sklu = true; dom.ct_bt2.click(); await new Promise(r => setTimeout(r, 600));
+  MOD_UI.group = true; MOD_UI.hideMaxed = false; MOD_UI.minRar = 1; MOD_redrawSkills();
+  const rows = [].slice.call(dom.skcon.children).filter(r => r.style.display !== 'none' && r.children[0].style.display !== 'none');
+  const broken = rows.filter(r => { const t = [0, 1, 2].map(i => r.children[i].getBoundingClientRect().top);
+    return Math.abs(t[0] - t[2]) > 1 || Math.abs(t[0] - t[1]) > 1; }).length;
+  const out = { rows: rows.length, broken, scrolls: dom.skcon.scrollHeight > dom.skcon.clientHeight,
+                sideways: dom.skcon.scrollWidth - dom.skcon.clientWidth };
+  dom.ct_bt2.click();
+  return out;
+});
+check(lay.scrolls && lay.rows > 20, `the list is long enough to scroll (${lay.rows} rows)`);
+check(lay.broken === 0, `every row's three cells sit on one line (${lay.broken} wrapped)`);
+check(lay.sideways <= 0, `and the panel does not scroll sideways (${lay.sideways}px)`);
 
 console.log('\nerrors:', errs.length ? errs : 'none');
 if (errs.length) fail.push('page errors: ' + JSON.stringify(errs));

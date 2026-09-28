@@ -7,7 +7,9 @@
   "scripts": {
     "serve": "http-server -p 8080 -s .",
     "test": "./tests/run.sh",
-    "check": "node --check mod.js && echo 'mod.js parses'"
+    "check": "node --check mod.js && node tools/build-userscript.mjs --check && echo 'mod.js parses, userscript current'",
+    "build:userscript": "node tools/build-userscript.mjs",
+    "check:author": "./tests/authorfiles.sh"
   },
   "devDependencies": {
     "http-server": "^14.1.1",
