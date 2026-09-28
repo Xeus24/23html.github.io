@@ -1,7 +1,8 @@
 # Proto23 local mod — design record
 
-**Version 4.3.** All mod code lives in `mod.js` — about 12,550 lines in 43
-numbered sections plus a final one that must stay last. The only change to the
+**Version 4.4.** All mod code lives in `mod.js` — about 12,900 lines in 45
+numbered sections, plus section 0, which must stay first, and a final one that
+must stay last. The only change to the
 game itself is one `<script src="mod.js">` line at the bottom of `index.html`.
 Set up 2026-09-04.
 
@@ -55,6 +56,7 @@ setMoneyDrops(0.15)  modResetMoneyDrops() // enemy coin drop chance; the origina
 setNumberFormat('short')  modNumbers()  // 'game' | 'short' | 'sci' | 'myriad'
 setFreeActions(true)  getFreeActions()  // run several actions at once
 setXpCurve({vanillaTo: 10})  modXpCurve() // how many of the author's own skill levels to keep
+setPacing('original')  getPacing()  modPacing() // 'original' or 'fast' (the pre-4.2 pacing)
 
 // balance, for measuring
 modBalance()  setEnemyScale({kill: 8, die: 20})  getEnemyScale()  setHpTrack(0.92)
@@ -62,6 +64,7 @@ modBalance()  setEnemyScale({kill: 8, die: 20})  getEnemyScale()  setHpTrack(0.9
 // folding, saves, documents
 modFold(section)  modUnfold(section)
 modSaves()  modSwitchSave(n)  modNewSave(n)  modDeleteSave(n)
+modBackups()  modBackupNow()  modRestoreBackup(n)
 modWiki()  modChangelog()  modGameChangelog()
 modUnlockAll()   // grant every added action now, skipping its requirement
 ```
@@ -84,6 +87,8 @@ the author's game exactly — and runs the same measurements on both.
 - **Character level** uses the game's own curve, untouched.
 - **Story caps** 10 / 15 / 20 / 30 / 40 / 50 / 60 / 75 / 90 / 110, each opened
   by a story beat.
+- A **Pacing** setting puts back the pre-4.2 pacing exactly, for anyone who
+  preferred it: `50 × 1.106^level`, skill exp 2×, a 15% coin drop.
 - **Fights are the one deliberate difference**: see Combat.
 
 ### Combat
@@ -168,12 +173,14 @@ the author's game exactly — and runs the same measurements on both.
   opens and reading your save — including a Skill handbook and a What next page.
 - The skill panel groups, collapses, hides maxed skills, and no longer rebuilds
   itself every second.
-- Three save slots, a labelled changelog button, and settings boxes for skill
-  exp, game speed, coin drops and number format.
+- Three save slots, **backed up automatically before a new version loads** —
+  three backups kept, restorable from the saves panel — a labelled changelog
+  button, and settings for skill exp, game speed, coin drops, number format and
+  pacing.
 
 ### Tests
 
-Thirty-one Playwright scripts drive a real browser at a real copy of the game.
+Thirty-three Playwright scripts drive a real browser at a real copy of the game.
 The broadest, `allareas`, fights every creature in every area at both ends of
 its level band, at ten story tiers, in four skill builds — 3,720 matchups, all
 of which must be winnable. See `tests/README.md`.
@@ -3402,6 +3409,63 @@ against **`upstream/main`** now:
 ```
 git diff upstream/main -- changelog/changelog.html    # must be empty
 ```
+
+
+## Backups before an update, and a pacing setting (v4.4)
+
+### Backups
+
+v4.2 changed how fast skills level on saves people were already playing. A
+change like that can always be undone in code; it cannot be undone in a save the
+new version has already written over. So the first time a new version of the
+mod loads, it copies the live save and all three slots into `p23_backup_1..3`
+before the game has read anything.
+
+**It is section 0, the first code in `mod.js`, and depends on nothing below it.**
+An update that breaks is exactly when the backup is wanted, and a section that
+throws stops every line after it — while the game, which does not depend on the
+mod, goes on loading and then autosaving. So the copy is made before any of that
+code has a chance to fail, using plain key literals because section 20's
+constants do not exist yet. The test asserts the placement.
+
+Three are kept, the oldest replaced first — oldest by a sequence number, because
+backups made in the same millisecond tie on the clock, which the test found.
+
+The test also found a real bug before it shipped. When a backup did not fit, the
+first version cleared every other backup to make room, retried, and — if the
+retry failed too — had thrown them all away for nothing. It now frees only the
+space of the backup it was replacing, which it was about to overwrite anyway.
+**A failed backup must never cost an older one.**
+
+Restoring (section 44, in the saves panel) puts every slot back, because that is
+what a backup holds and a half-restored set of slots is a state that never
+existed. It saves the current slot and backs up the present first — never over
+the backup being restored — so a restore can be undone, then reloads, since the
+game reads its save only at startup. It restores saves, not the mod's code.
+
+One consequence for anyone changing the mod: **bump `MOD.version` for any change
+a save could notice**, or the backup that would protect it is never made.
+
+### Pacing
+
+v4.2 made the mod's earlier pacing a matter of three console commands. Section 45
+makes it one setting:
+
+| Preset | Skill cost | Skill exp | Coin drop |
+|---|---|---|---|
+| Original (default) | the author's below level 10, then a solved ~2.9% ramp | 1x | 0 |
+| Mod before 4.2 | `50 × 1.106^level`, exactly | 2x | 15% |
+
+"Exactly" needed one addition: `MOD_XP.fixedRatio`, which skips the ratio solve.
+With `vanillaTo` 0 the curve's anchor makes level 0 cost 50, so a fixed 1.106
+reproduces the old curve to the unit — the test checks levels 0 to 109. Level 110
+is the same distance away in both presets, and fights are identical, because the
+enemy model never changed between them.
+
+The exp and coin boxes already persisted on their own keys, so a preset simply
+sets them. The curve had no persistence, so the chosen preset is stored and its
+curve re-applied at load. Changing a box afterwards reads as **Custom** rather
+than silently claiming a preset that no longer holds.
 
 
 ## A changelog you can actually reach

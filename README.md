@@ -28,9 +28,9 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Forty-three sections, roughly in the order they were built. The design record
+Forty-five sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
-[MOD-NOTES.md](MOD-NOTES.md). Version 4.3.
+[MOD-NOTES.md](MOD-NOTES.md). Version 4.4.
 
 **Measured against the original**
 
@@ -102,7 +102,11 @@ once with `mod.js` blocked, and runs the same measurements on both.
 
 **Quality of life**
 
-- Three save slots, with a "start new save" button.
+- Three save slots, with a "start new save" button, and **automatic backups**:
+  before a new version of the mod loads, every slot is copied first. Three are
+  kept, and the saves panel restores any of them.
+- A **Pacing** setting — *Original* (the default) or *Mod before 4.2*, the
+  faster pacing the mod had before it was matched to the original.
 - Settings boxes for game speed, skill exp, coin drops and **number format** —
   short (4.56M), scientific, myriads (5.6亿) or as the original. Up to 9,999
   every format prints exactly what the original prints.
@@ -137,7 +141,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 31 scripts
+npm test                                          # all 33 scripts
 ./tests/run.sh audit combat                       # a subset
 ```
 
@@ -155,10 +159,10 @@ copy of the folder.
 
 | | |
 |---|---|
-| `mod.js` | the entire mod, ~12,550 lines |
+| `mod.js` | the entire mod, ~12,900 lines |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 31 Playwright scripts, plus `lib/stats.mjs` |
+| `tests/` | 33 Playwright scripts, plus `lib/stats.mjs` |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
 

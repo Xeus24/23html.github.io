@@ -117,6 +117,13 @@ curve's "cap 60 in under an hour, then months on the last twenty levels".
 `mod.js` so the one script tag loads nothing — and asserts every level below 10
 costs exactly what HIS `expnext` returns, not a reimplementation of it.
 
+**Pacing presets (section 45)**: `setPacing('original' | 'fast')`. `fast` is the
+pre-4.2 pacing exactly — `MOD_XP.fixedRatio` 1.106 with `vanillaTo` 0 makes every
+level cost `50 * 1.106^lvl`, plus 2x exp and a 15% coin drop. The curve is not
+persisted on its own, so the chosen preset is stored (`p23_mod_pacing`) and its
+curve re-applied at load; the exp and coin boxes persist on their own keys.
+Anything else reads `custom`. `tests/pacing.mjs` checks each preset is exact.
+
 The full ladder 10/15/20/30/40/50/60/75/90/110 is genuinely reachable, so
 **model the player AT the cap** — that is what the tests do.
 
@@ -822,6 +829,24 @@ builds its world at startup and cannot unload a save.
   wrapper must pass it through.
 - The base game's "delete the save" was `localStorage.clear()` — it is rebound
   to the active slot only, by cloning the node to drop the anonymous listener.
+
+**Backups (sections 0 and 44).** When `p23_mod_lastver` differs from
+`MOD.version`, the live save and every slot are copied into `p23_backup_1..3`
+before the game reads anything.
+
+- **Section 0 must stay the first code in `mod.js`**, with no dependency on
+  anything below it (plain key literals, not section 20's constants). A section
+  that throws stops every line after it while the game still loads and
+  autosaves, so the backup has to exist before any of that can fail.
+  `tests/backups.mjs` asserts it precedes section 1.
+- Order by `seq`, not the clock — backups made in one millisecond tie.
+- **A failed backup must never cost an older one.** On a quota error it frees only
+  the backup it is replacing; an early version cleared them all and then lost
+  them when the retry failed.
+- Restoring writes every slot back, backs up the present first (never over the
+  one being restored), and reloads. It restores saves, not code.
+- **Bump `MOD.version` for any change a save could notice**, or the backup that
+  protects it is never made.
 
 ## Testing
 

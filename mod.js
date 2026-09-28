@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '4.3',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '4.4',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -88,6 +88,117 @@ var MOD = {
   skill_xp_mult: 1,     // the original's; change with setSkillXp(n). Was 2 before v4.2
   max_speed: 20
 };
+
+
+/* ===========================================================================
+   0. A BACKUP OF YOUR SAVE BEFORE AN UPDATE LOADS  —  keep this first
+   ---------------------------------------------------------------------------
+   v4.2 changed how fast skills level, on saves people were already playing.
+   That kind of change can always be undone in code; it cannot be undone in a
+   save the new version has already written over. So the first time a new
+   version of the mod loads, it copies the save — the live one and all three
+   slots — before the game has read it, let alone autosaved.
+
+   This is the FIRST thing mod.js does, and it depends on nothing below it, for
+   one reason: an update that breaks is exactly when you want the backup, and a
+   section that throws stops every line after it. The game still loads and
+   autosaves without the rest of the mod, so the copy has to exist before any of
+   that code has had the chance to fail. Plain literals for the save keys, then
+   — section 20's constants do not exist yet.
+
+   Three backups, oldest replaced first, under p23_backup_1..3 — "oldest" by a
+   sequence number, not the clock, which ties within a millisecond. A backup
+   that will not fit gives up with a warning, and it only ever frees the space
+   of the one it was replacing: an earlier version cleared every other backup to
+   make room and then lost them anyway when the retry failed too. Failing to back
+   up must never stop the game loading, and must never cost an older backup.
+   Restoring, and backing up by hand, are in section 44.
+   =========================================================================== */
+
+MOD.backup_key   = 'p23_backup_';
+MOD.backup_ver   = 'p23_mod_lastver';
+MOD.backup_count = 3;
+
+function MOD_backupRead(n) {
+  try {
+    var raw = localStorage.getItem(MOD.backup_key + n);
+    var rec = raw ? JSON.parse(raw) : null;
+    return rec && rec.v === 1 ? rec : null;
+  } catch (e) { return null; }
+}
+
+/* Newest first. */
+function MOD_backupList() {
+  var out = [];
+  for (var n = 1; n <= MOD.backup_count; n++) {
+    var r = MOD_backupRead(n);
+    if (r) out.push({ n: n, rec: r });
+  }
+  out.sort(function (a, b) { return (b.rec.seq || 0) - (a.rec.seq || 0) || b.rec.t - a.rec.t; });
+  return out;
+}
+
+/* Copy the live save and every slot into a backup. `keep` is a backup number
+   not to overwrite — the one being restored, when restoring backs up first.
+   Returns the backup number, or 0 if there was nothing to copy or no room. */
+function MOD_makeBackup(reason, keep) {
+  try {
+    var ls = localStorage, slots = {}, any = false, i;
+    var live = ls.getItem('v0.3');
+    if (live) any = true;
+    for (i = 1; i <= 3; i++) {
+      var blob = ls.getItem('p23_slot_' + i);
+      if (blob) { slots[i] = { blob: blob, meta: ls.getItem('p23_slotmeta_' + i) }; any = true; }
+    }
+    if (!any) return 0;
+    var seq = 0;
+    for (i = 1; i <= MOD.backup_count; i++) {
+      var had = MOD_backupRead(i);
+      if (had && (had.seq || 0) > seq) seq = had.seq;
+    }
+    var rec = JSON.stringify({
+      v: 1, seq: seq + 1, t: Date.now(), at: new Date().toLocaleString(),
+      reason: reason || 'by hand', ver: MOD.version,
+      live: live, active: ls.getItem('p23_slot_active'), slots: slots
+    });
+
+    /* an empty backup number first, then the oldest one that is not `keep` */
+    var target = 0, oldest = 0, oldestSeq = Infinity;
+    for (i = 1; i <= MOD.backup_count; i++) {
+      if (i === keep) continue;
+      var r = MOD_backupRead(i);
+      if (!r) { target = i; break; }
+      if ((r.seq || 0) < oldestSeq) { oldestSeq = r.seq || 0; oldest = i; }
+    }
+    if (!target) target = oldest;
+    if (!target) return 0;
+
+    try { ls.setItem(MOD.backup_key + target, rec); }
+    catch (full) {
+      /* Out of room. Free only the space of the backup this one replaces — it
+         was being overwritten anyway — and try once more. Never touch the
+         others: if this still does not fit, they are all that is left. */
+      ls.removeItem(MOD.backup_key + target);
+      ls.setItem(MOD.backup_key + target, rec);
+    }
+    return target;
+  } catch (e) {
+    try { console.warn('[mod] save backup skipped: ' + e.message); } catch (e2) {}
+    return 0;
+  }
+}
+
+(function () {
+  try {
+    var prev = localStorage.getItem(MOD.backup_ver);
+    if (prev !== MOD.version) {
+      var n = MOD_makeBackup(prev ? 'before v' + MOD.version + ' (from v' + prev + ')'
+                                  : 'before v' + MOD.version);
+      if (n) console.log('[mod] a new version: your save was backed up first (backup ' + n + ')');
+      localStorage.setItem(MOD.backup_ver, MOD.version);
+    }
+  } catch (e) { /* never stop the game loading over a backup */ }
+})();
 
 
 /* ===========================================================================
@@ -831,12 +942,14 @@ function modHelp() {
     '  setNumberFormat(m)  modNumbers()               now ' + MOD_NUM.mode,
     '  setFreeActions(on)  getFreeActions()',
     '  setXpCurve({vanillaTo: n})  modXpCurve()       until the next reload',
+    '  setPacing(name)  getPacing()  modPacing()      now ' + (typeof getPacing === 'function' ? getPacing() : '?'),
     '',
     ' Balance, for measuring',
     '  modBalance()  setEnemyScale({...})  getEnemyScale()  setHpTrack(n)',
     '',
     ' Saves and documents',
     '  modSaves()  modSwitchSave(n)  modNewSave(n)  modDeleteSave(n)',
+    '  modBackups()  modBackupNow()  modRestoreBackup(n)',
     '  modWiki()  modChangelog()  modGameChangelog()  modHelp()'
   ].join('\n');
   console.log(lines);
@@ -4379,6 +4492,7 @@ console.log('[mod] settings menu: skill xp, game speed and coin drop boxes added
 var MOD_XP_LEGACY = { base: 50, ratio: 1.106, mult: 2 };
 
 var MOD_XP = {
+  fixedRatio: 0,    // >1 skips the solve (section 45's "Mod before 4.2" preset)
   vanillaTo: 10,    // levels below this cost exactly what the author's curve charges
   total: 0,         // xp from level 0 to 110 — derived below
   ratio: 1          // growth per level from vanillaTo on — solved below
@@ -4412,6 +4526,13 @@ function MOD_xpToReach(L) {
    closed form once the first ten terms are the author's. */
 function MOD_solveXpCurve() {
   var L = MOD_XP_LEGACY;
+  /* A fixed ratio skips the solve — the "Mod before 4.2" pacing preset uses it
+     to put back 50 x 1.106^lvl exactly (vanillaTo 0 makes level 0 cost 50). */
+  if (MOD_XP.fixedRatio > 1) {
+    MOD_XP.ratio = MOD_XP.fixedRatio;
+    MOD_XP.total = MOD_xpToReach(110);
+    return MOD_XP.ratio;
+  }
   MOD_XP.total = L.base * (Math.pow(L.ratio, 110) - 1) / (L.ratio - 1) / L.mult;
   var lo = 1.000001, hi = 2;
   for (var i = 0; i < 80; i++) {
@@ -4449,6 +4570,12 @@ function MOD_installXpCurve() {
 /* setXpCurve({vanillaTo: 10})  — how many of the author's levels to keep.
    The ratio is re-solved so 110 stays exactly as far away. */
 function setXpCurve(opts) {
+  /* An explicit vanillaTo means "solve the ratio", unless a fixedRatio comes
+     with it; {fixedRatio: 0} clears one. */
+  if (opts && typeof opts === 'object') {
+    if (opts.fixedRatio !== undefined) MOD_XP.fixedRatio = Number(opts.fixedRatio) > 1 ? Number(opts.fixedRatio) : 0;
+    else if (opts.vanillaTo !== undefined) MOD_XP.fixedRatio = 0;
+  }
   if (opts && typeof opts === 'object' && opts.vanillaTo !== undefined) {
     var v = Math.round(Number(opts.vanillaTo));
     if (!isFinite(v) || v < 0 || v > 12) {
@@ -7245,11 +7372,16 @@ MOD_wikiPage('progress', 'Progression', function () {
     'alone costs ' + MOD_wikiNum(MOD_vanillaExpnext(109)) + ' experience, so the top of the ladder ' +
     'is unreachable by a factor of about ten trillion. But the author only ever ' +
     'designed skills up to level 15, and below that his curve is fine.</p>' +
-    '<p>So the mod keeps it. Below level ' + MOD_XP.vanillaTo + ' a skill costs ' +
-    '<b>exactly what the original charges</b>; from there it rises by &times;' +
-    MOD_XP.ratio.toFixed(4) + ' a level, a ratio solved so the climb to 110 takes ' +
-    'the same time it always did. Character level uses the game\'s own curve, ' +
-    'untouched.</p>' +
+    (MOD_XP.vanillaTo > 0
+      ? '<p>So the mod keeps it. Below level ' + MOD_XP.vanillaTo + ' a skill costs ' +
+        '<b>exactly what the original charges</b>; from there it rises by &times;' +
+        MOD_XP.ratio.toFixed(4) + ' a level, a ratio solved so the climb to 110 takes ' +
+        'the same time it always did.'
+      : '<p>You have chosen the <b>Mod before 4.2</b> pacing: a plain geometric curve, ' +
+        '&times;' + MOD_XP.ratio.toFixed(3) + ' a level from level 0, much faster than the ' +
+        'original early on. The <b>Original</b> pacing in settings puts back the ' +
+        'author\'s own cost below level 10.') +
+    ' Character level uses the game\'s own curve, untouched.</p>' +
     '<table class="wk-tbl"><thead><tr><th>Level</th><th>Experience for the next</th>' +
     '<th>Original game</th></tr></thead><tbody>';
   [1, 5, 9, 10, 15, 25, 50, 75, 90, 109].forEach(function (l) {
@@ -12538,6 +12670,232 @@ function modNext() {
   console.log(out);
   return out;
 }
+
+
+/* ===========================================================================
+   44. RESTORING A BACKUP
+   ---------------------------------------------------------------------------
+   Section 0 makes the backups; this is how you use one. The list sits under the
+   three slots in the saves panel, where you already go to look after saves.
+
+   Restoring puts back EVERY slot as it was when the backup was made, not just
+   the one you are playing: that is what the backup holds, and a half-restored
+   set of slots would be a state that never existed. It saves the slot you are in
+   and backs up the present first — never over the backup being restored — so a
+   restore can itself be undone. Then it reloads, because the game reads its
+   save once, at startup (the same reason switching slots reloads).
+
+   A restore puts back the SAVE, not the code. A save from before v4.2 restored
+   under v4.3 plays with v4.3's rules; to go back to an older mod as well, check
+   out that version of mod.js.
+   =========================================================================== */
+
+function MOD_backupWho(rec) {
+  var who = rec && rec.live ? MOD_slotFromBlob(rec.live) : null;
+  return who ? (who.name || '?') + (who.lvl !== undefined ? ', level ' + who.lvl : '') : 'no live save';
+}
+
+function MOD_restoreBackup(n) {
+  n = Number(n);
+  var rec = MOD_backupRead(n);
+  if (!rec) { if (typeof msg === 'function') msg('There is no backup ' + n, 'red'); return false; }
+  if (!confirm('Restore backup ' + n + '?\n\nMade ' + rec.at + ' — ' + rec.reason + '.\n' +
+               'Every save slot goes back to how it was then (' + MOD_backupWho(rec) + ').\n\n' +
+               'Your saves as they are now are backed up first, so this can be undone.')) return false;
+  if (!MOD_parkCurrent()) return false;
+  MOD_makeBackup('before restoring backup ' + n, n);
+
+  if (rec.live) MOD_lsSet(MOD.game_key, rec.live); else MOD_lsDel(MOD.game_key);
+  for (var i = 1; i <= MOD.slot_count; i++) {
+    var sl = rec.slots && rec.slots[i];
+    if (sl && sl.blob) {
+      MOD_lsSet(MOD.slot_data + i, sl.blob);
+      if (sl.meta) MOD_lsSet(MOD.slot_meta + i, sl.meta); else MOD_lsDel(MOD.slot_meta + i);
+    } else {
+      MOD_lsDel(MOD.slot_data + i);
+      MOD_lsDel(MOD.slot_meta + i);
+    }
+  }
+  if (rec.active) MOD_lsSet(MOD.slot_key, rec.active); else MOD_lsDel(MOD.slot_key);
+  location.reload();
+  return true;
+}
+
+/* By hand: save the current slot first, so the backup holds what is on screen. */
+function MOD_backupNow() {
+  MOD_parkCurrent();
+  var n = MOD_makeBackup('by hand');
+  if (typeof msg === 'function') {
+    msg(n ? 'Saves backed up (backup ' + n + ')' : 'Nothing was backed up — no save, or no room', n ? 'lime' : 'red');
+  }
+  try { MOD_renderSlots(); } catch (e) {}
+  return n;
+}
+
+/* The panel: the backups under the slots. */
+var MOD_renderSlots_before_backups = MOD_renderSlots;
+MOD_renderSlots = function () {
+  var r = MOD_renderSlots_before_backups.apply(this, arguments);
+  try {
+    var p = MOD_SLOTUI.panel;
+    if (!p) return r;
+    var head = addElement(p, 'div');
+    head.style.cssText = 'padding:6px 4px 3px;font-size:.95em;border-top:2px solid #999;margin-top:4px;';
+    head.innerHTML = '<b>Backups</b> &nbsp;<span style="opacity:.7">made automatically before ' +
+      'a new version of the mod loads. Restoring puts every slot back.</span>';
+    var list = MOD_backupList();
+    if (!list.length) {
+      var none = addElement(p, 'div');
+      none.style.cssText = 'padding:3px 4px;opacity:.6;';
+      none.innerHTML = 'none yet';
+    }
+    list.forEach(function (b) {
+      var row = addElement(p, 'div');
+      row.style.cssText = 'display:flex;align-items:center;padding:3px 4px;border-top:1px solid #b5b5b4;';
+      var label = addElement(row, 'div');
+      label.style.cssText = 'flex:1 1 auto;text-align:left;';
+      label.innerHTML = '<b>' + MOD_escape(b.rec.at) + '</b> &nbsp; ' + MOD_escape(MOD_backupWho(b.rec)) +
+        ' &nbsp; <span style="opacity:.6">' + MOD_escape(b.rec.reason) + '</span>';
+      var acts = addElement(row, 'div');
+      acts.style.cssText = 'flex:0 0 auto;';
+      MOD_slotButton(acts, 'restore', 'Put every save slot back to this backup', function () {
+        MOD_restoreBackup(b.n);
+      });
+    });
+    var foot = addElement(p, 'div');
+    foot.style.cssText = 'padding:4px;text-align:right;';
+    MOD_slotButton(foot, 'back up now', 'Copy every save slot into a backup', function () { MOD_backupNow(); });
+  } catch (e) { /* the slots are drawn; only the backups are missing */ }
+  return r;
+};
+
+function modBackups() {
+  var list = MOD_backupList();
+  var lines = ['Save backups (newest first; ' + MOD.backup_count + ' kept):', ''];
+  if (!list.length) lines.push('  none yet');
+  list.forEach(function (b) {
+    lines.push('  ' + b.n + '  ' + b.rec.at + '  ' + MOD_backupWho(b.rec) + '  — ' + b.rec.reason +
+      '  (' + Math.round(JSON.stringify(b.rec).length / 1024) + ' KB)');
+  });
+  lines.push('', 'modBackupNow() to make one, modRestoreBackup(n) to put every slot back.');
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+function modBackupNow() { return MOD_backupNow(); }
+function modRestoreBackup(n) { return MOD_restoreBackup(n); }
+
+
+/* ===========================================================================
+   45. PACING PRESETS
+   ---------------------------------------------------------------------------
+   v4.2 put skill pacing back to the original's, and made the earlier pacing a
+   matter of three console commands. This is one setting instead:
+
+       Original        the author's skill cost below level 10, then a solved
+                       ~2.9% ramp; skill exp 1x; no base coin drop  (default)
+       Mod before 4.2  50 x 1.106^level exactly, skill exp 2x, 15% coin drop
+       Custom          shown when you have changed one of those boxes yourself
+
+   Fights are the same in both: the enemy model never changed between them.
+
+   The skill exp and coin boxes already persist on their own keys, so choosing a
+   preset simply sets them. The curve had no persistence, so the chosen preset is
+   stored and its curve re-applied at load. Changing a box afterwards reads as
+   Custom, and leaves the curve where the preset put it.
+   =========================================================================== */
+
+var MOD_PACING = {
+  key: 'p23_mod_pacing',
+  presets: {
+    original: { label: 'Original',       vanillaTo: 10, fixedRatio: 0,     xp: 1, coin: 0 },
+    fast:     { label: 'Mod before 4.2', vanillaTo: 0,  fixedRatio: 1.106, xp: 2, coin: 0.15 }
+  }
+};
+
+function getPacing() {
+  var P = MOD_PACING.presets;
+  for (var k in P) {
+    var p = P[k];
+    if (MOD_XP.vanillaTo === p.vanillaTo && (MOD_XP.fixedRatio || 0) === p.fixedRatio &&
+        MOD.skill_xp_mult === p.xp && MOD_MONEY.chance === p.coin) return k;
+  }
+  return 'custom';
+}
+
+function MOD_applyPacingCurve(p) {
+  MOD_XP.vanillaTo = p.vanillaTo;
+  MOD_XP.fixedRatio = p.fixedRatio;
+  MOD_solveXpCurve();
+  MOD_installXpCurve();
+}
+
+function setPacing(name) {
+  var p = MOD_PACING.presets[name];
+  if (!p) {
+    console.warn('[mod] setPacing: one of ' + Object.keys(MOD_PACING.presets).join(', '));
+    return getPacing();
+  }
+  MOD_applyPacingCurve(p);
+  setSkillXp(p.xp);
+  setMoneyDrops(p.coin);
+  try { localStorage.setItem(MOD_PACING.key, name); } catch (e) {}
+  if (typeof msg === 'function') msg('Pacing: ' + p.label, 'gold');
+  return name;
+}
+
+function modPacing() {
+  var now = getPacing();
+  var lines = ['Pacing: ' + (now === 'custom' ? 'Custom' : MOD_PACING.presets[now].label), ''];
+  Object.keys(MOD_PACING.presets).forEach(function (k) {
+    var p = MOD_PACING.presets[k];
+    lines.push('  ' + (k === now ? '-> ' : '   ') + (k + '        ').slice(0, 9) + p.label +
+      ' — skill exp ' + p.xp + 'x, coin drop ' + Math.round(p.coin * 100) + '%, ' +
+      (p.fixedRatio ? '50 x ' + p.fixedRatio + '^level' : "the author's cost below level " + p.vanillaTo));
+  });
+  lines.push('', 'Fights are the same in both. setPacing(name) to switch.');
+  var out = lines.join('\n');
+  console.log(out);
+  return out;
+}
+
+/* the stored preset's curve, before anything reads a skill's cost */
+(function () {
+  try {
+    var saved = localStorage.getItem(MOD_PACING.key);
+    var p = saved && MOD_PACING.presets[saved];
+    if (p) MOD_applyPacingCurve(p);
+  } catch (e) { /* a private window keeps the default */ }
+})();
+
+/* the settings row */
+(function () {
+  try {
+    var row = addElement(dom.ctrwin4, 'div', null, 'opt_c');
+    var lab = addElement(row, 'div', null, 'opt_t');
+    lab.innerHTML = 'Pacing';
+    var sel = addElement(row, 'select', null, 'opt_v mod_optn');
+    sel.style.cssText = 'background:transparent;color:inherit;border:1px solid #46a;font-family:inherit;';
+    [['original', 'Original'], ['fast', 'Mod before 4.2'], ['custom', 'Custom']].forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o[0]; op.textContent = o[1]; op.style.background = '#050730';
+      if (o[0] === 'custom') op.disabled = true;   // it is a state, not a choice
+      sel.appendChild(op);
+    });
+    sel.value = getPacing();
+    sel.addEventListener('change', function () { setPacing(sel.value); sel.value = getPacing(); });
+    try {
+      addDesc(row, null, 2, 'Pacing',
+        'How fast skills level and whether enemies drop coin.<br>' +
+        '<b>Original</b>: the author\'s cost for skill levels below 10, skill exp 1x,<br>' +
+        'no coin drop — the default since v4.2.<br>' +
+        '<b>Mod before 4.2</b>: skills much faster early, skill exp 2x, 15% coin drop.<br>' +
+        'Level 110 is the same distance away in both, and fights are the same.<br>' +
+        '<b>Custom</b> means you have changed one of the boxes yourself.');
+    } catch (e) {}
+    MOD_SETTINGS.inputs.push({ el: sel, get: getPacing });
+  } catch (e) { console.warn('[mod] pacing row failed: ' + e.message); }
+})();
 
 
 /* ===========================================================================

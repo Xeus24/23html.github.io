@@ -18,6 +18,21 @@ game's author &mdash; the game's own changelog is <a href="changelog.html">here<
 Remove the <code>&lt;script src="mod.js"&gt;</code> line from index.html and none of it applies.</span><br>
 <br>
 
+<span style="color:gold;background-color:black">----MOD 4.4:</span><br>
+<span style="color:blue">[2026/09/27]</span><br>
+<b>Your saves are backed up before a new version of the mod loads.</b> Every slot, copied before the game<br>
+&nbsp;&nbsp;has even read its save. Three are kept. The saves panel lists them, restores one, or backs up on demand<br>
+&nbsp;&nbsp;<span style="color:grey">It is the very first thing the mod does when it loads, and depends on nothing after it: an<br>
+&nbsp;&nbsp;update that breaks is exactly when you want the backup, and a broken section stops everything<br>
+&nbsp;&nbsp;below it while the game goes on loading and autosaving. Restoring puts every slot back, and backs<br>
+&nbsp;&nbsp;up what you had first, so it can be undone. It restores your saves, not the mod's code.</span><br>
+<b>A Pacing setting</b>: <i>Original</i>, the default since 4.2, or <i>Mod before 4.2</i> &mdash; skills much faster early,<br>
+&nbsp;&nbsp;skill exp 2x and a 15% coin drop, exactly as the mod played before. Level 110 is the same distance<br>
+&nbsp;&nbsp;away in both, and fights are the same. Change one of those boxes yourself and it reads <i>Custom</i><br>
+&nbsp;&nbsp;<span style="color:grey">New checks: tests/backups.mjs and tests/pacing.mjs. The backup check caught a real bug before it<br>
+&nbsp;&nbsp;shipped: when there was no room, it cleared every older backup to make space and then lost them<br>
+&nbsp;&nbsp;anyway when the copy still did not fit. It now frees only the one it is replacing.</span><br>
+<br>
 <span style="color:gold;background-color:black">----MOD 4.3:</span><br>
 <span style="color:blue">[2026/09/27]</span><br>
 <b>Documentation, not gameplay: the notes and READMEs brought up to date.</b><br>
