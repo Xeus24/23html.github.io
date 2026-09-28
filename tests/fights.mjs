@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // Fights: Original (section 47), against the author's own page.
 //
@@ -25,7 +25,7 @@ async function boot(vanilla) {
   p.on('pageerror', e => errs.push((vanilla ? '[vanilla] ' : '[mod] ') + String(e).slice(0, 200)));
   if (vanilla) await p.route('**/mod.js', r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-  await p.waitForTimeout(4500);
+  await settle(p);
   return p;
 }
 const V = await boot(true), M = await boot(false);
@@ -84,7 +84,7 @@ const own = await M.evaluate(() => {
   ['mod_hollow', 'mod_spire', 'mod_vigil', 'mod_rank10'].forEach(k => {
     const z = area[k]; global.current_z = z;
     const m = mon_gen(z.pop[0].crt); lvlup(m, z.pop[0].lvlmin);
-    r[k] = { author: !!z._modAuthor, killT: m._modKillT || 0 };
+    r[k] = { author: !!z._modAuthor, killT: m._modKillT || 0, dieT: m._modDieT || 0 };
   });
   return r;
 });
@@ -188,6 +188,24 @@ const medOf = a => { const x = a.slice().sort((p, q) => p - q); return x[x.lengt
 const mk = medOf(rm.map(m => m.kill)), vk = medOf(rv.map(v => v.kill));
 check(mk <= Math.max(vk * 1.5, 2),
   `the median fight is his length, not section 8's: ${mk.toFixed(1)} swings (his ${vk.toFixed(1)})`);
+
+console.log('\n--- fights you nearly lost: where the third insight source lives');
+// Insight comes from a kill made under 20% health (section 38). A fight costs
+// kill/die of your health, so with no rest between them the brink is
+// ceil(0.8 / (kill/die)) fights away. On Original his areas cost almost nothing
+// at arrival -- that source is where fights are hard: the mod's own areas and
+// the rank duels, or an area of his you walk into early. The wall never needs
+// it: MOD_insightNeed is sized to meditation alone.
+const toBrink = (k, d) => (d === Infinity || !(k > 0)) ? Infinity : Math.max(1, Math.ceil(0.8 / Math.min(k / d, 1)));
+const his = rm.slice(3).map(m => toBrink(m.kill, m.die));
+const ours = Object.keys(own).map(k => ({ k, n: toBrink(own[k].killT, own[k].dieT) }));
+console.log(`     his route past the tutorial, fights to the brink with no rest: ${his.map(f).join(', ')}`);
+console.log(`     the mod's own areas: ${ours.map(o => o.k + ' ' + f(o.n)).join(', ')}`);
+check(his.every(n => n > 10), 'on Original his areas are not near-death fights at arrival, as in his game');
+check(ours.every(o => o.n <= 6), 'the mod\'s own areas bring you to the brink within a handful of fights, so the source is live there');
+const wallOk = await M.evaluate(() => MOD_REALMS.filter(r => r.n).every(r =>
+  MOD_secludeFull(r.n) * MOD_CULT.secludeChance >= MOD_insightNeed(r.n) - 0.5));   // whole seconds
+check(wallOk, 'and every wall can be met by sitting alone, so no wall waits on it');
 
 console.log('\n--- Raw Meat and the hunter\'s quest');
 const meat = await M.evaluate(() => {

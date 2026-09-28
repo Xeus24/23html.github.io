@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle as settlePage } from './lib/browser.mjs';
 import fs from 'node:fs';
 
 // Save backups (sections 0 and 44).
@@ -18,7 +18,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 p.on('dialog', d => d.accept());
-const settle = () => p.waitForTimeout(4500);
+const settle = () => settlePage(p);
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' }); await settle();
 
 const fail = [];

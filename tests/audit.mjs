@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // point at any local server: PORT=9000 node tests/audit.mjs
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
@@ -7,7 +7,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs=[]; p.on('pageerror', e=>errs.push(String(e).slice(0,200)));
 await p.goto(`${HOST}/index.html`, {waitUntil:'load'});
-await p.waitForTimeout(4500);
+await settle(p);
 
 const out = await p.evaluate(()=>{
   const SCALARS = ['stra','inta','agla','spda','hpa','sata',

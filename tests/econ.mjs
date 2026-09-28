@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // The economy with the original's coin drop (none), measured against what the
 // ladder asks you to pay.
@@ -17,6 +17,11 @@ import { launch } from './lib/browser.mjs';
 // all hundred of them together are held to 10% of everything the game pays
 // from the moment the Archive opens.
 //
+// Optional purchases -- the spirit pills and the Root Cleansing Pill -- are held
+// to a day of that income from the tier where each becomes worth buying. The Qi
+// Settling Pill costs the breakthrough pill it follows (section 48), so it is
+// held with them.
+//
 // The rule is held on the Original preset, the default: his fights, no coin
 // drop. "Mod before 4.2" (scaled fights, a 15% coin drop, and the old curve,
 // whose early climbs are an hour long) is printed for comparison and not held
@@ -34,7 +39,7 @@ async function run(preset) {
   const p = await b.newPage();
   p.on('pageerror', e => errs.push(`[${preset}] ` + String(e).slice(0, 200)));
   await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-  await p.waitForTimeout(4500);
+  await settle(p);
   const R = await p.evaluate((preset) => {
     setPacing(preset);
     const SAMPLES = 60;
@@ -141,7 +146,19 @@ async function run(preset) {
     // the Archive opens with dj1rw6, the character level 30 rung: tier 4 here
     let slips = 0; for (let i = 0; i < 100; i++) slips += Math.min(Math.round(MOD_CONV.slipBase * Math.pow(MOD_CONV.slipStep, i)), MOD_CONV.slipCap);
     setTier(0);
-    return { tiers, realms, slips, slipsFrom: 4, fights: getFights(), coin: MOD_MONEY.chance };
+    // Things you may buy rather than must: the spirit pills and the Root
+    // Cleansing Pill. A spirit pill matters from the tier whose character level
+    // costs at least what it grants (before that it is more than a whole level
+    // and nobody needs it); the root pill from tier 1, when the root is rolled.
+    const lvlCost = l => 4 * l ** 3 + l ** 2;
+    const tierFor = exp => { for (let ti = 0; ti < CHARLVL.length; ti++) if (lvlCost(CHARLVL[ti]) >= exp) return ti; return CHARLVL.length - 1; };
+    const optional = [];
+    [vendor.pha1, vendor.mod_pltwr].forEach(v => (v.items || []).forEach(e => {
+      const pill = MOD_PILLS.find(pp => item[pp[0]] === e.item);
+      if (pill) optional.push({ name: e.item.name, p: e.p, ti: tierFor(pill[3]), why: `grants ${pill[3].toLocaleString()} exp` });
+      else if (e.item === item.mod_rootpill) optional.push({ name: e.item.name, p: e.p, ti: 1, why: 'the root is rolled at tier 1' });
+    }));
+    return { tiers, realms, slips, slipsFrom: 4, optional, fights: getFights(), coin: MOD_MONEY.chance };
   }, preset);
   await p.close();
   return R;
@@ -170,6 +187,12 @@ for (const preset of ['original', 'fast']) {
   // climb at the income of the tier it opens in
   let pays = 0; R.realms.forEach(r => { if (r.ti >= R.slipsFrom) pays += r.hours * R.tiers[r.ti].best.perHour; });
   console.log(`   all 100 Jade Slips: ${fmt(R.slips)}, against ${fmt(pays)} earned from the Archive to the cap`);
+  console.log('   optional                          price   from tier   hours of income');
+  R.optional.forEach(o => {
+    const hrs = o.p / R.tiers[o.ti].best.perHour;
+    console.log(`   ${o.name.padEnd(30)} ${fmt(o.p).padStart(8)}   ${String(o.ti).padStart(9)}   ${hrs.toFixed(1)}h  (${o.why})`);
+    if (preset === 'original') check(hrs <= 24, `[${preset}] ${o.name}: ${fmt(o.p)} is ${hrs.toFixed(1)}h of income when it becomes worth buying, inside a day`);
+  });
   if (preset === 'original') check(R.slips <= pays * 0.10, `[${preset}] folding every skill is ${(R.slips / pays * 100).toFixed(1)}% of that, inside 10%`);
 }
 

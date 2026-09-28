@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // The three added areas must not exist until the base game's last normal area
 // (golem arena IV, flag trne4e1) is cleared, and then must open in order on the
@@ -10,7 +10,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 
 const R = await p.evaluate(() => {
   // render a location's choices and return their text

@@ -68,6 +68,8 @@ export function buildUserscript() {
                  '. Loading anyway; your save is backed up first (modBackups()).');
   }
 
+  // read by mod.js section 48, which says so in the game when the versions differ
+  window.MOD_USERSCRIPT = { builtFor: BUILT_FOR, version: ${JSON.stringify(version)} };
   window.MOD_CHANGELOG_HTML = ${JSON.stringify(changelog)};
 
   var s = document.createElement('script');

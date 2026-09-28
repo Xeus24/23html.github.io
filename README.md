@@ -34,7 +34,8 @@ panel first if you want to go back and forth.
 **On Safari, download a backup now and then.** Safari can clear a site's stored
 data when you have not visited it for a while (seven days of browsing, under its
 tracking prevention), and the saves and the automatic backups both live there.
-A downloaded backup file is the copy that survives it.
+A downloaded backup file is the copy that survives it. The mod reminds you, at
+most once a day, until you have downloaded one that week.
 
 ## Running it
 
@@ -49,9 +50,9 @@ edits appear not to take, which is confusing enough to be worth the flag.
 
 ## What it changes
 
-Forty-seven sections, roughly in the order they were built. The design record
+Forty-eight sections, roughly in the order they were built. The design record
 for every one of them, including the reasoning and what was measured, is in
-[MOD-NOTES.md](MOD-NOTES.md). Version 4.6.
+[MOD-NOTES.md](MOD-NOTES.md). Version 4.7.
 
 **Measured against the original**
 
@@ -135,7 +136,9 @@ once with `mod.js` blocked, and runs the same measurements on both.
   once a day. The saves panel restores any of them, or downloads it as a file.
 - A **Pacing** setting — *Original* (the default) or *Mod before 4.2*, the
   faster pacing and scaled fights the mod had before it was matched to the
-  original.
+  original, kept as a legacy option.
+- **Settings travel with the save**: a new browser or device takes them from it,
+  and one with settings of its own keeps those.
 - Settings boxes for game speed, skill exp, coin drops and **number format** —
   short (4.56M), scientific, myriads (5.6亿) or as the original. Up to 9,999
   every format prints exactly what the original prints.
@@ -170,7 +173,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 38 scripts, four at a time
+npm test                                          # all 40 scripts, four at a time
 ./tests/run.sh audit combat                       # a subset
 JOBS=1 npm test                                   # one at a time, output live
 BROWSER=webkit npm test                           # on Safari's engine (npx playwright install webkit)
@@ -197,12 +200,12 @@ copy of the folder.
 
 | | |
 |---|---|
-| `mod.js` | the entire mod, ~13,500 lines |
+| `mod.js` | the entire mod, ~13,800 lines |
 | `userscript/` | the mod as a userscript for the hosted game — generated, `npm run build:userscript` |
 | `tools/` | the userscript build |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 38 Playwright scripts, `lib/stats.mjs`, the balance baseline, `authorfiles.sh` |
+| `tests/` | 40 Playwright scripts, `lib/stats.mjs`, the balance baseline, `authorfiles.sh` |
 | `.github/workflows/` | the suite on every push and pull request |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |

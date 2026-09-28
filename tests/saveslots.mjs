@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // Three save slots, driven through the real UI and the real save()/load().
 //

@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // The mod against the original game, measured.
 //
@@ -45,7 +45,7 @@ async function boot(vanilla) {
   p.on('pageerror', e => errs.push((vanilla ? '[vanilla] ' : '[mod] ') + String(e).slice(0, 200)));
   if (vanilla) await p.route('**/mod.js', r => r.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-  await p.waitForTimeout(4500);
+  await settle(p);
   return p;
 }
 const V = await boot(true), M = await boot(false);

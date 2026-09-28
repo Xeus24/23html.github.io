@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // Every skill must have perks all the way up the ladder it can now climb.
 //
@@ -14,7 +14,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 
 const R = await p.evaluate(() => {
   const rows = [];

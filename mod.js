@@ -31,7 +31,7 @@
 console.log('[mod] loading');
 
 var MOD = {
-  version: '4.6',    // v2.0: the ~100 "discovered by playing" skills consolidated
+  version: '4.7',    // v2.0: the ~100 "discovered by playing" skills consolidated
                      // to 10; per-stat effect budget unchanged. Survivors keep
                      // their v1 id, so v1 saves still LOAD — merged-away skills
                      // just don't restore. See "Balance, sixth pass" in
@@ -86,6 +86,8 @@ var MOD = {
                      // v4.6: Fights (section 47) — the author's areas as he
                      // wrote them, by default; realm walls sized to the climb;
                      // the Pill Tower's top pills priced for no coin drop.
+                     // v4.7: settings travel inside the save; the Qi Settling
+                     // Pill priced by the realm; what's-new and Safari notes.
                      // Changes are listed in changelog/mod-changelog.html.
   speed_key: 'p23_mod_speed',
   skill_xp_mult: 1,     // the original's; change with setSkillXp(n). Was 2 before v4.2
@@ -208,6 +210,7 @@ function MOD_makeBackup(reason, keep, force) {
 (function () {
   try {
     var prev = localStorage.getItem(MOD.backup_ver);
+    MOD.prevVersion = prev;      // section 48 says "updated from" once the game is up
     if (prev !== MOD.version) {
       var n = MOD_makeBackup(prev ? 'before v' + MOD.version + ' (from v' + prev + ')'
                                   : 'before v' + MOD.version);
@@ -7686,7 +7689,13 @@ MOD_wikiPage('cultivation', 'Cultivation', function () {
     '<tr class="wk-e"><td>Closed Door Training</td><td>' +
       (MOD_CULT.secludeChance * 100).toFixed(1) + '% a second</td></tr>' +
     '<tr class="wk-e"><td>A kill made under ' +
-      Math.round(MOD_CULT.brinkFrac * 100) + '% health</td><td>' +
+      Math.round(MOD_CULT.brinkFrac * 100) + '% health <small style="color:grey">— ' +
+      (MOD_FIGHTS.mode === 'original'
+        ? 'the author\'s areas rarely come close once you reach them; the three past ' +
+          'the golem arena and the rank duels do, within a few fights, as does an area ' +
+          'you walk into early'
+        : 'every fight costs a share of your health, so a few in a row without resting') +
+      '</small></td><td>' +
       Math.round(MOD_CULT.brinkChance * 100) + '% a kill</td></tr>' +
     '<tr class="wk-e"><td>Entering an area for the first time</td><td>always</td></tr>' +
     '</tbody></table>' +
@@ -8302,8 +8311,11 @@ function MOD_wikiCss() {
   return [
     ':root{color-scheme:dark}',
     '*{box-sizing:border-box}',
+    /* Menlo and Consolas before the generic: with MS Gothic missing (any Mac)
+       "monospace" is Courier, which Safari sets wider than Chrome does, and
+       table cells wrapped on one and not the other. */
     'body{margin:0;background:#060a1c;color:#dfe6f5;font:14px/1.6 "MS Gothic",' +
-      '"MS Mincho",monospace;display:flex;min-height:100vh}',
+      '"MS Mincho",Menlo,Consolas,"DejaVu Sans Mono",monospace;display:flex;min-height:100vh}',
     'a{color:#7cb0ff}',
     'nav{width:210px;flex:0 0 210px;background:#081040;border-right:1px solid #46a;' +
       'position:sticky;top:0;height:100vh;overflow:auto;padding:14px 0}',
@@ -12563,7 +12575,12 @@ function MOD_hudRealmText() {
      symbol falls back to a font whose line box is 1px taller — measured, it grew
      the panel past its fixed 310px. The dotted underline, pointer and tooltip
      already say "click". */
-  if (MOD_atBottleneck() && next) t = '½ step to ' + next.name + ' >>';
+  /* At the wall, the insight it wants: the one number that says how far along
+     the sitting is, without opening the tooltip. */
+  if (MOD_atBottleneck() && next) {
+    t = '½ step to ' + next.name + ' >> ' + Math.min(MOD_insight(), MOD_insightNeed(next.n)) +
+        '/' + MOD_insightNeed(next.n);
+  }
   else if (!r.n) t = r.name;
   else {
     var l = MOD_layer();
@@ -13061,6 +13078,7 @@ function MOD_downloadBackup(n) {
     a.download = 'proto23-backup-' + day + '-v' + (rec.ver || MOD.version) + '.json';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+    try { localStorage.setItem('p23_mod_lastdownload', String(Date.now())); } catch (e) {}
     return true;
   } catch (e) { console.warn('[mod] download failed: ' + e.message); return false; }
 }
@@ -13194,7 +13212,11 @@ var MOD_PACING = {
   key: 'p23_mod_pacing',
   presets: {
     original: { label: 'Original',       vanillaTo: 10, fixedRatio: 0,     xp: 1, coin: 0,    fights: 'original' },
-    fast:     { label: 'Mod before 4.2', vanillaTo: 0,  fixedRatio: 1.106, xp: 2, coin: 0.15, fights: 'scaled' }
+    /* Legacy (v4.7 says so on screen): kept exactly as the mod played before
+       4.2. Its prices are not held to tests/econ.mjs's rule — with a 15% coin
+       drop they are cheap, and under its faster curve its early climbs are an
+       hour, so "10% of the climb" would mean a few minutes. */
+    fast:     { label: 'Mod before 4.2', vanillaTo: 0,  fixedRatio: 1.106, xp: 2, coin: 0.15, fights: 'scaled', legacy: true }
   }
 };
 
@@ -13237,6 +13259,7 @@ function modPacing() {
   Object.keys(MOD_PACING.presets).forEach(function (k) {
     var p = MOD_PACING.presets[k];
     lines.push('  ' + (k === now ? '-> ' : '   ') + (k + '        ').slice(0, 9) + p.label +
+      (p.legacy ? ' (legacy)' : '') +
       ' — skill exp ' + p.xp + 'x, coin drop ' + Math.round(p.coin * 100) + '%, fights ' + p.fights + ', ' +
       (p.fixedRatio ? '50 x ' + p.fixedRatio + '^level' : "the author's cost below level " + p.vanillaTo));
   });
@@ -13277,8 +13300,9 @@ function modPacing() {
         'How fast skills level and whether enemies drop coin.<br>' +
         '<b>Original</b>: the author\'s cost for skill levels below 10, skill exp 1x,<br>' +
         'no coin drop, his fights in his areas — the default.<br>' +
-        '<b>Mod before 4.2</b>: skills much faster early, skill exp 2x, 15% coin drop,<br>' +
-        'every fight scaled to you.<br>' +
+        '<b>Mod before 4.2</b> (legacy): skills much faster early, skill exp 2x,<br>' +
+        '15% coin drop, every fight scaled to you. Kept exactly as it was;<br>' +
+        'prices are balanced for Original, so on this one they come cheap.<br>' +
         'Level 110 is the same distance away in both.<br>' +
         '<b>Custom</b> means you have changed one of the boxes yourself.');
     } catch (e) {}
@@ -13559,6 +13583,212 @@ MOD_applyMeatDrops();
 })();
 
 console.log('[mod] fights: ' + MOD_FIGHTS.mode + '. modFights() for details.');
+
+
+/* ===========================================================================
+   48. SMALL THINGS THAT TRAVEL WITH YOU (v4.7)
+   ---------------------------------------------------------------------------
+   Five small pieces, each one found by using the mod rather than by reading it.
+
+     * The Qi Settling Pill is priced by the realm you are failing at. 4.6 made
+       Qi Deviation last as long as the seclusion it skipped — up to 91 in-game
+       days at realm 10 — and a flat 5,200 made the whole cost ten minutes of
+       late income. It now costs what the breakthrough pill for that realm costs,
+       never under the old 5,200: failing in the open costs a second pill.
+     * After an update the log says so, once, with the changelog a click away.
+     * On Safari, a reminder to download a backup. Its tracking prevention can
+       clear a site's stored data after about a week without a visit, and the
+       saves and the automatic backups live in the same place.
+     * The mod's settings are written into the save, and a browser that has no
+       settings of its own takes them from it — so moving a save to a new
+       browser or device brings pacing, fights and number format with it. A
+       setting the browser already has is never overwritten.
+     * Under the userscript, a game version the build was not tested against is
+       said in the game, not only in the console.
+   =========================================================================== */
+
+/* --- the settling pill's price ---------------------------------------------- */
+
+function MOD_shopPrice(it) {
+  var v = [vendor.pha1, vendor.mod_pltwr];
+  for (var i = 0; i < v.length; i++) {
+    var items = (v[i] && v[i].items) || [];
+    for (var j = 0; j < items.length; j++) {
+      if (items[j].item === it && typeof items[j].p === 'number') return items[j].p;
+    }
+  }
+  return 0;
+}
+
+var MOD_SETTLE_FLOOR = 5200;
+
+function MOD_settlePrice() {
+  var n = MOD_nextRealmN();
+  return Math.max(MOD_SETTLE_FLOOR, MOD_shopPrice(item['mod_bp' + n]));
+}
+
+/* The listing's price is read when the shop restocks, and the stock row keeps
+   its own copy after that, so both follow the realm: the listing through a
+   getter, the rows on the tick (the Herbalist carries a handful of rows). */
+(function () {
+  try {
+    var entry = (vendor.pha1.items || []).filter(function (e) { return e.item === item.mod_settlepill; })[0];
+    if (entry) Object.defineProperty(entry, 'p', { get: MOD_settlePrice, configurable: true, enumerable: true });
+  } catch (e) { console.warn('[mod] settling pill price stays flat: ' + e.message); }
+})();
+
+function MOD_repriceSettle() {
+  try {
+    var st = vendor.pha1.stock || [], p = MOD_settlePrice();
+    for (var i = 0; i < st.length; i++) if (st[i][0] === item.mod_settlepill && st[i][2] !== p) st[i][2] = p;
+  } catch (e) { /* never break a tick over a price */ }
+}
+
+var MOD_ontick_before_small = ontick;
+ontick = function () {
+  MOD_ontick_before_small();
+  MOD_repriceSettle();
+};
+
+
+/* --- notes in the log, once the game is up -----------------------------------
+   msg() prints nothing while the game is loading (global.flags.loadstate), so
+   these wait for the window's load and a moment after it. */
+
+function MOD_msgLink(text, colour, onClick) {
+  try {
+    msg(text, colour);
+    var line = dom.mscont && dom.mscont.lastElementChild;
+    if (line && onClick) {
+      line.style.cursor = 'pointer';
+      line.style.textDecoration = 'underline dotted';
+      line.addEventListener('click', onClick);
+    }
+  } catch (e) {}
+}
+
+function MOD_isSafari() {
+  var ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  return /Safari\//.test(ua) && !/(Chrome|Chromium|CriOS|Edg|EdgiOS|OPR|FxiOS|Android)\//.test(ua);
+}
+
+var MOD_SAFARI = { every: 7 * 24 * 3600 * 1000, nagKey: 'p23_mod_safari_nag', dlKey: 'p23_mod_lastdownload' };
+
+function MOD_safariBackupDue(now) {
+  if (!MOD_isSafari()) return false;
+  try {
+    now = now || Date.now();
+    if (!localStorage.getItem('v0.3')) return false;                 // nothing to lose yet
+    var dl = Number(localStorage.getItem(MOD_SAFARI.dlKey)) || 0;
+    var nag = Number(localStorage.getItem(MOD_SAFARI.nagKey)) || 0;
+    return now - dl > MOD_SAFARI.every && now - nag > 24 * 3600 * 1000;
+  } catch (e) { return false; }
+}
+
+function MOD_smallNotes() {
+  try {
+    if (MOD.prevVersion !== MOD.version) {
+      if (MOD.prevVersion) {
+        MOD_msgLink('The mod was updated, v' + MOD.prevVersion + ' to v' + MOD.version +
+                    '. Your save was backed up first. See what changed', 'gold', modChangelog);
+      } else {
+        MOD_msgLink('proto23 mod v' + MOD.version + ': the wiki is on the bottom bar, ' +
+                    'modHelp() in the console', 'gold', modWiki);
+      }
+    }
+    if (window.MOD_USERSCRIPT && MOD_USERSCRIPT.builtFor !== global.ver) {
+      msg('This game is v' + global.ver + '; the mod was tested on v' + MOD_USERSCRIPT.builtFor +
+          '. Your save was backed up before it loaded (saves on the bottom bar).', 'orange');
+    }
+    if (MOD_safariBackupDue()) {
+      localStorage.setItem(MOD_SAFARI.nagKey, String(Date.now()));
+      MOD_msgLink('Safari can clear this site\'s saved data after a week unvisited, backups ' +
+                  'included. Download a backup: open saves', 'orange',
+                  function () { try { MOD_toggleSlotPanel(true); } catch (e) {} });
+    }
+  } catch (e) { console.warn('[mod] notes failed: ' + e.message); }
+}
+
+(function () {
+  function later() { setTimeout(MOD_smallNotes, 1500); }
+  if (document.readyState === 'complete') later();
+  else window.addEventListener('load', later);
+})();
+
+
+/* --- settings inside the save ----------------------------------------------- */
+
+MOD.settingKeys = {
+  pacing: 'p23_mod_pacing', fights: MOD_FIGHTS.key, numfmt: MOD_NUM.key,
+  speed: MOD.speed_key, xp: MOD.xp_key, coin: MOD.coin_key, free: MOD.free_key,
+  minRar: MOD_UI.minRarKey
+};
+
+function MOD_settingsSnapshot() {
+  return { pacing: getPacing(), fights: getFights(), numfmt: MOD_NUM.mode, speed: getSpeed(),
+           xp: MOD.skill_xp_mult, coin: MOD_MONEY.chance, free: !!getFreeActions(),
+           minRar: MOD_UI.minRar };
+}
+
+function MOD_lsHas(k) { try { return localStorage.getItem(k) !== null; } catch (e) { return true; } }
+
+/* Take from the save only what this browser has not set. Pacing first: a preset
+   sets exp, coin and fights together, and the single boxes after it must not
+   be undone by it. */
+function MOD_adoptSettings(s) {
+  var took = [];
+  if (!s || typeof s !== 'object') return took;
+  var K = MOD.settingKeys;
+  try {
+    if (s.pacing && s.pacing !== 'custom' && MOD_PACING.presets[s.pacing] && !MOD_lsHas(K.pacing)) {
+      setPacing(s.pacing); took.push('pacing');
+    }
+    if ((s.fights === 'original' || s.fights === 'scaled') && !MOD_lsHas(K.fights) && s.fights !== getFights()) {
+      setFights(s.fights); took.push('fights');
+    }
+    if (s.numfmt && !MOD_lsHas(K.numfmt) && s.numfmt !== MOD_NUM.mode) { setNumberFormat(s.numfmt); took.push('number format'); }
+    if (isFinite(s.speed) && !MOD_lsHas(K.speed) && s.speed !== getSpeed()) { setSpeed(s.speed); took.push('speed'); }
+    if (isFinite(s.xp) && !MOD_lsHas(K.xp) && s.xp !== MOD.skill_xp_mult) { setSkillXp(s.xp); took.push('skill exp'); }
+    if (isFinite(s.coin) && !MOD_lsHas(K.coin) && s.coin !== MOD_MONEY.chance) { setMoneyDrops(s.coin); took.push('coin drop'); }
+    if (typeof s.free === 'boolean' && !MOD_lsHas(K.free) && s.free !== !!getFreeActions()) { setFreeActions(s.free); took.push('unrestricted actions'); }
+    if (isFinite(s.minRar) && !MOD_lsHas(K.minRar) && s.minRar !== MOD_UI.minRar) {
+      MOD_UI.minRar = s.minRar;
+      try { localStorage.setItem(K.minRar, String(s.minRar)); } catch (e) {}
+      took.push('rarity filter');
+    }
+  } catch (e) { console.warn('[mod] settings from the save: ' + e.message); }
+  if (took.length) console.log('[mod] settings taken from the save: ' + took.join(', '));
+  return took;
+}
+
+var MOD_save_before_settings = save;
+save = function () {
+  try { global.flags.mod_settings = MOD_settingsSnapshot(); } catch (e) {}
+  return MOD_save_before_settings.apply(this, arguments);
+};
+
+var MOD_load_before_settings = load;
+load = function () {
+  var r = MOD_load_before_settings.apply(this, arguments);
+  try { MOD_adoptSettings(global.flags.mod_settings); } catch (e) {}
+  return r;
+};
+
+
+/* --- the mod's own number boxes, the same in every engine ------------------------
+   WebKit draws spinner arrows inside a number input and they sat on the digits
+   of the mod's narrow boxes. Typing and Enter are how those boxes are used. */
+(function () {
+  try {
+    var st = document.createElement('style');
+    st.id = 'p23-mod-css';
+    st.textContent =
+      'input.mod_optn::-webkit-inner-spin-button,input.mod_optn::-webkit-outer-spin-button' +
+      '{-webkit-appearance:none;margin:0}' +
+      'input.mod_optn{-moz-appearance:textfield;appearance:textfield}';
+    (document.head || document.documentElement).appendChild(st);
+  } catch (e) {}
+})();
 
 
 /* ===========================================================================

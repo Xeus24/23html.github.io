@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 import fs from 'node:fs';
 
 // Balance baselines: the numbers that define the game's balance, written to
@@ -24,7 +24,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 // section 8's model is what this measures, so measure it everywhere: the
 // default (Fights: Original) leaves the author's areas unscaled -- fights.mjs
 const fightsDefault = await p.evaluate(() => getFights());

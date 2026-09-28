@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // Can a skill actually REACH the story cap? Measures the game's own exp curve
 // against the xp a skill really receives per tick through the mod's grant path
@@ -10,7 +10,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 
 const R = await p.evaluate(() => {
   const probe = skl.wsdm;                       // a plain counter-driven added skill

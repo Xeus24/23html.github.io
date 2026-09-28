@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // The four added actions have to be EARNED, not handed over on load.
 //
@@ -23,7 +23,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 
 const fail = [];
 const check = (cond, what) => { if (!cond) fail.push(what); console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${what}`); };
@@ -74,7 +74,7 @@ for (const u of st.locked) {
 console.log('\n--- unlocks survive a save and load');
 await p.evaluate(() => save(true));
 await p.reload({ waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 st = await status();
 check(st.locked.every(u => u.have), 'all four are still there after reloading');
 check(st.locked.every(u => st.inList.includes(u.action)), 'and all four are in the action list');
@@ -85,10 +85,10 @@ await p.evaluate(() => {
   localStorage.clear();
 });
 await p.reload({ waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 await p.evaluate(() => save(true));
 await p.reload({ waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 st = await status();
 check(st.locked.every(u => !u.have), 'a fresh save reloads with all four still locked');
 

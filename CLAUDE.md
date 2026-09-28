@@ -368,6 +368,11 @@ the same length at STR 50 or 5,000,000. A `Number format` settings row (and
   nowrap + ellipsis, as ONE persistent span re-appended after each
   `dom.d6.update` rewrite (so its tooltip listeners survive). At a bottleneck the
   span is the breakthrough button and calls `MOD_breakthrough` unchanged.
+- **A tooltip whose text is a function needs `true` as addDesc's sixth
+  argument** — `addDesc(el, null, 2, title, fn, true)`. Without it the game
+  prints the function's source: the realm on the rank line showed a page of code
+  until v4.7. `tests/tooltips.mjs` renders all ~1,370 tooltips and fails on code
+  or `undefined`/`NaN`.
 - **ASCII only on that line.** The game's font is MS Gothic; where it is missing,
   a symbol like ▲ or ⚠ falls back to a font with a taller line box — measured,
   ▲ grew the line 1px and ⚠ 6px, pushing the panel past 310px. `½` is safe.
@@ -441,6 +446,11 @@ the seclusion that earns that insight on average (floor 900s), and
 move with the curve and the ladder. Meditation grants insight **only at a wall**
 — on the way up the same Circulate Qi that climbed the level used to pay for
 every wall long before it. `tests/road.mjs` prints the table.
+
+**The Qi Settling Pill costs the breakthrough pill of the realm at the wall**
+(`MOD_settlePrice`, section 48, never under 5,200), through a getter on its
+Herbalist listing plus a per-tick reprice of rows already stocked — vendor stock
+keeps its own copy of the price from restock time.
 
 **Every price the ladder requires is held by `tests/econ.mjs`** to 10% of the
 climb it gates, in hours of the best income open at that tier (fighting each
@@ -879,6 +889,16 @@ ignores every `cond()`. It works by swapping the shared `timers.actm` slot
 around each action's own activate/deactivate rather than reimplementing them —
 see section 21 before touching it. Turning it off stops everything.
 
+## Settings travel inside the save (section 48)
+
+`save()` is wrapped to write `global.flags.mod_settings` (pacing, fights, number
+format, speed, exp, coin, unrestricted actions, rarity filter), and `load()` to
+adopt each one **only where this browser has no localStorage key of its own** —
+so a save moved to a new browser brings them, and a browser's own choice is
+never overwritten. Pacing is applied first, since a preset sets exp, coin and
+fights together. A new setting belongs in `MOD.settingKeys`,
+`MOD_settingsSnapshot` and `MOD_adoptSettings`, or it stays behind.
+
 ## Save slots
 
 The game has one save, at localStorage `"v0.3"`, read once from a `window` load
@@ -927,7 +947,7 @@ npm test                                          # everything
 **write to the save** — export one first, or run against a copy.
 
 Always finish a change with `npm run check` (mod.js parses, and the userscript
-was rebuilt from it) plus the relevant test script. The mod is ~13,500 lines of
+was rebuilt from it) plus the relevant test script. The mod is ~13,800 lines of
 wrappers around a codebase with no types and no module boundaries; the tests
 are the only safety net.
 
@@ -939,6 +959,9 @@ are the only safety net.
   to the panel exactly. For CSS, write the `-webkit-` form beside
   `user-select`, and give a `<select>` `MOD_styleSelect()` — Safari draws it as a
   native macOS button and ignores its background otherwise.
+- **Wait with `settle(page)`** (`tests/lib/browser.mjs`), never a fixed sleep:
+  it waits for two game ticks after load, counted from the tick the page
+  already had, since a loaded save brings its own `global.stat.tick`.
 - `run.sh` runs four scripts at once (`JOBS=1` for one at a time, output live).
   Every script launches its own browser, so their saves cannot collide. The
   whole suite is about a minute and a half; it prints seconds per script.

@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // The "Unrestricted actions" checkbox: run several sustained actions at once,
 // and start them anywhere.
@@ -15,7 +15,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 
 const fail = [];
 const check = (c, what) => { if (!c) fail.push(what); console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${what}`); };
@@ -116,7 +116,7 @@ await p.evaluate(() => { acts.forEach(a => { if (a.active) deactivateAct(a); });
 console.log('\n--- the setting survives a reload');
 await p.evaluate(() => setFreeActions(true));
 await p.reload({ waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 check(await p.evaluate(() => getFreeActions()) === true, 'still on after reloading');
 const box = await p.evaluate(() => {
   const i = MOD_SETTINGS.inputs.find(x => x.box);

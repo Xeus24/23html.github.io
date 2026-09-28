@@ -1,6 +1,6 @@
 # Proto23 local mod — design record
 
-**Version 4.6.** All mod code lives in `mod.js` — about 13,500 lines in 47
+**Version 4.7.** All mod code lives in `mod.js` — about 13,750 lines in 48
 numbered sections, plus section 0, which must stay first, and a final one that
 must stay last. The only change to the
 game itself is one `<script src="mod.js">` line at the bottom of `index.html`.
@@ -205,8 +205,8 @@ the author's game exactly — and runs the same measurements on both.
 
 ### Tests
 
-Thirty-eight Playwright scripts drive a real browser at a real copy of the game,
-four at a time, in about a minute and a half — and on GitHub for every push and
+Forty Playwright scripts drive a real browser at a real copy of the game,
+four at a time, in about 75 seconds — and on GitHub for every push and
 pull request, beside a check that the author's two files are still his.
 The numbers that define the balance are committed in
 `tests/baselines/balance.json`, so any change to them is a diff.
@@ -3509,6 +3509,40 @@ sets them. The curve had no persistence, so the chosen preset is stored and its
 curve re-applied at load. Changing a box afterwards reads as **Custom** rather
 than silently claiming a preset that no longer holds.
 
+
+## Small things found by using it (v4.7)
+
+Twelve items off one list, all small. Section 48 holds the new code; the rest
+are edits where the problem was.
+
+- **The Qi Settling Pill was a loophole.** 4.6 made Qi Deviation last as long as
+  the seclusion it skipped — 91 in-game days at realm 10 — and the pill that ends
+  it still cost 5,200, ten minutes of late income. It now costs the breakthrough
+  pill of the realm at the wall (never under 5,200), so failing in the open costs
+  a second pill. Vendor stock copies a price at restock, so the listing reads it
+  through a getter and rows already on the shelf are repriced on the tick.
+- **Near-death insight on Original fights**, measured rather than guessed
+  (`tests/fights.mjs`). At arrival his areas take thousands of fights to bring
+  you under 20% health — his design, you out-grow them. The mod's own areas and
+  the rank duels do it in two to five. No wall depends on it: each can be met by
+  sitting alone. Left as it is, and the wiki now says where it happens.
+- **Every tooltip is checked** (`tests/tooltips.mjs`): 1,367 rendered through the
+  game's own `dscr`, plus the 22 the mod attaches on its screens. It would have
+  caught the realm tooltip that printed its own source.
+- **Settings travel inside the save.** Written into `global.flags.mod_settings` on
+  save, and taken on load only where the browser has no setting of its own.
+- **Notes in the log**: after an update, once; on a first install, where the
+  wiki and commands are; on Safari, a reminder to download a backup at most once
+  a day and not after a download; under the userscript, an untested game version.
+- **The rank line shows the wall**: `½ step to Nascent Soul >> 40/104`.
+- **Small visuals**: no spinner arrows on the mod's number boxes (they sat on the
+  digits in Safari), and Menlo/Consolas before the generic monospace in the wiki,
+  since Safari's Courier is wider than Chrome's.
+- **The old pacing preset is labelled legacy** and not held to the economy rule;
+  **the spirit pills and the Root Cleansing Pill** are, at a day of income from
+  the tier where each is worth buying — all five already passed.
+- **Tests wait for two ticks, not 4.5 seconds**, which took the suite from 97 to
+  about 75 seconds.
 
 ## Fights as he wrote them, walls sized to the climb, prices you can pay (v4.6)
 

@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // EARLY GAME balance. Every other balance script models the player sitting AT a
 // story cap; this one walks the first few hours instead, when the character is
@@ -17,7 +17,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 // section 8's model is what this measures, so measure it everywhere: the
 // default (Fights: Original) leaves the author's areas unscaled -- fights.mjs
 await p.evaluate(() => setFights('scaled'));

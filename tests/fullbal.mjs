@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // point at any local server: PORT=9000 node tests/fullbal.mjs
 const HOST = `http://127.0.0.1:${process.env.PORT || 8080}`;
@@ -7,7 +7,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs=[]; p.on('pageerror', e=>errs.push(String(e).slice(0,200)));
 await p.goto(`${HOST}/index.html`, {waitUntil:'load'});
-await p.waitForTimeout(4500);
+await settle(p);
 // section 8's model is what this measures, so measure it everywhere: the
 // default (Fights: Original) leaves the author's areas unscaled -- fights.mjs
 await p.evaluate(() => setFights('scaled'));

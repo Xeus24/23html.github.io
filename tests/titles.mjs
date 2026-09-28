@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 
 // Title ranks, coverage, and what wearing one does.
 //
@@ -18,7 +18,7 @@ const b = await launch();
 const p = await b.newPage();
 const errs = []; p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
 await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 
 const fail = [];
 const check = (c, what) => { if (!c) fail.push(what); console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${what}`); };
@@ -112,7 +112,7 @@ const stack = await p.evaluate(async () => {
 check(stack.ticked === stack.once, `thirty ticks do not re-apply it (p ${stack.once} -> ${stack.ticked})`);
 
 await p.reload({ waitUntil: 'load' });
-await p.waitForTimeout(4500);
+await settle(p);
 const after = await p.evaluate(sk => ({ p: skl[sk].p, applied: (global.flags.mod_ttlxp || {})[sk] }), stack.skill);
 check(Math.abs(after.p - stack.once) < 1e-9,
   `and it survives a reload at the same value, not doubled (p ${after.p}, was ${stack.once})`);

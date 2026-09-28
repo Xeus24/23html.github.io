@@ -1,4 +1,4 @@
-import { launch } from './lib/browser.mjs';
+import { launch, settle } from './lib/browser.mjs';
 import { readFileSync } from 'node:fs';
 import { buildUserscript, OUT } from '../tools/build-userscript.mjs';
 
@@ -44,7 +44,7 @@ async function page(hosted, withScript) {
       'document.addEventListener("DOMContentLoaded", function () {\n' + committed + '\n});' });
   }
   await p.goto(`${HOST}/index.html`, { waitUntil: 'load' });
-  await p.waitForTimeout(4500);
+  await settle(p);
   return p;
 }
 
@@ -80,7 +80,7 @@ check(cl.hasVersion, `the changelog button opens the embedded changelog (${Strin
 console.log('\n--- a save made under it loads under it');
 await H.evaluate(() => { global.flags.mod_realm = 3; global.flags.mod_insight = 17; save(); });
 await H.reload({ waitUntil: 'load' });
-await H.waitForTimeout(4500);
+await settle(H);
 const back = await H.evaluate(() => ({ realm: global.flags.mod_realm, insight: global.flags.mod_insight,
   mod: typeof MOD !== 'undefined', backups: MOD_backupList().length }));
 check(back.mod && back.realm === 3 && back.insight === 17, `realm ${back.realm}, insight ${back.insight} after a reload`);
