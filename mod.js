@@ -11447,6 +11447,14 @@ function MOD_paintSkillRow(el, sk) {
     var st = MOD_rankStyle(MOD_skillRank(sk));
     el.children[0].style.color = st.c;
     el.children[0].style.textShadow = st.s || 'none';
+    /* Grade marker for players who cannot rely on colour: an attribute drawn by
+       CSS (::after), so the game's innerHTML rewrite of the name leaves it alone
+       and the name itself stays plain. Rank 1 shows nothing. */
+    var r = MOD_skillRank(sk), g = r > 1 ? String(r) : '';
+    if ((el.children[0].getAttribute('data-mod-grade') || '') !== g) {
+      if (g) el.children[0].setAttribute('data-mod-grade', g);
+      else el.children[0].removeAttribute('data-mod-grade');
+    }
   } catch (e) {}
 }
 
@@ -13795,7 +13803,8 @@ load = function () {
     st.textContent =
       'input.mod_optn::-webkit-inner-spin-button,input.mod_optn::-webkit-outer-spin-button' +
       '{-webkit-appearance:none;margin:0}' +
-      'input.mod_optn{-moz-appearance:textfield;appearance:textfield}';
+      'input.mod_optn{-moz-appearance:textfield;appearance:textfield}' +
+      '[data-mod-grade]::after{content:" " attr(data-mod-grade);font-size:.7em;opacity:.75}';
     (document.head || document.documentElement).appendChild(st);
   } catch (e) {}
 })();

@@ -173,7 +173,7 @@ by a stat ratio.
 
 ```bash
 npm install && npx playwright install chromium   # once
-npm test                                          # all 42 scripts, four at a time
+npm test                                          # all 43 scripts, four at a time
 ./tests/run.sh audit combat                       # a subset
 JOBS=1 npm test                                   # one at a time, output live
 BROWSER=webkit npm test                           # on Safari's engine (npx playwright install webkit)
@@ -205,7 +205,7 @@ copy of the folder.
 | `tools/` | the userscript build |
 | `MOD-NOTES.md` | the design record, section by section, with the reasoning |
 | `CLAUDE.md` | the constraints that are easy to violate by accident |
-| `tests/` | 42 Playwright scripts, `lib/stats.mjs`, the balance baseline, `authorfiles.sh` |
+| `tests/` | 43 Playwright scripts, `lib/stats.mjs`, the balance baseline, `authorfiles.sh` |
 | `.github/workflows/` | the suite on every push and pull request |
 | `changelog/mod-changelog.html` | what changed, every time |
 | `index.html` | the author's game, plus one script tag — the only edit to anything of his |
