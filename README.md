@@ -48,6 +48,18 @@ npx http-server -p 8080 -c-1 .
 `-c-1` disables caching. Without it the browser holds `mod.js` for an hour and
 edits appear not to take, which is confusing enough to be worth the flag.
 
+## Playing it from the fork's own site
+
+The repository root is the game with the mod's one script tag already in it, so
+GitHub Pages can serve it as it stands: in the fork's **Settings > Pages**, set
+the source to **Deploy from a branch**, branch `main`, folder `/ (root)`. It is
+then at `https://xeus24.github.io/23html.github.io/`, with no userscript and no
+download. `.nojekyll` at the root tells Pages to serve the files as they are.
+
+Saves live in the browser per site, so this address is a separate save from
+[23html.github.io](https://23html.github.io/) and from a local copy: move a
+character between them with the saves panel's export and import.
+
 ## What it changes
 
 Forty-eight sections, roughly in the order they were built. The design record

@@ -7254,10 +7254,14 @@ vendor.mod_pltwr.items = [
      best income at those tiers is gathering, and tests/econ.mjs holds every
      realm pill to 10% of the Circulate Qi climb it gates, in hours of that
      income. 540K and 560K sit just under realm 8's and 9's budgets (657K and
-     583K) and keep the ladder rising; 6.5M is under realm 10's 6.97M. */
-  { item: item.mod_bp8,  p: 540000,  c: 0.20, min: 1, max: 1 },
-  { item: item.mod_bp9,  p: 560000,  c: 0.12, min: 1, max: 1 },
-  { item: item.mod_bp10, p: 6500000, c: 0.06, min: 1, max: 1 },
+     583K) and keep the ladder rising; 6.5M is under realm 10's 6.97M.
+     The chances are sized to the WAIT, not the price: a day is 24 real minutes
+     and the Tower restocks every three, so a pill in stock with chance c takes
+     72/c minutes on average. Realm 10's 6% was twenty hours; .26/.20/.15 are
+     4.6, 6 and 8 hours, rising with the realm. tests/cultivation.mjs holds 8. */
+  { item: item.mod_bp8,  p: 540000,  c: 0.26, min: 1, max: 1 },
+  { item: item.mod_bp9,  p: 560000,  c: 0.20, min: 1, max: 1 },
+  { item: item.mod_bp10, p: 6500000, c: 0.15, min: 1, max: 1 },
   { item: item.sp6,      p: 90000,   c: 0.5,  min: 1, max: 2 },
   { item: item.sp7,      p: 480000,  c: 0.3,  min: 1, max: 1 }
 ].filter(function (e) { return !!e.item; });

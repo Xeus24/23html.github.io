@@ -219,6 +219,23 @@ const safe = await p.evaluate(() => {
 });
 check(safe === 20, `all 20 swings still landed with the proc throwing (${safe})`);
 
+console.log('\n--- a realm pill is in stock in reasonable time');
+// A game minute is a real second, so a day is 24 minutes and the Tower restocks
+// every `timeorig` days. A pill that is in stock with chance c is there after
+// 1/c restocks on average (measured: 1 day = 1440 real seconds at speed 1).
+const tower = await p.evaluate(() => ({
+  days: vendor.mod_pltwr.timeorig,
+  rows: vendor.mod_pltwr.items.filter(e => /^Breakthrough|bp/.test(e.item.name) || e.item.id >= 9120 && e.item.id <= 9129 || e.item.id >= 4210 && e.item.id <= 4219)
+    .map(e => ({ name: e.item.name, c: e.c }))
+}));
+check(tower.rows.length >= 5, `found the Tower's realm pills (${tower.rows.length})`);
+let prev = 0;
+for (const r of tower.rows) {
+  const hours = tower.days * 24 / 60 / r.c;
+  console.log(`     ${r.name}: ${Math.round(r.c * 100)}%, about ${hours.toFixed(1)} h`);
+  check(hours <= 8.01, `${r.name} is in stock within 8 real hours on average (${hours.toFixed(1)})`);
+}
+
 console.log('\nerrors:', errs.length ? errs : 'none');
 if (errs.length) fail.push('page errors: ' + JSON.stringify(errs));
 await b.close();
