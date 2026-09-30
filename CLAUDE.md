@@ -897,7 +897,10 @@ adopt each one **only where this browser has no localStorage key of its own** â€
 so a save moved to a new browser brings them, and a browser's own choice is
 never overwritten. Pacing is applied first, since a preset sets exp, coin and
 fights together. A new setting belongs in `MOD.settingKeys`,
-`MOD_settingsSnapshot` and `MOD_adoptSettings`, or it stays behind.
+`MOD_settingsSnapshot` and `MOD_adoptSettings`, or it stays behind. Adoption runs
+once per browser (`p23_mod_settings_seen`), so a slot switch never pulls another
+slot's snapshot in; `tests/slotsettings.mjs` holds it. `tests/docs.mjs` checks the
+counts the docs state (sections, scripts, version, suite time) against the source.
 
 ## Save slots
 
@@ -964,7 +967,7 @@ are the only safety net.
   already had, since a loaded save brings its own `global.stat.tick`.
 - `run.sh` runs four scripts at once (`JOBS=1` for one at a time, output live).
   Every script launches its own browser, so their saves cannot collide. The
-  whole suite is about a minute and a half; it prints seconds per script.
+  whole suite is about 75 seconds; it prints seconds per script.
 - **GitHub runs everything on every push and pull request**
   (`.github/workflows/tests.yml`): `npm run check`, `tests/authorfiles.sh`, then
   `npm test`.

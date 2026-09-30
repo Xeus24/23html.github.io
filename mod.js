@@ -13718,6 +13718,7 @@ function MOD_smallNotes() {
 
 /* --- settings inside the save ----------------------------------------------- */
 
+MOD.settingsSeenKey = 'p23_mod_settings_seen';
 MOD.settingKeys = {
   pacing: 'p23_mod_pacing', fights: MOD_FIGHTS.key, numfmt: MOD_NUM.key,
   speed: MOD.speed_key, xp: MOD.xp_key, coin: MOD.coin_key, free: MOD.free_key,
@@ -13770,7 +13771,16 @@ save = function () {
 var MOD_load_before_settings = load;
 load = function () {
   var r = MOD_load_before_settings.apply(this, arguments);
-  try { MOD_adoptSettings(global.flags.mod_settings); } catch (e) {}
+  try {
+    /* Once per browser. A later load is a slot switch, and a slot's old snapshot
+       must not reach settings this browser has not set: adoption writes the key,
+       which every other slot would then inherit. */
+    var snap = global.flags.mod_settings;
+    if (snap && !MOD_lsHas(MOD.settingsSeenKey)) {
+      MOD_adoptSettings(snap);
+      try { localStorage.setItem(MOD.settingsSeenKey, '1'); } catch (e) {}
+    }
+  } catch (e) {}
   return r;
 };
 

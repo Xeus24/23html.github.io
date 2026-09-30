@@ -3531,6 +3531,8 @@ are edits where the problem was.
   caught the realm tooltip that printed its own source.
 - **Settings travel inside the save.** Written into `global.flags.mod_settings` on
   save, and taken on load only where the browser has no setting of its own.
+  Once per browser (`p23_mod_settings_seen`): a later load is a slot switch, and
+  adopting there would write a key every other slot then inherits.
 - **Notes in the log**: after an update, once; on a first install, where the
   wiki and commands are; on Safari, a reminder to download a backup at most once
   a day and not after a download; under the userscript, an untested game version.

@@ -1,5 +1,5 @@
-# Every push and pull request runs the whole suite in a real browser -- Chromium
-# and WebKit (Safari's engine) -- the same ./tests/run.sh as a local `npm test`,
+# Every push and pull request runs the whole suite in a real browser -- Chromium,
+# WebKit (Safari's engine) and Firefox -- the same ./tests/run.sh as a local `npm test`,
 # so a PR shows green or red.
 #
 # Also checked: mod.js parses, the committed userscript was rebuilt from it, and
@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, webkit]
+        browser: [chromium, webkit, firefox]
     name: tests (${{ matrix.browser }})
     env:
       BROWSER: ${{ matrix.browser }}
