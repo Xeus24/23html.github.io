@@ -254,6 +254,32 @@ check(ui.restored === ui.before, `clearing the search restores all ${ui.before}`
 check(ui.openedBySearch, 'a search opens the groups that still have matches');
 check(ui.closedAfter, `clearing it collapses all ${ui.groups} groups again`);
 
+// The search covers every page: the nav counts matches, dims the empty pages,
+// and Enter moves from a page with none to one that has some.
+const cross = await page.evaluate(() => {
+  const box = document.getElementById('srch');
+  const links = [].slice.call(document.querySelectorAll('nav a[data-p]'));
+  box.value = 'Fighting'; box.dispatchEvent(new Event('input'));
+  const withHits = links.filter(a => +a.dataset.n > 0), without = links.filter(a => +a.dataset.n === 0);
+  const labelled = withHits.every(a => / \(\d+\)$/.test(a.textContent));
+  const dimmed = without.every(a => a.style.opacity === '0.4');
+  let jumped = null;
+  if (without.length && withHits.length) {
+    without[0].click();
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    const cur = links.find(a => a.className === 'on');
+    jumped = !!cur && +cur.dataset.n > 0;
+  }
+  box.value = ''; box.dispatchEvent(new Event('input'));
+  const restoredLabels = links.every(a => a.textContent === a.dataset.l && a.style.opacity === '');
+  return { hits: withHits.length, empty: without.length, labelled, dimmed, jumped, restoredLabels };
+});
+check(cross.hits > 1, `a query is counted on several pages (${cross.hits} have matches)`);
+check(cross.labelled, 'each page with matches shows its count in the nav');
+check(cross.dimmed, `the ${cross.empty} pages without matches are dimmed`);
+check(cross.jumped === true, 'Enter on a page with none jumps to one that has matches');
+check(cross.restoredLabels, 'clearing the search restores every nav label');
+
 // The reason the groups exist at all: with everything listed, three pages ran
 // past 40,000px open, which is a hundred screens of scrolling. Collapsed, each
 // page has to open as something you can take in.

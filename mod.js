@@ -8441,13 +8441,31 @@ function MOD_wikiJs() {
     '  pages.forEach(function(p){',
     '    [].slice.call(p.querySelectorAll(".wk-e")).forEach(function(e){',
     '      e.style.display=(!q||e.textContent.toLowerCase().indexOf(q)>=0)?"":"none"})});',
+    // Every page, not just the one on screen: the nav says how many entries
+    // match in each, dims the ones with none, and Enter jumps to the first
+    // page that has any. A prose page with no entries counts as one if its text
+    // contains the query.
+    '  links.forEach(function(a){',
+    '    var pg=document.getElementById("pg-"+a.dataset.p),n=0;',
+    '    if(a.dataset.l===undefined)a.dataset.l=a.textContent;',
+    '    if(q&&pg){var es=[].slice.call(pg.querySelectorAll(".wk-e"));',
+    '      if(es.length)es.forEach(function(e){if(e.textContent.toLowerCase().indexOf(q)>=0)n++});',
+    '      else if(pg.textContent.toLowerCase().indexOf(q)>=0)n=1}',
+    '    a.dataset.n=n;a.style.opacity=(q&&!n)?".4":"";',
+    '    a.textContent=a.dataset.l+(q&&n?" ("+n+")":"")});',
     '  groups.forEach(function(g){',
     '    var any=[].slice.call(g.querySelectorAll(".wk-e")).some(function(e){',
     '      return e.style.display!=="none"});',
     '    g.style.display=any?"":"none";',
     '    g.open=xall.checked||(!!q&&any)}); }',
     'box.addEventListener("input",filter);',
-    'box.addEventListener("keydown",function(e){if(e.key==="Escape"){box.value="";filter()}});',
+    'box.addEventListener("keydown",function(e){',
+    '  if(e.key==="Escape"){box.value="";filter()}',
+    '  if(e.key==="Enter"&&box.value.trim()){',
+    '    var cur=links.filter(function(a){return a.className==="on"})[0];',
+    '    if(cur&&+cur.dataset.n)return;',
+    '    var hit=links.filter(function(a){return +a.dataset.n>0})[0];',
+    '    if(hit){location.hash=hit.dataset.p;show(hit.dataset.p)}}});',
     // Everything is collapsed by default because three of these pages run past
     // 40,000px open. This is the way back to one long document, which is what
     // the browser's own find needs.
@@ -8478,7 +8496,7 @@ function MOD_wikiBuild() {
     '<title>' + MOD_WIKI.safe(MOD_WIKI.title) + '</title>' +
     '<style>' + MOD_wikiCss() + '</style></head><body>' +
     '<nav><h2>WIKI</h2>' +
-    '<input id="srch" class="srch" type="search" placeholder="search this page" ' +
+    '<input id="srch" class="srch" type="search" placeholder="search the wiki" ' +
     'autocomplete="off">' + nav +
     '<label class="xall"><input type="checkbox" id="xall">expand every group</label>' +
     '</nav>' +
