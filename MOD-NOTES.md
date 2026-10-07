@@ -4100,3 +4100,17 @@ screen, every surviving skill intact.
   it ever did. `setMoneyDrops(0.15)` puts back the old coin drop. The curve
   setting lasts until the next reload
 - Show numbers as the original does: `setNumberFormat('game')`
+
+
+## 49. Catching up a hidden tab
+
+The game's loop is a chained `setTimeout`; a hidden tab clamps those to once a second
+and, after five minutes, once a minute (documented browser behaviour, not measured
+here: it needs five minutes of a real hidden tab). `ontick` is wrapped: when more than
+two ticks' worth of wall-clock time has passed since the last one, the missed ticks are
+replayed (capped at `MOD_CATCHUP.maxSec`, default 3600, in game seconds at the current
+speed), and so are the seconds of the running action. Combat is not replayed and the
+fight flag is read once before the loop, since replayed ticks can end a fight. The cap
+is `p23_mod_catchup`, carried in `mod_settings`. Name hazard: the wrapper is
+`MOD_ontick_before_catchup`; section 1 already owns `MOD_ontick_original`, and a second
+`var` of that name made both wrappers call themselves (stack overflow at load).

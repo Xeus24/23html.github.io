@@ -970,6 +970,7 @@ function modHelp() {
     '  setXpCurve({vanillaTo: n})  modXpCurve()       until the next reload',
     '  setPacing(name)  getPacing()  modPacing()      now ' + (typeof getPacing === 'function' ? getPacing() : '?'),
     "  setFights(mode)  getFights()  modFights()      now " + (typeof getFights === 'function' ? getFights() : '?') + " ('original' or 'scaled')",
+    "  setCatchUp(sec)  getCatchUp()                 replay a hidden tab's missed time, up to sec (0 = off)",
     '',
     ' Balance, for measuring',
     '  modBalance()  setEnemyScale({...})  getEnemyScale()  setHpTrack(n)',
@@ -13746,19 +13747,81 @@ function MOD_smallNotes() {
 })();
 
 
+/* ===========================================================================
+   49. CATCHING UP A HIDDEN TAB
+   ---------------------------------------------------------------------------
+   The game's loop is a chained setTimeout (index.html: update()). A hidden tab
+   gets those clamped to once a second and, after five minutes, once a MINUTE, so
+   a game left in the background nearly stops: ~98% of the time away is lost.
+   This replays what was missed when the loop next runs: the world's ticks
+   (clock, planners, restocks, weather) and the seconds of the running action.
+   Combat is NOT replayed, so being away cannot kill you. Capped at an hour by
+   default (setCatchUp(seconds), 0 turns it off), counted in game seconds at the
+   current speed. Persisted on p23_mod_catchup and carried in the save like the
+   other settings.
+   =========================================================================== */
+
+MOD.catchup_key = 'p23_mod_catchup';
+var MOD_CATCHUP = { maxSec: 3600, last: Date.now(), running: false, replayed: 0 };
+try {
+  var MOD_cu_saved = localStorage.getItem(MOD.catchup_key);
+  if (MOD_cu_saved !== null && isFinite(Number(MOD_cu_saved))) MOD_CATCHUP.maxSec = Math.max(0, Number(MOD_cu_saved));
+} catch (e) {}
+
+function setCatchUp(sec) {
+  sec = Number(sec);
+  if (!isFinite(sec) || sec < 0) { console.warn('[mod] setCatchUp: seconds of away time to replay, 0 = off'); return MOD_CATCHUP.maxSec; }
+  MOD_CATCHUP.maxSec = Math.min(sec, 86400);
+  try { localStorage.setItem(MOD.catchup_key, String(MOD_CATCHUP.maxSec)); } catch (e) {}
+  return MOD_CATCHUP.maxSec;
+}
+function getCatchUp() { return MOD_CATCHUP.maxSec; }
+
+var MOD_ontick_before_catchup = ontick;
+ontick = function () {
+  if (MOD_CATCHUP.running || !(MOD_CATCHUP.maxSec > 0)) {
+    MOD_CATCHUP.last = Date.now();
+    return MOD_ontick_before_catchup.apply(this, arguments);
+  }
+  var now = Date.now(), fps = global.fps > 0 ? global.fps : 1;
+  var missed = Math.floor((now - MOD_CATCHUP.last) * fps / 1000) - 1;   // this call is the one on time
+  MOD_CATCHUP.last = now;
+  if (missed > 2) {
+    missed = Math.min(missed, Math.floor(MOD_CATCHUP.maxSec * fps));
+    MOD_CATCHUP.running = true;
+    var inFight = !!global.flags.btl;           // read once: the replayed ticks may end the fight
+    try {
+      for (var i = 0; i < missed; i++) {
+        MOD_ontick_before_catchup();
+        try {
+          var a = global.current_a;
+          if (a && a.active && a !== act.default && !inFight) a.use();
+        } catch (e) { break; }                  // an action that errors stops being replayed, not the clock
+      }
+      MOD_CATCHUP.replayed = missed;
+      if (typeof msg === 'function') {
+        var m = Math.round(missed / fps / 60);
+        msg('While the tab was in the background, ' + (m >= 1 ? m + ' minute' + (m > 1 ? 's' : '') : 'a moment') + ' passed.', 'grey');
+      }
+    } catch (e) { console.warn('[mod] catch-up failed: ' + e.message); }
+    MOD_CATCHUP.running = false;
+  }
+  return MOD_ontick_before_catchup.apply(this, arguments);
+};
+
 /* --- settings inside the save ----------------------------------------------- */
 
 MOD.settingsSeenKey = 'p23_mod_settings_seen';
 MOD.settingKeys = {
   pacing: 'p23_mod_pacing', fights: MOD_FIGHTS.key, numfmt: MOD_NUM.key,
   speed: MOD.speed_key, xp: MOD.xp_key, coin: MOD.coin_key, free: MOD.free_key,
-  minRar: MOD_UI.minRarKey
+  minRar: MOD_UI.minRarKey, catchup: MOD.catchup_key
 };
 
 function MOD_settingsSnapshot() {
   return { pacing: getPacing(), fights: getFights(), numfmt: MOD_NUM.mode, speed: getSpeed(),
            xp: MOD.skill_xp_mult, coin: MOD_MONEY.chance, free: !!getFreeActions(),
-           minRar: MOD_UI.minRar };
+           minRar: MOD_UI.minRar, catchup: MOD_CATCHUP.maxSec };
 }
 
 function MOD_lsHas(k) { try { return localStorage.getItem(k) !== null; } catch (e) { return true; } }
@@ -13782,6 +13845,7 @@ function MOD_adoptSettings(s) {
     if (isFinite(s.xp) && !MOD_lsHas(K.xp) && s.xp !== MOD.skill_xp_mult) { setSkillXp(s.xp); took.push('skill exp'); }
     if (isFinite(s.coin) && !MOD_lsHas(K.coin) && s.coin !== MOD_MONEY.chance) { setMoneyDrops(s.coin); took.push('coin drop'); }
     if (typeof s.free === 'boolean' && !MOD_lsHas(K.free) && s.free !== !!getFreeActions()) { setFreeActions(s.free); took.push('unrestricted actions'); }
+    if (isFinite(s.catchup) && !MOD_lsHas(K.catchup) && s.catchup !== MOD_CATCHUP.maxSec) { setCatchUp(s.catchup); took.push('catch-up'); }
     if (isFinite(s.minRar) && !MOD_lsHas(K.minRar) && s.minRar !== MOD_UI.minRar) {
       MOD_UI.minRar = s.minRar;
       try { localStorage.setItem(K.minRar, String(s.minRar)); } catch (e) {}
