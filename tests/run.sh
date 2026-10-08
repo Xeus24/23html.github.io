@@ -23,7 +23,7 @@ fi
 if [ "$#" -gt 0 ]; then
   TESTS=("$@")
 else
-  TESTS=(docs audit audit2 earlybal combat allareas fightsmoke fullbal econ settings-boxes savecompat saveslots slotsettings grademark catchup actionlock freeactions perkcoverage titles titlepicker dojo cultivation places wiki marketplace ids capreach areagate ranks crafting names targets convergence vanilla polish backups pacing road basefixes baseline fights userscript tooltips small)
+  TESTS=(docs audit audit2 earlybal combat allareas fightsmoke fullbal econ settings-boxes savecompat saveslots slotsettings grademark catchup screens dishes actionlock freeactions perkcoverage titles titlepicker dojo cultivation places wiki marketplace ids capreach areagate ranks crafting names targets convergence vanilla polish backups pacing road basefixes baseline fights userscript tooltips small)
 fi
 
 echo "serving $ROOT on port $PORT"

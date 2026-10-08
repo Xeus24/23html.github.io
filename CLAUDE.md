@@ -621,8 +621,10 @@ recipes, by output rarity and by whether any `giveRcp` call can hand the recipe
 over: 35/43 reachable at 1★, 7/17 at 2★, **0/1 at 3★** (the only one is
 `rcp.trr`, Trinity), 1/1 at 4★ (the Clover Pin), nothing at 5★. **Nineteen
 recipes have no `giveRcp` anywhere** — defined, priced, complete, unteachable.
-Reported in the wiki, not wired up: which the author gated and which he forgot
-is his call.
+Section 50 teaches the fifteen dishes by Cooking level (`MOD_DISHES`, simplest
+first by the cooking exp each grants); `test`, Trinity, Star Shell and Grand
+Gelatin stay unteachable, reported in the wiki: they are not dishes, and which
+the author gated is his call.
 
 Section 35 adds four rungs, 2★ to 5★, each a full set (weapon, body armour,
 shield, accessory, tonic) from twelve gathered materials along three lines, at

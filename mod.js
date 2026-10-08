@@ -1963,8 +1963,10 @@ chss.mod_gate.sl = function () {
   } else {
     // false, not true: `chs(txt, true)` calls clr_chs() and would wipe the
     // choices already drawn above it
-    chs('The path forks upward, but the way is choked with fallen rock. (' +
-        MOD_prog('hollow') + '/' + MOD_REQ_HOLLOW + ' cleared in The Sunken Hollow)', false, 'grey');
+    addDesc(chs('The way up is choked with rock. (' +
+        MOD_prog('hollow') + '/' + MOD_REQ_HOLLOW + ' in the Hollow)', false, 'grey'), null, 2,
+        'The way up', 'The path forks upward, but the way is choked with fallen rock. ' +
+        MOD_prog('hollow') + '/' + MOD_REQ_HOLLOW + ' cleared in The Sunken Hollow.');
   }
   if (MOD_spireCleared()) {
     chs('"=> The Long Vigil"', false, 'red').addEventListener('click', function () {
@@ -1972,8 +1974,10 @@ chss.mod_gate.sl = function () {
       smove(chss.mod_vigil);
     });
   } else if (MOD_hollowCleared()) {
-    chs('Something further out is still shut to you. (' +
-        MOD_prog('spire') + '/' + MOD_REQ_SPIRE + ' cleared in The Ashen Spire)', false, 'grey');
+    addDesc(chs('Something further out is shut. (' +
+        MOD_prog('spire') + '/' + MOD_REQ_SPIRE + ' in the Spire)', false, 'grey'), null, 2,
+        'Further out', 'Something further out is still shut to you. ' +
+        MOD_prog('spire') + '/' + MOD_REQ_SPIRE + ' cleared in The Ashen Spire.');
   }
   chs('"<= Back to the gate"', false).addEventListener('click', function () { smove(chss.frstn1main); });
 };
@@ -10042,7 +10046,7 @@ MOD_wikiPage('crafting', 'Crafting', function () {
     var star = 1;
     r.res.forEach(function (e) { if (e.item && (e.item.rar || 1) > star) star = e.item.rar; });
     var mine = k.indexOf('mod_') === 0;
-    var reachable = mine || new RegExp('giveRcp\\(\\s*rcp\\.' + k + '\\b').test(src);
+    var reachable = mine || r._modTaught || new RegExp('giveRcp\\(\\s*rcp\\.' + k + '\\b').test(src);
     byStar[star] = byStar[star] || { n: 0, ok: 0 };
     byStar[star].n++; if (reachable) byStar[star].ok++;
     if (!reachable) orphans.push(r.name || k);
@@ -13807,6 +13811,54 @@ ontick = function () {
     MOD_CATCHUP.running = false;
   }
   return MOD_ontick_before_catchup.apply(this, arguments);
+};
+
+/* ===========================================================================
+   50. THE DISHES NOTHING TAUGHT
+   ---------------------------------------------------------------------------
+   Fifteen of the author's cooking recipes (Bacon and Eggs through Mushroom Soup)
+   are complete and priced and have no giveRcp anywhere. They are taught here,
+   by Cooking level, simplest first: ordered by the cooking exp each grants (his
+   own measure of how involved a dish is), spread over levels 6-44. Not
+   milestones -- those are stored by index -- but a check when the level changes,
+   and giveRcp refuses a second copy. Left alone: `test` (a placeholder), Star Shell,
+   Trinity and Grand Gelatin (his late accessories, not dishes).
+   =========================================================================== */
+
+var MOD_DISHES = (function () {
+  var out = [], src = '';
+  try { src = MOD_gameSource(); } catch (e) { return out; }
+  for (var k in rcp) {
+    var r = rcp[k];
+    if (!r || typeof r !== 'object' || r.type !== 1 || k.indexOf('mod_') === 0) continue;
+    if (new RegExp('giveRcp\\(\\s*rcp\\.' + k + '\\b').test(src)) continue;
+    var m = /skl\.cook\s*,\s*([\d.]+)/.exec(String(r.onmake));
+    if (!m) continue;
+    out.push({ key: k, xp: Number(m[1]), id: r.id, recipe: r });
+  }
+  out.sort(function (a, b) { return (a.xp - b.xp) || (a.id - b.id); });
+  out.forEach(function (d, i) {
+    d.lv = Math.round(6 + i * (44 - 6) / Math.max(1, out.length - 1));
+    d.recipe._modTaught = true;
+  });
+  return out;
+})();
+
+var MOD_dishLv = -1;
+function MOD_teachDishes() {
+  var lv = skl.cook ? skl.cook.lvl : 0, n = 0;
+  MOD_DISHES.forEach(function (d) {
+    if (d.lv > lv || d.recipe.have !== false) return;
+    try { giveRcp(d.recipe); n++; msg('You work out how to make ' + d.recipe.name, 'orange'); } catch (e) {}
+  });
+  return n;
+}
+
+var MOD_ontick_before_dishes = ontick;
+ontick = function () {
+  var r = MOD_ontick_before_dishes.apply(this, arguments);
+  try { if (skl.cook && skl.cook.lvl !== MOD_dishLv) { MOD_dishLv = skl.cook.lvl; MOD_teachDishes(); } } catch (e) {}
+  return r;
 };
 
 /* --- settings inside the save ----------------------------------------------- */

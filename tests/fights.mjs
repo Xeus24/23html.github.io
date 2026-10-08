@@ -202,6 +202,12 @@ const ours = Object.keys(own).map(k => ({ k, n: toBrink(own[k].killT, own[k].die
 console.log(`     his route past the tutorial, fights to the brink with no rest: ${his.map(f).join(', ')}`);
 console.log(`     the mod's own areas: ${ours.map(o => o.k + ' ' + f(o.n)).join(', ')}`);
 check(his.every(n => n > 10), 'on Original his areas are not near-death fights at arrival, as in his game');
+// The step from his last area to the first of the mod's: not a wall, but a cliff.
+// At arrival his arena IV is finished in under a swing; the Hollow is sized to
+// you at ~9. What must hold is that the Hollow stays winnable with room to spare.
+const lastHis = rm[rm.length - 1], hol = own.mod_hollow;
+console.log(`     the step: his last area ${lastHis.kill.toFixed(1)} swings to kill, the Hollow ${hol.killT.toFixed(1)} (to die ${hol.dieT.toFixed(1)})`);
+check(hol.dieT >= hol.killT * 1.5, `the Hollow is winnable with margin at arrival (kill ${hol.killT.toFixed(1)}, die ${hol.dieT.toFixed(1)})`);
 check(ours.every(o => o.n <= 6), 'the mod\'s own areas bring you to the brink within a handful of fights, so the source is live there');
 const wallOk = await M.evaluate(() => MOD_REALMS.filter(r => r.n).every(r =>
   MOD_secludeFull(r.n) * MOD_CULT.secludeChance >= MOD_insightNeed(r.n) - 0.5));   // whole seconds

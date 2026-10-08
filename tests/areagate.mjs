@@ -37,7 +37,7 @@ const R = await p.evaluate(() => {
     hollow: has(hub, 'The Sunken Hollow'),
     spire:  has(hub, '=> The Ashen Spire'),
     vigil:  has(hub, '=> The Long Vigil'),
-    hint:   has(hub, 'choked with fallen rock')
+    hint:   has(hub, 'choked with rock')
   };
 
   // --- 3. Hollow cleared: Spire opens, Vigil still shut -------------------
@@ -46,7 +46,7 @@ const R = await p.evaluate(() => {
   out.hollowCleared = {
     spire: has(hub, '=> The Ashen Spire'),
     vigil: has(hub, '=> The Long Vigil'),
-    hint:  has(hub, 'still shut to you')
+    hint:  has(hub, 'further out is shut')
   };
 
   // --- 4. Spire cleared: Vigil opens --------------------------------------

@@ -39,7 +39,7 @@ const audit = await p.evaluate(() => {
     let star = 1;
     r.res.forEach(e => { if (e.item && (e.item.rar || 1) > star) star = e.item.rar; });
     const mine = k.indexOf('mod_') === 0;
-    const reachable = mine || new RegExp('giveRcp\\(\\s*rcp\\.' + k + '\\b').test(src);
+    const reachable = mine || r._modTaught || new RegExp('giveRcp\\(\\s*rcp\\.' + k + '\\b').test(src);
     all[star] = (all[star] || 0) + 1;
     if (!mine) { base[star] = base[star] || { n: 0, ok: 0 }; base[star].n++; if (reachable) base[star].ok++; }
     if (!reachable) orphans.push(k);
@@ -51,8 +51,8 @@ console.log('     base game, by output stars:',
 check((audit.base[3] || { ok: 0 }).ok === 0,
   'the base game still cannot teach its only 3-star recipe (Trinity)');
 check(!audit.base[5], 'and it has no 5-star recipe at all');
-check(audit.orphans.length >= 15,
-  `${audit.orphans.length} base-game recipes have no giveRcp anywhere — reported, not wired up`);
+check(audit.orphans.slice().sort().join() === 'jln4,sshl,test,trr',
+  `only the placeholder and his three late accessories still have no way to be taught (${audit.orphans.join(', ')}); the fifteen dishes are taught by Cooking level`);
 check((audit.all[5] || 0) >= 5, `with the ladder, ${audit.all[5] || 0} recipes now make 5-star things`);
 check([2, 3, 4, 5].every(s => (audit.all[s] || 0) >= 5),
   `every rung from 2 to 5 has a full set (${[2, 3, 4, 5].map(s => audit.all[s]).join('/')})`);
