@@ -6583,7 +6583,7 @@ function MOD_dojoAdvancement() {
         chs('"Accept"', false, 'lime').addEventListener('click', function () {
           giveWealth(next.coin);
           giveItem(item[next.pill], next.n);
-          if (next.realmPill && item['mod_bp' + next.realmPill]) {
+          if (next.realmPill && item['mod_bp' + next.realmPill] && !global.flags['mod_djwall' + next.realmPill]) {
             giveItem(item['mod_bp' + next.realmPill], 1);
             msg('Instructor: And this. I am not going to pretend I know where it came from.', 'gold');
           }
@@ -6595,6 +6595,31 @@ function MOD_dojoAdvancement() {
   }
 
   chs('"<= Back"', false).addEventListener('click', function () { smove(chss.t3, false); });
+}
+
+/* The dojo's pills for realms 6-10 come at character levels 45/60/75/90/105,
+   while the wall for each is a Circulate Qi level. The two clocks are not the
+   same, so a player can stand at a wall long before the level that pays for it.
+   Rather than model the gap, the instructor gives that pill once, on request,
+   whenever you are stuck at one of those walls without it; the level reward for
+   the same realm then skips its pill. */
+function MOD_wallPillOffer() {
+  try {
+    if (!MOD_atBottleneck()) return 0;
+    var n = MOD_realmEligible().n;
+    if (!MOD_RUNG_REALM_VALUES.some(function (v) { return v === n; })) return 0;
+    if (global.flags['mod_djwall' + n] || !item['mod_bp' + n]) return 0;
+    return n;
+  } catch (e) { return 0; }
+}
+var MOD_RUNG_REALM_VALUES = Object.keys(MOD_RUNG_REALM).map(function (k) { return MOD_RUNG_REALM[k]; });
+function MOD_claimWallPill() {
+  var n = MOD_wallPillOffer();
+  if (!n) return false;
+  global.flags['mod_djwall' + n] = true;
+  giveItem(item['mod_bp' + n], 1);
+  msg('Instructor: I kept this back. Do not ask me for another.', 'gold');
+  return true;
 }
 
 /* The manual choice, in the shape of the instructor's first skillbook offer. */
@@ -6635,6 +6660,12 @@ chss.t3.sl = function () {
 
     chs('"Level Advancement (continued)"', false, 'orange')
       .addEventListener('click', function () { MOD_dojoAdvancement(); });
+    var wall = MOD_wallPillOffer();
+    if (wall) {
+      var wl = chs('"A pill for the wall"', false, 'gold');
+      addDesc(wl, null, 2, 'A pill for the wall', 'You are stuck at the realm ' + wall + ' wall. The instructor keeps one back for exactly this, once.');
+      wl.addEventListener('click', function () { MOD_claimWallPill(); smove(chss.t3, false); });
+    }
   } catch (e) {
     console.warn('[mod] dojo advancement failed to draw: ' + e.message);
   }

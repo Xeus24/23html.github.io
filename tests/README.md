@@ -48,7 +48,7 @@ GitHub runs the suite on both.
 The runner runs `JOBS` scripts at once (default 4). Every script launches its
 own browser, which is a fresh profile, so the ones that write saves cannot
 collide; their output is printed in list order once all have finished, and
-then seconds per script, slowest first. All 47 take about 75 seconds this way.
+then seconds per script, slowest first. All 48 take about 75 seconds this way.
 Scripts wait for the page with `settle(page)` from `lib/browser.mjs` — two game
 ticks after load — rather than the flat 4.5 seconds each once slept.
 
@@ -81,6 +81,10 @@ GitHub runs the same thing for every push and pull request
 | `slotsettings.mjs` | Settings inside the save are adopted once per browser: the first load takes what the browser lacks and marks itself, and a later load (a slot switch) does not pull another slot's snapshot in or write a key the other slots would inherit. |
 | `grademark.mjs` | Skill rarity by more than colour: rank 2 and up carries a grade number drawn by CSS from an attribute on the name cell, so it survives the game's per-second rewrite and the name text stays plain. |
 | `catchup.mjs` | Catching up a hidden tab: a normal tick replays nothing; ten minutes away moves the clock ten minutes and gives the running action its seconds; a day away is capped at the hour; a fight when you left is never replayed; `setCatchUp(0)` turns it off, persists and travels in the save. Time away is faked by moving the loop's last-tick time back. |
+| `screens.mjs` | Late-game screen audit: a capped character with a 60-character name draws every location, and every choice line on the mod's own screens is checked for wrapping or spilling (the rows are a fixed 22px). The author's offenders are listed, not judged. Runs on `BROWSER=webkit` too. |
+| `dishes.mjs` | The fifteen dishes nothing taught: found by the same source scan the wiki uses, taught by Cooking level in order across 6-44, nothing early, nothing twice, and through the real tick. The placeholder and the accessories are left alone. |
+| `creaturegear.mjs` | Every creature held one shared weapon: none does now, no two share a slot, his 32 affinity lines are read back and applied, and the player's fists scaling with level reach no creature. |
+| `dojowall.mjs` | The instructor's pill for the wall: stuck at a realm 6-10 wall without the pill, the dojo gives it once on request, nothing at other times or at walls the herbalist covers, and the level reward for that realm skips a duplicate. |
 | `docs.mjs` | The numbers the docs state: section count, version, script count against `run.sh` and the files, the suite's duration. Read from the source, no browser. |
 | `econ.mjs` | **What the ladder asks you to pay, against what you can earn.** Income per hour at every story tier from every source open there — fighting each area (the real swings a kill takes through `dmg_calc`, for a player at that tier's cap, the drop table sold at the shops' rate, plus time to recover the health it cost) and gathering at each node — and the best one taken. Every required price is held to one rule on the Original preset: no more than 10% of the climb it gates, in hours of that income (one hour where the climb is under ten). A realm pill gates the Circulate Qi climb from the realm below; all hundred Jade Slips together are held to 10% of what the game pays after the Archive opens. The Mod before 4.2 preset is printed beside it, not held to it. |
 | `settings-boxes.mjs` | The settings-menu number boxes: render, apply, clamp, Enter-to-commit, don't clobber a focused box, mirror console changes, persist across reload, leave the rest of the settings window alone. |
