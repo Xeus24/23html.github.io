@@ -13861,6 +13861,53 @@ ontick = function () {
   return r;
 };
 
+/* ===========================================================================
+   51. EVERY CREATURE WAS HOLDING THE SAME WEAPON
+   ---------------------------------------------------------------------------
+   A Creature starts with `eqp = [eqp.dummy, eqp.dummy]`, one shared object, and
+   the author then wrote per-creature affinities straight onto it:
+
+       creature.bat.eqp[0].aff = [0,12,-10,0,0,-5,5];     (32 such lines)
+
+   So every creature (all 48, measured) held whichever creature was defined
+   last: aff [4,9,7,-12,12,0,0], cls [7,7,7]. Enemy damage reads exactly those
+   (`att.eqp[0].aff[att.atype]`, `.cls[att.ctype]`). Worse, the player's bare
+   fists ARE that object, and load() writes the player's level into it
+   (`cls[2] = lvl/4`, `aff[0] = lvl/5`), so a physical or blunt creature hit
+   harder the higher the player's level, unarmed or not.
+
+   Each creature now gets its own weapon and armour slot, and the values the
+   author wrote for it are read back from his source and applied. The player's
+   fists stay the original object. Same footing as section 46: three-line
+   corrections to his combat code, always on.
+   =========================================================================== */
+
+var MOD_CREATURE_GEAR = (function () {
+  var fixed = 0, applied = 0, src = '';
+  function fresh() {
+    var o = Object.create(Object.getPrototypeOf(eqp.dummy));
+    for (var a in eqp.dummy) o[a] = eqp.dummy[a];
+    o.aff = [0, 0, 0, 0, 0, 0, 0]; o.cls = [0, 0, 0]; o.eff = []; o.data = { dscv: false };
+    return o;
+  }
+  try {
+    for (var k in creature) {
+      var c = creature[k];
+      if (!c || !c.eqp) continue;
+      c.eqp = c.eqp.map(function (e) { if (e === eqp.dummy) { fixed++; return fresh(); } return e; });
+    }
+    src = MOD_gameSource();
+    var re = /creature\.(\w+)\.eqp\[(\d)\]\.(aff|cls)\s*=\s*\[([^\]]*)\]/g, m;
+    while ((m = re.exec(src))) {
+      var cr = creature[m[1]];
+      if (!cr || !cr.eqp || !cr.eqp[+m[2]] || cr.eqp[+m[2]] === eqp.dummy) continue;
+      cr.eqp[+m[2]][m[3]] = m[4].split(',').map(Number);
+      applied++;
+    }
+  } catch (e) { console.warn('[mod] creature gear: ' + e.message); }
+  return { slots: fixed, applied: applied };
+})();
+
 /* --- settings inside the save ----------------------------------------------- */
 
 MOD.settingsSeenKey = 'p23_mod_settings_seen';

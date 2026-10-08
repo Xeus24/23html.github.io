@@ -48,7 +48,7 @@ GitHub runs the suite on both.
 The runner runs `JOBS` scripts at once (default 4). Every script launches its
 own browser, which is a fresh profile, so the ones that write saves cannot
 collide; their output is printed in list order once all have finished, and
-then seconds per script, slowest first. All 46 take about 75 seconds this way.
+then seconds per script, slowest first. All 47 take about 75 seconds this way.
 Scripts wait for the page with `settle(page)` from `lib/browser.mjs` — two game
 ticks after load — rather than the flat 4.5 seconds each once slept.
 

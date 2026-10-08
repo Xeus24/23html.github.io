@@ -212,6 +212,15 @@ includes the luck bonus. The bonus rides on `you.mods.crflt` for one call and is
 restored to its exact prior value — `crflt` is saved, and add-then-subtract
 would leave float residue. `tests/basefixes.mjs` holds all three.
 
+**Section 51 is a fourth: every creature held ONE weapon.** `Creature` starts with
+`eqp = [eqp.dummy, eqp.dummy]` and the author wrote 32 per-creature `aff`/`cls`
+lines straight onto it, so all 48 carried the last writer's, and the player's bare
+fists (the same object) leak `lvl/4` and `lvl/5` into every creature's damage.
+Each creature now owns its slots, with his values read back from his source; the
+fists stay the original object. `tests/creaturegear.mjs` holds it. A creature
+built later by the mod gets the same treatment only if it exists when section 51
+runs.
+
 **Any script that samples `dmg_calc` must park `giveSkExp` first** (`quiet()` in
 the test scripts, `MOD_probe` in the mod). `dmg_calc` grants skill exp, so
 sampling it levels the player mid-measurement.

@@ -4114,3 +4114,15 @@ fight flag is read once before the loop, since replayed ticks can end a fight. T
 is `p23_mod_catchup`, carried in `mod_settings`. Name hazard: the wrapper is
 `MOD_ontick_before_catchup`; section 1 already owns `MOD_ontick_original`, and a second
 `var` of that name made both wrappers call themselves (stack overflow at load).
+
+
+## 51. Creatures held one weapon
+
+Measured: all 48 creatures had `eqp[0] === eqp.dummy`, whose `aff` read `[4,9,7,-12,12,0,0]`
+and `cls` `[7,7,7]` (the last of 32 per-creature lines). Enemy damage multiplies by
+`100 + eqp[0].aff[atype]*10 + atk.affp*10 + eqp[0].cls[ctype]*10`, so a bat hit with the
+wrong creature's affinities, and the player's unarmed fists (also the dummy; load() sets
+`cls[2] = lvl/4`, `aff[0] = lvl/5`) raised every physical/blunt creature's damage with the
+player's level. Fixed by cloning per creature and reading his lines back from `MOD_gameSource()`.
+Scaled fights measure real `dmg_calc`, so section 8 re-sizes itself; on Original his creatures
+now hit with their own affinities. Balance and fights suites pass unchanged.
